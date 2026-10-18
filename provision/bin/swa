@@ -1,45 +1,45 @@
 #!/usr/bin/env bash
 # 箱の操作をまとめたコマンド。保守ユーザーが流す。25-runner.sh が
-# /usr/local/bin/loop に置く。
+# /usr/local/bin/swa に置く。
 #
 # コマンドの一覧は usage() を参照。
 #
-# 走行は systemd の一時ユニット loop-run で、runner として動く。`sudo ... &` で裏に
+# 走行は systemd の一時ユニット swa-run で、runner として動く。`sudo ... &` で裏に
 # 回すと、SSH が切れたときに sudo が受けた SIGHUP を中のコマンドへ中継し、走行が
 # 止まる。一時ユニットは SSH のセッションから切り離されている。ユニット名が1つ
 # なので二重には起動できず、止めるときは3役の呼び出しも含めてまとめて止まる。
 set -euo pipefail
 
-# LOOP_ROOT はテストのためだけにある。走行は systemd のユニットで動き、呼んだ人の
+# SWA_ROOT はテストのためだけにある。走行は systemd のユニットで動き、呼んだ人の
 # 環境を受け継がないので、裏で走る側には効かない。
-LOOP="${LOOP_ROOT:-/srv/loop}"
-UNIT=loop-run
-LOGS=$LOOP/logs
-# 人の受け渡し口。loop.py の HUMAN_SPEC、HUMAN_COMMENT、CRITIQUE_FOR_HUMAN。
-SPEC_IN=$LOOP/human/in/spec
-COMMENT=$LOOP/human/in/COMMENT.md
-CRITIQUE=$LOOP/human/in/CRITIQUE.json
-PLAN=$LOOP/project/plan
+SWA="${SWA_ROOT:-/srv/swa}"
+UNIT=swa-run
+LOGS=$SWA/logs
+# 人の受け渡し口。swa.py の HUMAN_SPEC、HUMAN_COMMENT、CRITIQUE_FOR_HUMAN。
+SPEC_IN=$SWA/human/in/spec
+COMMENT=$SWA/human/in/COMMENT.md
+CRITIQUE=$SWA/human/in/CRITIQUE.json
+PLAN=$SWA/project/plan
 STAGE=$PLAN/stage.json
 FAILURE=$PLAN/FAILURE.md
 ENGINE="${SWA_HOME:-/opt/swa}"
-PROJECT_SH="$ENGINE/provision/loop-project.sh"
-DASH_PY="$ENGINE/provision/loop_dash.py"
-SELF=/usr/local/bin/loop
+PROJECT_SH="$ENGINE/provision/swa-project.sh"
+DASH_PY="$ENGINE/provision/swa_dash.py"
+SELF=/usr/local/bin/swa
 # ダッシュボードからのプロジェクトの切り替え。初めてのプロジェクトはプロビジョニングで
 # 数分かかるので、走行と同じく一時ユニットで裏に回す。
-SWITCH_UNIT=loop-switch
+SWITCH_UNIT=swa-switch
 SWITCH_LOG=$LOGS/switch.log
-ROLE_ENV=/etc/loop
+ROLE_ENV=/etc/swa
 
 # 保守ユーザーのホームは 0700 で、runner はそこに cd できない（provision/README §3-14）。
 cd /tmp
 
-die() { echo "loop: $*" >&2; exit 1; }
+die() { echo "swa: $*" >&2; exit 1; }
 
 project_name() {
   local name
-  name="$(cat "$LOOP/projects/CURRENT" 2>/dev/null || true)"
+  name="$(cat "$SWA/projects/CURRENT" 2>/dev/null || true)"
   echo "${name:-default}"
 }
 
@@ -53,22 +53,22 @@ as_runner() { sudo -u runner "$@"; }
 
 # ---- 裏で走る側。runner として動く ------------------------------------------
 
-# loop.py を1つ呼び、終了コードを返す。何を呼んだかをログに残す。
+# swa.py を1つ呼び、終了コードを返す。何を呼んだかをログに残す。
 step() {
   echo
-  echo "--- loop.py $* ($(date '+%F %T'))"
-  python3 -u "$LOOP/runner/loop.py" "$@"
+  echo "--- swa.py $* ($(date '+%F %T'))"
+  python3 -u "$SWA/runner/swa.py" "$@"
 }
 
-# 行頭の `=== loop ` は、`loop status` と `loop now` が結果の行を探す目印。
+# 行頭の `=== swa ` は、`swa status` と `swa now` が結果の行を探す目印。
 # 変えるときは両方を合わせる。
 finish() {
   echo
-  echo "=== loop 終了 ($(date '+%F %T')): $2"
+  echo "=== swa 終了 ($(date '+%F %T')): $2"
   exit "$1"
 }
 
-# loop.py を1つ呼び、0 でなければ走行を終える。`what` は何をしていたか。
+# swa.py を1つ呼び、0 でなければ走行を終える。`what` は何をしていたか。
 # 利用枠と箱の故障は、設計を差し戻さずに止まったことを伝える。
 call() {
   local what="$1" rc=0
@@ -76,8 +76,8 @@ call() {
   step "$@" || rc=$?
   case "$rc" in
     0) return 0 ;;
-    5) finish 5 "$what の途中で利用枠が尽きた。枠が戻ったら同じ操作をやり直す。途中のモジュールがあれば先に 'loop raw reset <モジュール>'" ;;
-    6) finish 6 "$what の途中で箱が書き込みを拒んだ。設計は差し戻していない。上の INFRA の行のパスの権限を直し、'loop raw reset <モジュール>' のあと 'loop continue'" ;;
+    5) finish 5 "$what の途中で利用枠が尽きた。枠が戻ったら同じ操作をやり直す。途中のモジュールがあれば先に 'swa raw reset <モジュール>'" ;;
+    6) finish 6 "$what の途中で箱が書き込みを拒んだ。設計は差し戻していない。上の INFRA の行のパスの権限を直し、'swa raw reset <モジュール>' のあと 'swa continue'" ;;
     *) finish "$rc" "$what が失敗した（終了コード $rc）。上の出力を読む" ;;
   esac
 }
@@ -87,33 +87,33 @@ run_all() {
   step run --all || rc=$?
   case "$rc" in
     0) finish 0 "全モジュールが緑になった。最終確認の段にいる" ;;
-    2) finish 2 "モジュールが下流で止まり、中段に戻った。$FAILURE を読み、直すモジュールを 'loop reopen <モジュール>...' で選ぶ" ;;
-    5) finish 5 "利用枠が尽きた。枠が戻ったら 'loop continue'。途中のモジュールがあれば先に 'loop raw reset <モジュール>'" ;;
-    6) finish 6 "箱が書き込みを拒んだ。設計は差し戻していない。上の INFRA の行のパスの権限を直し、'loop raw reset <モジュール>' のあと 'loop continue'" ;;
-    *) finish "$rc" "run --all が止まった（終了コード $rc）。'loop status' を見る" ;;
+    2) finish 2 "モジュールが下流で止まり、中段に戻った。$FAILURE を読み、直すモジュールを 'swa reopen <モジュール>...' で選ぶ" ;;
+    5) finish 5 "利用枠が尽きた。枠が戻ったら 'swa continue'。途中のモジュールがあれば先に 'swa raw reset <モジュール>'" ;;
+    6) finish 6 "箱が書き込みを拒んだ。設計は差し戻していない。上の INFRA の行のパスの権限を直し、'swa raw reset <モジュール>' のあと 'swa continue'" ;;
+    *) finish "$rc" "run --all が止まった（終了コード $rc）。'swa status' を見る" ;;
   esac
 }
 
 # 中段のせきで止まる。詳細設計とクリティックの指摘を人が読む。
 at_midstream_gate() {
-  finish 0 "詳細設計を書き、クリティックが読んだ。'loop findings' で指摘を見て、'loop approve' か 'loop reject <コメント>'"
+  finish 0 "詳細設計を書き、クリティックが読んだ。'swa findings' で指摘を見て、'swa approve' か 'swa reject <コメント>'"
 }
 
 work() {
   local log="$1" mode="$2"
   shift 2
   exec >>"$log" 2>&1
-  echo "=== loop $mode 開始 ($(date '+%F %T')) プロジェクト=$(project_name)"
+  echo "=== swa $mode 開始 ($(date '+%F %T')) プロジェクト=$(project_name)"
 
   case "$mode" in
     go)
       local language="$1" framework="${2:-}"
       call "仕様書の取り込み" spec import
       call "基本設計" basic draft --language "$language" ${framework:+--framework "$framework"}
-      finish 0 "基本設計を書いた。docs/basic/ を読み、'loop approve' か 'loop reject <コメント>'" ;;
+      finish 0 "基本設計を書いた。docs/basic/ を読み、'swa approve' か 'swa reject <コメント>'" ;;
     redraft-basic)
       call "基本設計の書き直し" basic draft
-      finish 0 "基本設計を書き直した。'loop approve' か 'loop reject <コメント>'" ;;
+      finish 0 "基本設計を書き直した。'swa approve' か 'swa reject <コメント>'" ;;
     approve-basic)
       call "基本設計の承認" basic approve
       call "詳細設計" modules draft
@@ -147,7 +147,7 @@ except (OSError, ValueError):
 start() {
   local mode="$1" log
   shift
-  running && die "もう走っている。追うなら 'loop log'、止めるなら 'loop stop'"
+  running && die "もう走っている。追うなら 'swa log'、止めるなら 'swa stop'"
   switching && die "プロジェクトを切り替えている。終わるのを待つ"
   log="$LOGS/$(project_name)-$(date +%Y%m%d-%H%M%S).log"
   as_runner touch "$log"
@@ -156,7 +156,7 @@ start() {
     --uid=runner --gid=runner --working-directory=/tmp \
     "$SELF" __work "$log" "$mode" "$@"
   echo "裏で走らせた。ログ: $log"
-  echo "追うなら 'loop log'、状態を見るなら 'loop status'"
+  echo "追うなら 'swa log'、状態を見るなら 'swa status'"
 }
 
 # 人が書いた仕様書を受け渡し口に置き、上流を始める。ファイルはいくつでも渡せる。
@@ -171,12 +171,12 @@ cmd_go() {
       *) specs+=("$1"); shift ;;
     esac
   done
-  [ ${#specs[@]} -gt 0 ] || die "使い方: loop go <仕様書>... [--language <言語>] [--framework <持ち込む先>]"
+  [ ${#specs[@]} -gt 0 ] || die "使い方: swa go <仕様書>... [--language <言語>] [--framework <持ち込む先>]"
   for f in "${specs[@]}"; do
     [ -f "$f" ] || die "ファイルが無い: $f"
   done
   [ -d "$(dirname "$SPEC_IN")" ] || die "$(dirname "$SPEC_IN") が無い。プロジェクトは作ってある？"
-  running && die "もう走っている。先に 'loop stop'"
+  running && die "もう走っている。先に 'swa stop'"
   case "$(stage_now)" in
     ""|upstream) ;;
     *) die "上流はもう終わっている。仕様書を差し替えて作り直すなら、新しいプロジェクトで始める" ;;
@@ -196,21 +196,21 @@ cmd_approve() {
   case "$(stage_now)" in
     upstream)  start approve-basic ;;
     midstream) start approve-modules ;;
-    "")        die "まだ始まっていない。'loop go <仕様書>' から始める" ;;
-    *)         die "承認するせきに来ていない。'loop status' を見る" ;;
+    "")        die "まだ始まっていない。'swa go <仕様書>' から始める" ;;
+    *)         die "承認するせきに来ていない。'swa status' を見る" ;;
   esac
 }
 
 # コメントを付けて、今の段の設計をプランナーに書き直させる。
 cmd_reject() {
   local mode work
-  [ $# -gt 0 ] || die "使い方: loop reject <コメント>"
+  [ $# -gt 0 ] || die "使い方: swa reject <コメント>"
   case "$(stage_now)" in
     upstream)  mode=redraft-basic ;;
     midstream) mode=redraft-modules ;;
-    *)         die "差し戻す設計が無い。下流のモジュールを直すなら 'loop reopen <モジュール>...'" ;;
+    *)         die "差し戻す設計が無い。下流のモジュールを直すなら 'swa reopen <モジュール>...'" ;;
   esac
-  running && die "もう走っている。先に 'loop stop'"
+  running && die "もう走っている。先に 'swa stop'"
   work="$(mktemp)"
   printf '%s\n' "$*" > "$work"
   sudo install -o root -g humanw -m 644 "$work" "$COMMENT"
@@ -221,11 +221,11 @@ cmd_reject() {
 
 # 下流で止まったあとや最終確認で、詳細設計を直すモジュールを選んで中段に戻す。
 cmd_reopen() {
-  [ $# -gt 0 ] || die "使い方: loop reopen <モジュール>..."
-  running && die "走っている間は戻せない。先に 'loop stop'"
+  [ $# -gt 0 ] || die "使い方: swa reopen <モジュール>..."
+  running && die "走っている間は戻せない。先に 'swa stop'"
   switching && die "プロジェクトを切り替えている。終わるのを待つ"
-  as_runner python3 -u "$LOOP/runner/loop.py" reopen "$@"
-  echo "次は 'loop reject <コメント>' で直させるか、そのまま 'loop approve'"
+  as_runner python3 -u "$SWA/runner/swa.py" reopen "$@"
+  echo "次は 'swa reject <コメント>' で直させるか、そのまま 'swa approve'"
 }
 
 # 止まった走行を同じところから続ける。下流ならモジュールを流し、中段で批評が
@@ -234,8 +234,8 @@ cmd_continue() {
   case "$(stage_now)" in
     downstream) start continue ;;
     midstream)  start critique ;;
-    "")         die "まだ始まっていない。'loop go <仕様書>' から始める" ;;
-    *)          die "続ける走行が無い。'loop status' を見る" ;;
+    "")         die "まだ始まっていない。'swa go <仕様書>' から始める" ;;
+    *)          die "続ける走行が無い。'swa status' を見る" ;;
   esac
 }
 
@@ -251,12 +251,12 @@ cmd_status() {
   log="$(latest_log)"
   if [ -e "$log" ]; then
     echo "ログ:         $(readlink -f "$log")"
-    last="$(grep -E '^=== loop ' "$log" | tail -n 1 || true)"
+    last="$(grep -E '^=== swa ' "$log" | tail -n 1 || true)"
     [ -z "$last" ] || echo "最後:         ${last#=== }"
   fi
 
   echo
-  as_runner python3 "$LOOP/runner/loop.py" status || true
+  as_runner python3 "$SWA/runner/swa.py" status || true
   if as_runner test -f "$FAILURE"; then
     echo
     echo "--- $FAILURE（先頭20行）"
@@ -271,15 +271,15 @@ cmd_status() {
 }
 
 # ランナーが書く now.json に、走っているかどうか、最後の結果、今の回のトークン数と
-# クリティックの指摘を足して1つの JSON にする。sudo を使わない。中身は loop_now.py。
+# クリティックの指摘を足して1つの JSON にする。sudo を使わない。中身は swa_now.py。
 cmd_now() {
   local active=false moving=false
   running && active=true
   switching && moving=true
-  python3 "$ENGINE/provision/loop_now.py" "$(project_name)" "$active" "$LOGS" "$moving"
+  python3 "$ENGINE/provision/swa_now.py" "$(project_name)" "$active" "$LOGS" "$moving"
 }
 
-# プロジェクトの切り替えを一時ユニットで裏に回す。出力は switch.log に書き、`loop now` が
+# プロジェクトの切り替えを一時ユニットで裏に回す。出力は switch.log に書き、`swa now` が
 # 末尾を返す。root で動く（cmd_dash から呼ぶ）。
 switch_project() {
   local name="$1" admin="$2"
@@ -294,17 +294,17 @@ switch_project() {
   echo "'$name' への切り替えを裏で始めた"
 }
 
-# 止まったモジュールの作業ツリーを最後の緑に戻す（'loop raw reset' と同じ）。走行中に戻すと、
+# 止まったモジュールの作業ツリーを最後の緑に戻す（'swa raw reset' と同じ）。走行中に戻すと、
 # 走っているモジュールのファイルを消すので断る。root で動く（cmd_dash から呼ぶ）。
 reset_step() {
   local id="$1"
   running && die "走っている間はやり直せない。先に止める"
   switching && die "プロジェクトを切り替えている。終わるのを待つ"
-  as_runner python3 -u "$LOOP/runner/loop.py" reset "$id"
+  as_runner python3 -u "$SWA/runner/swa.py" reset "$id"
 }
 
 # 取り込むプロジェクトの空の bare を用意する。root で動く（cmd_dash から呼ぶ）。
-# 柵の場所は空なら渡さず、loop-project.sh の既定に任せる。
+# 柵の場所は空なら渡さず、swa-project.sh の既定に任せる。
 init_project() {
   local name="$1" branch="$2" src="$3" tests="$4" admin="$5"
   local -a args=(init "$name" --branch "$branch")
@@ -324,7 +324,7 @@ remove_project() {
 
 # ホストのダッシュボードが流す入口。sudoers が保守ユーザーにこれだけをパスワード無しで
 # 許す（25-runner.sh）ので、root で動く。要求は標準入力の JSON 1つで、形と値は
-# loop_dash.py が確かめる。ここでは確かめ済みの行だけを使う。
+# swa_dash.py が確かめる。ここでは確かめ済みの行だけを使う。
 cmd_dash() {
   local admin="${SUDO_USER:-}" work action
   local -a req
@@ -338,7 +338,7 @@ cmd_dash() {
   action="${req[0]:-}"
   case "$action" in
     settings) python3 "$DASH_PY" settings "$ROLE_ENV" ;;
-    design)   python3 "$DASH_PY" design "$LOOP/project" ;;
+    design)   python3 "$DASH_PY" design "$SWA/project" ;;
     model)    python3 "$DASH_PY" set-model "$ROLE_ENV" "${req[1]}" "${req[2]}" "${req[3]}" ;;
     go)       cmd_go "$work/spec.md" --language "${req[1]}" --framework "${req[2]}" ;;
     approve)  cmd_approve ;;
@@ -355,19 +355,19 @@ cmd_dash() {
 }
 
 # 持ち込む先のライブラリの参照を置く。DXライブラリは箱で取れないので、人の手元の DxLib.h を
-# 受け取り、loop_refs.py が引ける形にして /srv/loop/refs/dxlib に置く。root のもので凍結する。
+# 受け取り、swa_refs.py が引ける形にして /srv/swa/refs/dxlib に置く。root のもので凍結する。
 cmd_refs() {
-  local refs=/srv/loop/refs work
+  local refs=/srv/swa/refs work
   case "${1:-}" in
     dxlib)
-      [ $# -eq 2 ] || die "使い方: loop refs dxlib <DxLib.h>"
+      [ $# -eq 2 ] || die "使い方: swa refs dxlib <DxLib.h>"
       [ -f "$2" ] || die "ファイルが無い: $2"
-      running && die "走っている間は置き換えられない。先に 'loop stop'"
+      running && die "走っている間は置き換えられない。先に 'swa stop'"
       work="$(mktemp -d)"
       cp "$2" "$work/DxLib.h"
       sudo install -d -o root -g root -m 755 "$refs"
       sudo rm -rf "$refs/dxlib.new"
-      sudo python3 "$ENGINE/provision/loop_refs.py" header "$work/DxLib.h" "$refs/dxlib.new" \
+      sudo python3 "$ENGINE/provision/swa_refs.py" header "$work/DxLib.h" "$refs/dxlib.new" \
         || { rm -rf "$work"; die "DxLib.h を読めなかった"; }
       rm -rf "$work"
       sudo rm -rf "$refs/dxlib"
@@ -375,19 +375,19 @@ cmd_refs() {
       sudo chown -R root:root "$refs/dxlib"
       sudo chmod -R a+rX,go-w "$refs/dxlib"
       echo "DxLib.h を $refs/dxlib に置いた。次の呼び出しからソルバーが引く" ;;
-    *) die "使い方: loop refs dxlib <DxLib.h>" ;;
+    *) die "使い方: swa refs dxlib <DxLib.h>" ;;
   esac
 }
 
 # クリティックの指摘を見せ、直す。sudo を使わない。写しはグループ humanw に
-# 書き込みを許してある。中身は loop_findings.py。
+# 書き込みを許してある。中身は swa_findings.py。
 cmd_findings() {
   case "${1:-show}" in
-    show) python3 "$ENGINE/provision/loop_findings.py" show "$CRITIQUE" ;;
+    show) python3 "$ENGINE/provision/swa_findings.py" show "$CRITIQUE" ;;
     set)
       running && die "走っている間は直せない"
-      python3 "$ENGINE/provision/loop_findings.py" set "$CRITIQUE" ;;
-    *) die "使い方: loop findings [show | set]" ;;
+      python3 "$ENGINE/provision/swa_findings.py" set "$CRITIQUE" ;;
+    *) die "使い方: swa findings [show | set]" ;;
   esac
 }
 
@@ -402,8 +402,8 @@ cmd_stop() {
   running || { echo "走っていない"; return 0; }
   sudo systemctl stop "$UNIT"
   echo "止めた。"
-  echo "途中のモジュールはそのまま残っている。'loop continue' の前に次を流す:"
-  echo "    loop raw reset <モジュール>"
+  echo "途中のモジュールはそのまま残っている。'swa continue' の前に次を流す:"
+  echo "    swa raw reset <モジュール>"
 }
 
 # このリポジトリを pull し、プロビジョニングを流し直す。最後にプロビジョニングが通った
@@ -412,19 +412,19 @@ cmd_stop() {
 # 読みながら実行するため、置き直された後の行を読ませない。
 cmd_update() {
   local force=false head
-  [ $# -le 1 ] || die "使い方: loop update [--force]"
+  [ $# -le 1 ] || die "使い方: swa update [--force]"
   case "${1:-}" in
     "") ;;
     --force) force=true ;;
-    *) die "使い方: loop update [--force]" ;;
+    *) die "使い方: swa update [--force]" ;;
   esac
-  running && die "走っている間は更新できない。先に 'loop stop'"
+  running && die "走っている間は更新できない。先に 'swa stop'"
   switching && die "ダッシュボードがプロジェクトを切り替えている。終わるのを待つ"
   sudo git -C "$ENGINE" pull --ff-only
   # リポジトリは root のものなので、保守ユーザーの git は所有者の違いで断る。
   head="$(sudo git -C "$ENGINE" rev-parse HEAD)"
   if ! $force && [ "$head" = "$(cat "$ROLE_ENV/provisioned" 2>/dev/null || true)" ]; then
-    echo "このコミットはプロビジョニング済み。流し直すなら 'loop update --force'"
+    echo "このコミットはプロビジョニング済み。流し直すなら 'swa update --force'"
     return 0
   fi
   exec sudo ADMIN_USER="$(id -un)" bash "$ENGINE/provision/provision.sh"
@@ -432,7 +432,7 @@ cmd_update() {
 
 usage() {
   cat >&2 <<'EOF'
-使い方: loop <コマンド>
+使い方: swa <コマンド>
 
   go <仕様書>... [--language <言語>] [--framework <持ち込む先>]
                     仕様書を置き、プランナーに基本設計を書かせる。持ち込む先を省くと
@@ -450,11 +450,11 @@ usage() {
                     DXライブラリのヘッダをソルバーが引ける参照として置く
   log               走行ログを追う。Ctrl-C で抜けても走行は続く
   stop              走行を止める
-  project <引数>    プロジェクトの一覧、切り替え、削除。'loop project' で使い方を出す
-  raw <引数>        loop.py をそのまま runner として前面で呼ぶ。'loop raw --help' で動詞の一覧
+  project <引数>    プロジェクトの一覧、切り替え、削除。'swa project' で使い方を出す
+  raw <引数>        swa.py をそのまま runner として前面で呼ぶ。'swa raw --help' で動詞の一覧
   update [--force]  このリポジトリを pull し、プロビジョニングを流し直す。プロビジョニング済みの
                     コミットなら、--force が無い限り飛ばす
-  dash            ホストのダッシュボードの入口。'sudo -n /usr/local/bin/loop dash' で流し、
+  dash            ホストのダッシュボードの入口。'sudo -n /usr/local/bin/swa dash' で流し、
                     標準入力に要求の JSON を渡す
 EOF
   exit 2
@@ -476,7 +476,7 @@ case "${1:-}" in
     shift
     switching && die "ダッシュボードがプロジェクトを切り替えている。終わるのを待つ"
     sudo ADMIN_USER="$(id -un)" bash "$PROJECT_SH" "$@" ;;
-  raw)      shift; as_runner python3 -u "$LOOP/runner/loop.py" "$@" ;;
+  raw)      shift; as_runner python3 -u "$SWA/runner/swa.py" "$@" ;;
   update)   shift; cmd_update "$@" ;;
   dash)    [ $# -eq 1 ] || usage; cmd_dash ;;
   __work)   shift; work "$@" ;;

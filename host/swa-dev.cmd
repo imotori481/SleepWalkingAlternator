@@ -1,15 +1,15 @@
 @echo off
 setlocal
 REM ---------------------------------------------------------------
-REM  loop-dev launcher
+REM  swa-dev launcher
 REM    1. start the WSL2 distro (stopped when idle - by design)
 REM    2. wait until sshd is reachable on 127.0.0.1:2222
 REM    3. open VS Code via Remote-SSH
-REM  Usage:  loop-dev [remote-path]      default: /home/maint
+REM  Usage:  swa-dev [remote-path]      default: /home/maint
 REM ---------------------------------------------------------------
 
 set "DISTRO=Ubuntu-24.04"
-set "SSHHOST=loop-dev"
+set "SSHHOST=swa-dev"
 set "PORT=2222"
 set "TARGET=%~1"
 if "%TARGET%"=="" set "TARGET=/home/maint"

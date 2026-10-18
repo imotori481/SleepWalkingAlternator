@@ -1,14 +1,14 @@
-"""`loop findings` の中身。クリティックの指摘の、人が直す写しを見せ、書き換える。
+"""`swa findings` の中身。クリティックの指摘の、人が直す写しを見せ、書き換える。
 
 保守ユーザーが sudo なしで流す。ホストのダッシュボードも SSH でこれを呼ぶ。
-写し（/srv/loop/human/in/CRITIQUE.json）は、modules critique が批評のたびに書く。
+写し（/srv/swa/human/in/CRITIQUE.json）は、modules critique が批評のたびに書く。
 グループ humanw に書き込みを許してあり、プランナーとクリティックは読めない。
 
 指摘はプランナーに戻らない。書き直させるかは人が決め、コメントで伝える。だから
 写しの "waiting" はいつも偽で、`set` は断る。
 
-    python3 loop_findings.py show <写し>
-    python3 loop_findings.py set <写し>   # 標準入力に {"mode", "index", "title", "evidence"}
+    python3 swa_findings.py show <写し>
+    python3 swa_findings.py set <写し>   # 標準入力に {"mode", "index", "title", "evidence"}
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def show(path: str) -> int:
     if value is None:
         print("今の回にクリティックの指摘は無い")
         return 0
-    state = "直せる。直したら 'loop continue'" if value.get("waiting") else "直せない"
+    state = "直せる。直したら 'swa continue'" if value.get("waiting") else "直せない"
     print(f"批評 {value.get('round')}回目（{value.get('at', '')}）: {state}")
     for mode, findings in value["modes"].items():
         print()
@@ -54,7 +54,7 @@ def show(path: str) -> int:
 def rewrite(value: dict, request: object) -> str | None:
     """指摘1件の title と evidence を書き換える。断る理由を返す。"""
     if not value.get("waiting"):
-        return "この指摘はプランナーに戻らない。直させるなら 'loop reject <コメント>'"
+        return "この指摘はプランナーに戻らない。直させるなら 'swa reject <コメント>'"
     if not isinstance(request, dict):
         return "JSON のオブジェクトを渡す"
     mode, index = request.get("mode"), request.get("index")
@@ -77,16 +77,16 @@ def rewrite(value: dict, request: object) -> str | None:
 def set_finding(path: str, text: str) -> int:
     value = load(path)
     if value is None:
-        print("loop findings: 直す指摘が無い", file=sys.stderr)
+        print("swa findings: 直す指摘が無い", file=sys.stderr)
         return 1
     try:
         request = json.loads(text)
     except ValueError as error:
-        print(f"loop findings: JSON として読めない: {error}", file=sys.stderr)
+        print(f"swa findings: JSON として読めない: {error}", file=sys.stderr)
         return 1
     refused = rewrite(value, request)
     if refused:
-        print(f"loop findings: {refused}", file=sys.stderr)
+        print(f"swa findings: {refused}", file=sys.stderr)
         return 1
     # 置き換えずに中身を書き直す。human/in は sticky で、ランナーが作ったファイルを
     # 保守ユーザーは置き換えられない。書き込みはグループ humanw に許してある。
@@ -99,7 +99,7 @@ def set_finding(path: str, text: str) -> int:
 
 def main(argv: list[str]) -> int:
     if len(argv) != 3 or argv[1] not in ("show", "set"):
-        print("使い方: loop_findings.py show|set <写し>", file=sys.stderr)
+        print("使い方: swa_findings.py show|set <写し>", file=sys.stderr)
         return 2
     if argv[1] == "show":
         return show(argv[2])

@@ -46,12 +46,12 @@ class Repositories(unittest.TestCase):
         commit_files(seed, {".gitignore": "*.tmp\n", "a.txt": "a\n"}, "base")
         git(root, "clone", "-q", "--bare", str(seed), str(self.origin))
 
-        # loop-import が作るクローン。
+        # swa-import が作るクローン。
         self.clones = root / "projects"
         self.clone = self.clones / "game"
         git(root, "clone", "-q", str(self.origin), str(self.clone))
         git(self.clone, "switch", "-q", "--no-track", "-c", "feat", "origin/develop")
-        git(self.clone, "config", "branch.feat.loopBase", "develop")
+        git(self.clone, "config", "branch.feat.swaBase", "develop")
 
         # 箱の bare。設計と環境のファイルと、作業の成果が載る。
         box = root / "box"
@@ -64,11 +64,11 @@ class Repositories(unittest.TestCase):
                            "src/game.cs": "class Game {}\n"}, "S1")
         self.bare = root / "box.git"
         git(root, "clone", "-q", "--bare", str(box), str(self.bare))
-        git(self.clone, "remote", "add", "loop", str(self.bare))
-        git(self.clone, "fetch", "-q", "loop", "+refs/heads/*:refs/remotes/loop/*")
+        git(self.clone, "remote", "add", "swa", str(self.bare))
+        git(self.clone, "fetch", "-q", "swa", "+refs/heads/*:refs/remotes/swa/*")
         self.approved = git(box, "rev-parse", "HEAD")
 
-        # loop-pull のライブの写し。HEAD が承認した状態。
+        # swa-pull のライブの写し。HEAD が承認した状態。
         self.mirror = root / "project"
         git(root, "clone", "-q", "-b", "feat", str(self.bare), str(self.mirror))
 
@@ -149,15 +149,15 @@ class Opening(Repositories):
         self.assertEqual([call[2] for call in self.gh_calls], ["list", "list", "edit", "view"])
 
     def test_a_branch_without_a_recorded_parent_is_refused(self):
-        git(self.clone, "config", "--unset", "branch.feat.loopBase")
-        with self.assertRaisesRegex(PullRequestError, "git config branch.feat.loopBase"):
+        git(self.clone, "config", "--unset", "branch.feat.swaBase")
+        with self.assertRaisesRegex(PullRequestError, "git config branch.feat.swaBase"):
             self.pulls().open(["S1"], "")
         self.assertEqual(self.gh_calls, [])
 
     def test_a_mirror_ahead_of_the_clone_is_refused(self):
-        # 承認したものと違うものを出さない。loop-pull が済んでいない状態。
+        # 承認したものと違うものを出さない。swa-pull が済んでいない状態。
         commit_files(self.mirror, {"b.txt": "b\n"}, "later")
-        with self.assertRaisesRegex(PullRequestError, "Run loop-pull"):
+        with self.assertRaisesRegex(PullRequestError, "Run swa-pull"):
             self.pulls().open(["S1"], "")
 
 
@@ -204,7 +204,7 @@ class Drafting(Repositories):
         self.assertNotIn("箱", self.body().split("版")[-1])
 
     def test_a_box_ahead_of_the_mirror_is_marked(self):
-        # loop-pull の後に、箱が次のモジュールを緑にした。
+        # swa-pull の後に、箱が次のモジュールを緑にした。
         self.design("S1")
         commit_files(self.box, {"src/board.cs": "class Board {}\n"}, "S2")
         git(self.box, "push", "-q", str(self.bare), "feat")
@@ -213,7 +213,7 @@ class Drafting(Repositories):
 
     def test_a_box_out_of_reach_is_marked_as_unknown(self):
         self.design("S1")
-        git(self.clone, "remote", "set-url", "loop", str(self.clones / "missing.git"))
+        git(self.clone, "remote", "set-url", "swa", str(self.clones / "missing.git"))
         self.assertIsNone(self.pulls().open_draft()["behind"])
         self.assertIn("確かめられなかった", self.body())
 
@@ -233,7 +233,7 @@ class Drafting(Repositories):
 class FromTheDashboard(Repositories):
     design = Drafting.design
 
-    def test_the_button_sends_the_same_draft_as_loop_pr(self):
+    def test_the_button_sends_the_same_draft_as_swa_pr(self):
         from host.dashboard.server import send_draft_pull_request
         self.design("S1")
         result = send_draft_pull_request(self.pulls())
@@ -253,7 +253,7 @@ class Names(unittest.TestCase):
         self.assertEqual(github_repo("git@github.com:o/r.git"), "o/r")
         self.assertEqual(github_repo("https://github.com/o/r"), "o/r")
         with self.assertRaises(PullRequestError):
-            github_repo("ssh://loop-runner/srv/loop/repo.git")
+            github_repo("ssh://swa-runner/srv/swa/repo.git")
 
 
 if __name__ == "__main__":

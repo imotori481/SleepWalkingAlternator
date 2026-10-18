@@ -13,17 +13,17 @@ BOOTSTRAP.md の 1-2 / 1-3 / 1-5 と書き込みの柵を、**文章ではなく
 
 | 主体 | 実体 | 実行場所 | 書けるもの | 見えるもの |
 |---|---|---|---|---|
-| プランナー | **Claude Code** | サンドボックス / `planner` ユーザー | `/srv/loop/planner/out` のみ | 仕様書、基本設計、詳細設計（ランナーが out/ に写したもの）、`src/` の既存のコード |
+| プランナー | **Claude Code** | サンドボックス / `planner` ユーザー | `/srv/swa/planner/out` のみ | 仕様書、基本設計、詳細設計（ランナーが out/ に写したもの）、`src/` の既存のコード |
 | ランナー | **このプログラム**（AI ではない） | サンドボックス / `runner` ユーザー | リポジトリ全体。git。sudo なし | すべて |
 | ソルバー | **Claude Code**（ファイルの読み書きのみ。差し替え可。§4-4-1） | サンドボックス / `solver` ユーザー | 柵の中だけ。コマンドは実行できない | ランナーが組み立てた1モジュール分のブリーフと `src/` |
-| クリティック | **Claude Code** | サンドボックス / `critic` ユーザー | `/srv/loop/critic/out` のみ | 仕様書、基本設計、詳細設計。受け入れ条件、コード、テストは読めない |
-| 人間 | 保守ユーザー | サンドボックスとホスト | `/srv/loop/human/in` の仕様書とコメント | すべて。各段の出口で承認するか差し戻す |
+| クリティック | **Claude Code** | サンドボックス / `critic` ユーザー | `/srv/swa/critic/out` のみ | 仕様書、基本設計、詳細設計。受け入れ条件、コード、テストは読めない |
+| 人間 | 保守ユーザー | サンドボックスとホスト | `/srv/swa/human/in` の仕様書とコメント | すべて。各段の出口で承認するか差し戻す |
 
 **AI でないのはランナーだけ**。ランナーは決まった手順を実行するだけなので、
 プログラムで書く。判断を AI に委ねると「まあ通ったことにする」が起こり得るが、
 関門の値打ちは**判断しないこと**にあるため。
 
-AI の3役は別々の uid で動き、資格情報も `/etc/loop/<役>.env` に分かれている。
+AI の3役は別々の uid で動き、資格情報も `/etc/swa/<役>.env` に分かれている。
 各ファイルはその役の uid だけが読める。ランナーは sudo を持たず、
 `/etc/sudoers.d/` にある役ごとの起動スクリプトへの例外でだけ他の uid を起こす。
 
@@ -87,12 +87,12 @@ solver  : uid 1002. sudo なし。SSH 鍵なし。sshd の AllowUsers に載せ�
           エージェント CLI の認証情報が入るため）。
 ```
 
-リポジトリは **`/srv/loop/` に置く。どの home にも置かない。**
+リポジトリは **`/srv/swa/` に置く。どの home にも置かない。**
 `/home/runner/project` にすると、solver が project に降りるために `/home/runner` に
 通過権限が必要になり、home を 700 にできなくなるため。
 
 ```text
-/srv/loop/
+/srv/swa/
   repo.git/         bare。runner が push、ホストが引く
   project/          ループが回る作業ツリー
   brief/            runner → solver の唯一の受け渡し口（§5）
@@ -102,7 +102,7 @@ solver  : uid 1002. sudo なし。SSH 鍵なし。sshd の AllowUsers に載せ�
   settings.json     走行の設定（§7-5。root 所有）
 ```
 
-`/srv/loop/project` 配下の権限（`X` = モジュールの位相により変化）:
+`/srv/swa/project` 配下の権限（`X` = モジュールの位相により変化）:
 
 | パス | 所有 | モード | solver から |
 |---|---|---|---|
@@ -116,10 +116,10 @@ solver  : uid 1002. sudo なし。SSH 鍵なし。sshd の AllowUsers に載せ�
 | `src/`（柵のコードの場所） | runner:solverw | 2775 | 書（§4-4 の経路チェックあり） |
 | `conftest.py`, `pytest.ini`, `pyproject.toml` | runner:runner | 644 | 読のみ（常時。**スティッキー依存** ── 下記） |
 | `.venv/` | runner:runner | 755 | 読・実行のみ、**書不可** |
-| `/srv/loop/brief/` | runner:solverw | 750 | 読のみ |
+| `/srv/swa/brief/` | runner:solverw | 750 | 読のみ |
 
-柵の2つのディレクトリの場所はプロジェクトごとに決まる。`/srv/loop/layout.json`（root 所有。
-`loop-project.sh` が今のプロジェクトのものへ向けるリンク）の `src` と `tests` で、無ければ
+柵の2つのディレクトリの場所はプロジェクトごとに決まる。`/srv/swa/layout.json`（root 所有。
+`swa-project.sh` が今のプロジェクトのものへ向けるリンク）の `src` と `tests` で、無ければ
 `src/` と `tests/`。Unity のプロジェクトはコードを `Assets/` の下に置く。この節と以降で
 `src/` と `tests/` と書くのは、柵のその2つの場所のこと。ランナーは起動時に一度だけ読み、
 壊れた値なら既定に戻らずに止まる。既定に戻ると、柵が黙って別の場所に開くからだ。
@@ -229,7 +229,7 @@ interop の binfmt ハンドラも `enabled=false` でも登録されたまま�
 （マウントテーブル、`/mnt/c` の中身、PATH、`/mnt/wslg` の有無、systemd、`loopback0`）。
 
 ホストとの受け渡しは git 経由（§2）。ホストから編集する場合は VS Code Remote-SSH で
-`maint` に繋ぐ（`loop-dev` コマンド）。ファイルを送り込むときは `/mnt/c` が無いので scp。
+`maint` に繋ぐ（`swa-dev` コマンド）。ファイルを送り込むときは `/mnt/c` が無いので scp。
 
 ### 1-5. スナップショットと git の役割分担
 
@@ -273,14 +273,14 @@ WSL2 の VM は **約60秒アイドルすると VM ごと停止する**。しか
 ホスト (Windows)                    WSL2 / Ubuntu-24.04
 ─────────────────                   ───────────────────
 人間
-  └ loop go / approve / reject / reopen（SSH）
-                                    /srv/loop/human/in ── 仕様書、コメント
+  └ swa go / approve / reject / reopen（SSH）
+                                    /srv/swa/human/in ── 仕様書、コメント
                                     │
                                     ▼
-                          /srv/loop/project ──── ランナーと3役
+                          /srv/swa/project ──── ランナーと3役
                                     │  段のコマンドと GREEN のたびに push
                                     ▼
-  写し        ◀──pull────  /srv/loop/repo.git (bare, runner 所有)
+  写し        ◀──pull────  /srv/swa/repo.git (bare, runner 所有)
   （ssh 127.0.0.1:2222, runner）
      │
      └ 下書きのプルリクエスト（ホストから。箱は GitHub に触れない）
@@ -622,7 +622,7 @@ skip で止まった場合はソルバーへのフィードバックに**走ら�
 出費ではなく、次に起きる2つのことのうち安い方。
 
 ランナーが渡すのは**バックエンドの名前だけで、コマンドではない**。名前から実体への
-対応は root 所有の `bin/solver-run` が持ち（`/srv/loop/bin/solver-<name>`、root 所有
+対応は root 所有の `bin/solver-run` が持ち（`/srv/swa/bin/solver-<name>`、root 所有
 0755、引数は `<brief> <seconds>`）、ランナーはバックエンドを**追加できず**、sudo を
 持つ人間が既に置いたものを指名できるだけ。名前は `[a-z0-9]+` で検査する ── パスに
 埋め込まれるため。走ったバックエンド名は台帳の `ADOPT` / `VERIFY` に
@@ -630,7 +630,7 @@ skip で止まった場合はソルバーへのフィードバックに**走ら�
 
 | 名前 | 実体 | コマンドの実行 | 資格情報 |
 |---|---|---|---|
-| `claude` | `solver-claude`（Claude Code。`Read` `Write` `Edit` のみ） | できない | `/etc/loop/solver.env` |
+| `claude` | `solver-claude`（Claude Code。`Read` `Write` `Edit` のみ） | できない | `/etc/swa/solver.env` |
 | `local` | `solver-local`（ローカルの llama.cpp サーバ。`docs/LOCAL_SOLVER.md`） | できない | 無い |
 | `codex` | `solver-run` 自身が起動する Codex CLI | サンドボックスの中でできる | `/home/solver/.codex` |
 
@@ -654,7 +654,7 @@ git tag -f module-<id の / を -- に替えたもの>
 `contracts.provides` を `.runner/contracts/<id>.json` に確定保存。以降のモジュールは
 **この確定済み contracts のみ**を参照する。
 
-続けて `origin`（`/srv/loop/repo.git`）へ push する（`publish()`。段のコマンドのコミットの後にも
+続けて `origin`（`/srv/swa/repo.git`）へ push する（`publish()`。段のコマンドのコミットの後にも
 同じことをする）。狙いは、緑になったモジュールを `reset` / `clean` の射程から外すこと。
 
 **push の失敗はモジュールを落とさない。** 緑の根拠はテストが通ったことであって、
@@ -664,7 +664,7 @@ non-fast-forward は**この仕様が知らない何かが起きた印**であ�
 タグだけは `tag -f` で動きうるので force で押す。
 
 `repo.git` は同じ VHDX の中にあるので、**これはバックアップではない**。
-ディスクごと失う場合に備える複製はホストが SSH で引く（`host/loop-pull.cmd`）。
+ディスクごと失う場合に備える複製はホストが SSH で引く（`host/swa-pull.cmd`）。
 **押すのではなく引く**のは、外に届く認証情報をサンドボックス内に置かないため。
 
 最後のモジュールの後は `ALL_GREEN` と設計のハッシュを台帳に書き、段を `review` に移して
@@ -1021,7 +1021,7 @@ ac/
 
 ### 7-5. 走行の設定
 
-上限、やり直しの方針、ソルバーの段は `/srv/loop/settings.json`（root 所有）に置く。
+上限、やり直しの方針、ソルバーの段は `/srv/swa/settings.json`（root 所有）に置く。
 下流の計画はランナーが設計から作るので、人が書く場所はそこに無い。無ければ既定で走る。
 知らないキーがあれば止まる。
 
@@ -1043,8 +1043,8 @@ ac/
 
 ## 8. CLI
 
-`sudo -u runner python3 /srv/loop/runner/loop.py <コマンド>` で呼ぶ。保守ユーザーは
-`loop` のコマンド（COMMANDS.md）から使う。
+`sudo -u runner python3 /srv/swa/runner/swa.py <コマンド>` で呼ぶ。保守ユーザーは
+`swa` のコマンド（COMMANDS.md）から使う。
 
 ```text
 spec import                     # §3-2
@@ -1111,7 +1111,7 @@ reset <モジュール>              # 止まったモジュールを捨て、�
      （§4-4-1）
    - **ツール**: `Read` `Write` `Edit` だけを許し、`Bash` は禁止する。テストを走らせる
      許可は、自分の書いたコードを動かす許可と同じだから。`smoke-pytest` がこれを確かめる
-   - **認証の渡し方**: `claude setup-token` のトークンを `/etc/loop/solver.env`
+   - **認証の渡し方**: `claude setup-token` のトークンを `/etc/swa/solver.env`
      （`root:solver 640`）に置く。planner と critic も同じ形で、それぞれ自分のファイルだけを
      読める。Codex を使う場合は `solver` 自身の対話ログイン
      （`sudo -u solver -H codex login --device-auth`）で、`/home/solver/.codex`（0700）に落ちる
@@ -1125,7 +1125,7 @@ reset <モジュール>              # 止まったモジュールを捨て、�
    **プランナー側は実測で 1800s に引き上げた**（2026-08-21）。
    引き上げと同時に、**その値を `solver-run` / `planner-run` へ渡すよう直した** ──
    両スクリプトは第2引数が無いと `900` を使うので、`TIMEOUTS` だけ上げても
-   実際に効く上限は動かない。run 5 は loop.py に 1800 と書いてある状態で
+   実際に効く上限は動かない。run 5 は swa.py に 1800 と書いてある状態で
    **900 秒で2回殺された**。ランナー側の `subprocess` タイムアウトは
    `+BACKSTOP_MARGIN`（120s）で、スクリプトの `--kill-after=30` の外側に置く。計画に要した時間は
    8分（run 4）・12分（run 3）・16分超（run 5、旧 960s で打ち切り）で、
@@ -1141,6 +1141,7 @@ reset <モジュール>              # 止まったモジュールを捨て、�
 
 ## 更新履歴
 
+- 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更
 - 2026/10/14: 3段（上流、中段、下流）の設計に置き換え。§0、§2、§3、§5 の冒頭、§6 から §9 を書き直し、計画の提案、批評の改訂、エスカレーション、リンタを削除
 - 2026/10/01: §4-1 に C# のスタブに対して落ちたテストの書き直しを追加し、§5 に C# のフィールドの既定値の伝達を追加
 - 2026/09/30: §5-1 と §5-3 に C# の入れ子の型のスタブを追加

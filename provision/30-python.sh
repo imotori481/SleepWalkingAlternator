@@ -17,7 +17,7 @@ apt-get update -qq
 # 確かめられない。そのためにホスト側の host/dashboard のレビューがある。
 apt-get install -y -qq python3-venv python3-pip python3-tk git
 
-V=/srv/loop/project/.venv
+V=/srv/swa/project/.venv
 # python と pip の両方があって初めて作成済みとみなす。python3-venv が無い
 # 状態で venv を作ると、python だけ置いて失敗し、pip の無い venv が残る。
 # python の有無だけで判定すると、次の実行はそれを作成済みとみなし、下の

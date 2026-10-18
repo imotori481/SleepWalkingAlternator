@@ -29,7 +29,7 @@ if ! command -v iptables >/dev/null 2>&1; then
 fi
 
 UID_SOLVER="$(id -u solver)"
-CHAIN=LOOP_SOLVER_OUT
+CHAIN=SWA_SOLVER_OUT
 
 iptables -N "$CHAIN" 2>/dev/null || iptables -F "$CHAIN"
 # チェインはちょうど1回だけつなぐ。
@@ -76,5 +76,5 @@ cat <<'EOF'
 そのあと、再起動しても残ることを確かめる。`wsl --shutdown` は使わない。
 keepalive タスクまで止まる（README 3-2）:
   wsl --terminate Ubuntu-24.04      # Windows で流し、つなぎ直す
-  sudo iptables -S LOOP_SOLVER_OUT  # 規則が残っていること
+  sudo iptables -S SWA_SOLVER_OUT  # 規則が残っていること
 EOF

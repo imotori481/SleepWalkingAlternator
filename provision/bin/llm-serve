@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # ローカルの推論サーバを、uid `llm` で動かす。
 #
-#     sudo -u llm /srv/loop/bin/llm-serve
+#     sudo -u llm /srv/swa/bin/llm-serve
 #
 # solver でも runner でも planner でもない、専用のアカウント。solver はループ
 # バックで届くが、再起動も、重みを読むことも、起動のしかたを変えることもできない。
 # ここのほかの場所と同じ理屈で、柵は uid であり、誰が何を呼ぶかの約束ではない。
 set -euo pipefail
 
-WEIGHTS="${LOOP_LLM_WEIGHTS:-/srv/loop/models/model.gguf}"
-PORT="${LOOP_LLM_PORT:-8080}"
+WEIGHTS="${SWA_LLM_WEIGHTS:-/srv/swa/models/model.gguf}"
+PORT="${SWA_LLM_PORT:-8080}"
 # 16384。選んだ値ではなく測った値だ。2回測った。1回目は、ステップに何が要るかの
 # 見積もりを誤っていた。
 #
@@ -21,15 +21,15 @@ PORT="${LOOP_LLM_PORT:-8080}"
 # 倍にして増えたのは 158 MiB（実測、6,144 のうち 5,276 -> 5,434）。KV キャッシュを
 # 量子化している（下の --cache-type-k/v q8_0）ので安く済む。それが無ければ
 # 収まらなかった。
-CTX="${LOOP_LLM_CTX:-16384}"
+CTX="${SWA_LLM_CTX:-16384}"
 # GPU があれば全層を載せる。llama-server は収まらない分を黙って CPU に回す。
 # 振る舞いとしては正しいが、遅さで驚かされる。smoke-local が毎秒のトークン数を
 # 報告するので、回されたことが見える。
-NGL="${LOOP_LLM_NGL:-99}"
+NGL="${SWA_LLM_NGL:-99}"
 
 [ -r "$WEIGHTS" ] || {
   echo "llm-serve: 重みを読めない: $WEIGHTS" >&2
-  echo "  直し方: そこに .gguf を置く（root 所有、0444）か、LOOP_LLM_WEIGHTS で場所を渡す。" >&2
+  echo "  直し方: そこに .gguf を置く（root 所有、0444）か、SWA_LLM_WEIGHTS で場所を渡す。" >&2
   exit 2
 }
 command -v llama-server >/dev/null || {
@@ -55,6 +55,6 @@ exec llama-server \
   --cache-type-k q8_0 \
   --cache-type-v q8_0
 
-# --log-file は付けない。/srv/loop/models は 2750 root:llm なので、`llm` は重みを
+# --log-file は付けない。/srv/swa/models は 2750 root:llm なので、`llm` は重みを
 # 読めるが、その隣には書けない。それは正しく、ログは別の場所に行く必要がある。
-# systemd の下ではジャーナル（journalctl -u loop-llm）になる。
+# systemd の下ではジャーナル（journalctl -u swa-llm）になる。

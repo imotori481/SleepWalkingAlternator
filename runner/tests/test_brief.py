@@ -19,15 +19,15 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
+import swa  # noqa: E402
 
 
 class WhatTheMachineLooksLike(unittest.TestCase):
     def facts(self, display: str, tk_ok: bool = True) -> str:
-        with patch.dict(os.environ, {"DISPLAY": display}), patch("loop.run") as run:
+        with patch.dict(os.environ, {"DISPLAY": display}), patch("swa.run") as run:
             run.return_value = SimpleNamespace(
                 returncode=0 if tk_ok else 1, stdout="Python 3.12.3", stderr="")
-            return loop.environment_facts()
+            return swa.environment_facts()
 
     def test_no_display_is_stated_together_with_what_to_do_about_it(self):
         facts = self.facts(display="")
@@ -56,13 +56,13 @@ class RootFiles:
                 encoding="utf-8")
             (project / "vitest.config.mjs").write_text("export default {};",
                                                        encoding="utf-8")
-            with patch.object(loop, "PROJECT", project), \
-                 patch.dict(loop.LANGUAGE, loop.LANGUAGES[language], clear=True), \
+            with patch.object(swa, "PROJECT", project), \
+                 patch.dict(swa.LANGUAGE, swa.LANGUAGES[language], clear=True), \
                  patch.dict(os.environ, {"DISPLAY": ""}), \
-                 patch("loop.run") as run:
+                 patch("swa.run") as run:
                 run.return_value = SimpleNamespace(
                     returncode=0, stdout="v22.23.3", stderr="")
-                return loop.environment_facts()
+                return swa.environment_facts()
 
 
 class ThePageBelongsToTypeScript(RootFiles, unittest.TestCase):
@@ -117,12 +117,12 @@ class WhatTheSolverCanDo(unittest.TestCase):
     """テストのコマンドだけを見せると、プランナーは「走らせて確かめろ」と書く。"""
 
     def facts(self, tiers: list[str]) -> str:
-        with patch.object(loop, "SOLVER_TIERS", tiers), \
+        with patch.object(swa, "SOLVER_TIERS", tiers), \
              patch.dict(os.environ, {"DISPLAY": ""}), \
-             patch("loop.run") as run:
+             patch("swa.run") as run:
             run.return_value = SimpleNamespace(
                 returncode=0, stdout="Python 3.12.3", stderr="")
-            return loop.environment_facts()
+            return swa.environment_facts()
 
     def test_a_solver_without_commands_is_described_as_one(self):
         for tiers in (["claude"], ["local"], ["local", "claude"]):
@@ -221,7 +221,7 @@ class WhatTheCodeAlreadyDeclares(unittest.TestCase):
     """
 
     def test_python_gives_public_signatures_with_their_module(self):
-        lines = loop.python_declarations(PYTHON_MODULE, "incgame.engine")
+        lines = swa.python_declarations(PYTHON_MODULE, "incgame.engine")
         where = " -- defined in incgame.engine"
         self.assertEqual(lines, [
             "LIMIT: int" + where,
@@ -234,14 +234,14 @@ class WhatTheCodeAlreadyDeclares(unittest.TestCase):
 
     def test_python_class_lines_declare_the_class_name(self):
         # インターフェースチェックの「存在」は、この行を declared_name で読む。
-        line = loop.python_declarations(PYTHON_MODULE, "m")[2]
-        self.assertEqual(loop.declared_name(line), "GameState")
+        line = swa.python_declarations(PYTHON_MODULE, "m")[2]
+        self.assertEqual(swa.declared_name(line), "GameState")
 
     def test_python_that_does_not_parse_gives_nothing(self):
-        self.assertEqual(loop.python_declarations("def broken(:\n", "m"), [])
+        self.assertEqual(swa.python_declarations("def broken(:\n", "m"), [])
 
     def test_typescript_gives_exports_without_bodies(self):
-        lines = loop.ts_declarations(TS_MODULE, "src/idle/engine.ts")
+        lines = swa.ts_declarations(TS_MODULE, "src/idle/engine.ts")
         at = "src/idle/engine.ts: "
         self.assertEqual(lines, [
             at + "interface Generator { id: string; cost: number; }",
@@ -256,15 +256,15 @@ class WhatTheCodeAlreadyDeclares(unittest.TestCase):
 
     def test_typescript_functions_match_the_contract_form(self):
         # スタブを書く generate_stub は、この形の行だけを読める。
-        line = loop.ts_declarations(
+        line = swa.ts_declarations(
             "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
             "src/m.ts")[0]
-        match = loop.TS_DECLARATION.match(line)
+        match = swa.TS_DECLARATION.match(line)
         self.assertIsNotNone(match)
         self.assertEqual(match.group("name"), "add")
 
     def test_typescript_without_semicolons_still_splits(self):
-        lines = loop.ts_declarations(
+        lines = swa.ts_declarations(
             "export const A = 1\nexport const B: string = 'x'\n", "src/m.ts")
         self.assertEqual(lines, ["src/m.ts: const A", "src/m.ts: const B: string"])
 
@@ -276,38 +276,38 @@ class WhatTheCodeAlreadyDeclares(unittest.TestCase):
                                        else "\0".join(files) + "\0")
             path = cmd[2].split(":", 1)[1]
             return SimpleNamespace(returncode=0, stdout=files[path], stderr="")
-        return patch("loop.run", side_effect=run)
+        return patch("swa.run", side_effect=run)
 
     def test_only_source_files_of_the_plan_s_language_are_read(self):
         files = {"src/incgame/engine.py": "def f(x: int) -> int:\n    return x\n",
                  "src/idle/engine.ts": "export const X = 1;\n",
                  "src/incgame/data.json": "{}"}
         with self.git(files), \
-             patch.dict(loop.LANGUAGE, loop.LANGUAGES["python"], clear=True):
-            self.assertEqual(loop.existing_contracts(),
+             patch.dict(swa.LANGUAGE, swa.LANGUAGES["python"], clear=True):
+            self.assertEqual(swa.existing_contracts(),
                              ["def f(x: int) -> int -- defined in incgame.engine"])
         with self.git(files), \
-             patch.dict(loop.LANGUAGE, loop.LANGUAGES["typescript"], clear=True):
-            self.assertEqual(loop.existing_contracts(),
+             patch.dict(swa.LANGUAGE, swa.LANGUAGES["typescript"], clear=True):
+            self.assertEqual(swa.existing_contracts(),
                              ["src/idle/engine.ts: const X"])
 
     def test_no_commit_means_no_declarations(self):
-        with patch("loop.run", return_value=SimpleNamespace(
+        with patch("swa.run", return_value=SimpleNamespace(
                 returncode=128, stdout="", stderr="fatal: not a valid object name HEAD")):
-            self.assertEqual(loop.existing_contracts(), [])
+            self.assertEqual(swa.existing_contracts(), [])
 
     def test_no_working_tree_means_no_declarations(self):
-        with patch("loop.run", side_effect=FileNotFoundError):
-            self.assertEqual(loop.existing_contracts(), [])
+        with patch("swa.run", side_effect=FileNotFoundError):
+            self.assertEqual(swa.existing_contracts(), [])
 
     def facts(self, existing: list[str]) -> str:
         by_file = {"src/pkg/mod.py": existing} if existing else {}
-        with patch.object(loop, "existing_declarations", return_value=by_file), \
+        with patch.object(swa, "existing_declarations", return_value=by_file), \
              patch.dict(os.environ, {"DISPLAY": ""}), \
-             patch("loop.run") as run:
+             patch("swa.run") as run:
             run.return_value = SimpleNamespace(
                 returncode=0, stdout="Python 3.12.3", stderr="")
-            return loop.environment_facts()
+            return swa.environment_facts()
 
     def test_the_planner_is_given_the_signatures_and_told_why_not_the_bodies(self):
         facts = self.facts(["def f(x: int) -> int -- defined in pkg.mod"])
@@ -346,9 +346,9 @@ class TheSolverIsShownTheFilesItWillEdit(unittest.TestCase):
             for rel, text in files.items():
                 (project / rel).parent.mkdir(parents=True, exist_ok=True)
                 (project / rel).write_text(text, encoding="utf-8")
-            with patch.object(loop, "PROJECT", project), \
-                 patch.object(loop, "IMPL_FILE_CHARS", cap):
-                return loop.current_files_section(self.STEP)
+            with patch.object(swa, "PROJECT", project), \
+                 patch.object(swa, "IMPL_FILE_CHARS", cap):
+                return swa.current_files_section(self.STEP)
 
     def test_existing_files_are_shown_and_new_ones_are_not(self):
         section = self.section({"src/a.py": "def a(): pass\n",
@@ -380,10 +380,10 @@ class TheSolverIsShownTheFilesItWillEdit(unittest.TestCase):
             project = Path(temp)
             (project / "src").mkdir()
             (project / "src/a.py").write_text("CURRENT\n", encoding="utf-8")
-            with patch.object(loop, "PROJECT", project), \
-                 patch("loop.dep_contracts", return_value=""), \
-                 patch("loop.head_sources", return_value={}):
-                brief = loop.brief_impl(self.STEP, "CONTEXT", "TESTS", "FAILURE")
+            with patch.object(swa, "PROJECT", project), \
+                 patch("swa.dep_contracts", return_value=""), \
+                 patch("swa.head_sources", return_value={}):
+                brief = swa.brief_impl(self.STEP, "CONTEXT", "TESTS", "FAILURE")
         self.assertLess(brief.index("TESTS"), brief.index("CURRENT"))
         self.assertLess(brief.index("CURRENT"), brief.index("FAILURE"))
 
@@ -408,10 +408,10 @@ class TheSolverIsShownTheCodeTheStubReplaced(unittest.TestCase):
             for rel, text in now.items():
                 (project / rel).parent.mkdir(parents=True, exist_ok=True)
                 (project / rel).write_text(text, encoding="utf-8")
-            with patch.object(loop, "PROJECT", project), \
-                 patch.object(loop, "IMPL_FILE_CHARS", cap), \
-                 patch("loop.head_sources", return_value=head):
-                return loop.original_code_section(self.STEP)
+            with patch.object(swa, "PROJECT", project), \
+                 patch.object(swa, "IMPL_FILE_CHARS", cap), \
+                 patch("swa.head_sources", return_value=head):
+                return swa.original_code_section(self.STEP)
 
     def test_the_original_branches_are_shown_as_removed_lines(self):
         section = self.section({"src/A.cs": self.ORIGINAL}, {"src/A.cs": self.STUBBED})
@@ -435,10 +435,10 @@ class TheSolverIsShownTheCodeTheStubReplaced(unittest.TestCase):
 
     def test_the_brief_asks_for_the_smallest_change_that_reuses_existing_code(self):
         with tempfile.TemporaryDirectory() as temp, \
-             patch.object(loop, "PROJECT", Path(temp)), \
-             patch("loop.dep_contracts", return_value=""), \
-             patch("loop.head_sources", return_value={}):
-            brief = loop.brief_impl(self.STEP, "CONTEXT", "TESTS", "FAILURE")
+             patch.object(swa, "PROJECT", Path(temp)), \
+             patch("swa.dep_contracts", return_value=""), \
+             patch("swa.head_sources", return_value={}):
+            brief = swa.brief_impl(self.STEP, "CONTEXT", "TESTS", "FAILURE")
         self.assertIn("Make the smallest change that passes the tests.", brief)
         self.assertIn("instead of writing new ones", brief)
         # 取り込んだ Promete の実走で、ソルバーはマウスのボタンの名前を反射で当て推量し、
@@ -459,12 +459,12 @@ class TheSolverBriefsShareTheirOpening(unittest.TestCase):
 
     def briefs(self) -> tuple[str, str, str]:
         with tempfile.TemporaryDirectory() as temp, \
-             patch.object(loop, "PROJECT", Path(temp)), \
-             patch("loop.dep_contracts", return_value="DEPS"), \
-             patch("loop.head_sources", return_value={}):
-            return (loop.solver_material(self.STEP, "CONTEXT"),
-                    loop.brief_test_write(self.STEP, "CONTEXT"),
-                    loop.brief_impl(self.STEP, "CONTEXT", "TESTS", "FAILURE"))
+             patch.object(swa, "PROJECT", Path(temp)), \
+             patch("swa.dep_contracts", return_value="DEPS"), \
+             patch("swa.head_sources", return_value={}):
+            return (swa.solver_material(self.STEP, "CONTEXT"),
+                    swa.brief_test_write(self.STEP, "CONTEXT"),
+                    swa.brief_impl(self.STEP, "CONTEXT", "TESTS", "FAILURE"))
 
     def test_both_phases_open_with_the_same_material(self):
         shared, test_write, impl = self.briefs()
@@ -475,11 +475,11 @@ class TheSolverBriefsShareTheirOpening(unittest.TestCase):
 
     def test_a_replaced_test_file_is_rewritten_from_scratch(self):
         with tempfile.TemporaryDirectory() as temp, \
-             patch.object(loop, "PROJECT", Path(temp)), \
-             patch("loop.dep_contracts", return_value="DEPS"), \
-             patch("loop.head_sources", return_value={}):
-            plain = loop.brief_test_write(self.STEP, "CONTEXT")
-            replacing = loop.brief_test_write(self.STEP, "CONTEXT",
+             patch.object(swa, "PROJECT", Path(temp)), \
+             patch("swa.dep_contracts", return_value="DEPS"), \
+             patch("swa.head_sources", return_value={}):
+            plain = swa.brief_test_write(self.STEP, "CONTEXT")
+            replacing = swa.brief_test_write(self.STEP, "CONTEXT",
                                               replaced=["tests/test_a.py"])
         self.assertNotIn("you replace them", plain)
         self.assertIn("you replace them\ntests/test_a.py", replacing)
@@ -515,9 +515,9 @@ class TestsAlreadyInTheRepository(unittest.TestCase):
         raise AssertionError(argv)
 
     def text(self):
-        with patch("loop.run", side_effect=self.run_git), \
-             patch.dict(loop.LANGUAGE, loop.LANGUAGES["python"], clear=True):
-            return loop.existing_tests_text()
+        with patch("swa.run", side_effect=self.run_git), \
+             patch.dict(swa.LANGUAGE, swa.LANGUAGES["python"], clear=True):
+            return swa.existing_tests_text()
 
     def test_the_planner_sees_each_file_with_its_test_names(self):
         text = self.text()
@@ -533,8 +533,8 @@ class TestsAlreadyInTheRepository(unittest.TestCase):
 
 class TestNamesByLanguage(unittest.TestCase):
     def names(self, language, text):
-        with patch.dict(loop.LANGUAGE, loop.LANGUAGES[language], clear=True):
-            return loop.test_names(text)
+        with patch.dict(swa.LANGUAGE, swa.LANGUAGES[language], clear=True):
+            return swa.test_names(text)
 
     def test_typescript_names_come_from_it_and_test(self):
         self.assertEqual(self.names("typescript", (

@@ -7,7 +7,7 @@
 ## 設計上の境界
 
 - 最終確認は、段が `review` で、写しの最後の `ALL_GREEN` に答えていない間だけ出す。
-  `loop reopen` で中段に戻れば、前の `ALL_GREEN` は今の設計について何も言っていないので出さない
+  `swa reopen` で中段に戻れば、前の `ALL_GREEN` は今の設計について何も言っていないので出さない
 - 下流でモジュールが止まったときは、`plan/FAILURE.md` を設計の欄に出し、直すモジュールを選ばせる。
   失敗は人に答えを求める要求ではないので、「人間の対応待ち」には出さない
 - ランナーの台帳と設計は読み取り専用。回答はホスト側の `.state/decisions.jsonl` に置く
@@ -32,8 +32,8 @@
   どれも文書を読んで下す判断で、成果物の画面を見る必要が無い
 - 走行の開始、プロジェクトの切り替え、役のモデルの変更、写しの更新、取り込みはローカルのみ。
   利用枠と箱の状態を大きく動かす操作だからだ
-- 箱を書き換える操作は、どれも `sudo -n /usr/local/bin/loop dash` の1本を通る。
-  要求は標準入力の JSON で渡し、値は箱の `loop_dash.py` が確かめる
+- 箱を書き換える操作は、どれも `sudo -n /usr/local/bin/swa dash` の1本を通る。
+  要求は標準入力の JSON で渡し、値は箱の `swa_dash.py` が確かめる
 - 最終確認を承認すると、承認した状態を親ブランチへの PR にする。GitHub に書き込むのは
   承認と同じくこの機械の前からだけ
 - 記録には `scope` と `user` が入る。**どこから答えたかは答えの一部**
@@ -57,7 +57,7 @@ pytest の慣習で `src/` レイアウトを採り、`src/` を `sys.path` に�
 python host/dashboard/server.py --project C:\dev\roop-engin\project
 ```
 
-または `host\loop-dashboard.cmd` を実行します。`--project` は `host\loop-pull.cmd` が書くライブミラーです。その後、ブラウザで
+または `host\swa-dashboard.cmd` を実行します。`--project` は `host\swa-pull.cmd` が書くライブミラーです。その後、ブラウザで
 <http://127.0.0.1:8443> を開きます。
 
 ## 操作
@@ -69,61 +69,61 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 
 | 欄 | できること | 箱で流れるもの | どこから |
 |---|---|---|---|
-| 取り込み | 既存リポジトリのブランチを新しいプロジェクトにして切り替える | `loop project init` と `loop project use` | ローカル |
-| プロジェクト | 一覧を見て切り替える | `loop project use` を一時ユニット `loop-switch` で | ローカル |
-| プロジェクト | 今のもの以外を、名前を打って確かめてから箱のディレクトリと走行ログごと消す。走行中と切り替え中は断る | `loop project remove` | ローカル |
-| 役のモデル | 役ごとに `LOOP_MODEL` と `LOOP_EFFORT` を変える | `/etc/loop/<役>.env` の2行の書き換え | ローカル |
-| 走行 | 仕様書のファイルと言語を選んで開始 | `loop go` | ローカル |
-| 走行 | 止まったところから続ける | `loop continue` | どこからでも |
-| 走行 | 止める | `loop stop` | どこからでも |
-| 走行 | 緑でないモジュールを選び、作業ツリーを最後の緑に戻す。走行中と切り替え中は断る | `loop raw reset <モジュール>` | どこからでも |
-| ホストの写し | 写しを箱の先まで進める | ホストの `loop-pull.cmd` | ローカル |
-| ホストの写し | 最後に緑になったモジュールまでを下書きの PR にする | ホストの `loop-pr.cmd` と同じ `open_draft` | ローカル |
+| 取り込み | 既存リポジトリのブランチを新しいプロジェクトにして切り替える | `swa project init` と `swa project use` | ローカル |
+| プロジェクト | 一覧を見て切り替える | `swa project use` を一時ユニット `swa-switch` で | ローカル |
+| プロジェクト | 今のもの以外を、名前を打って確かめてから箱のディレクトリと走行ログごと消す。走行中と切り替え中は断る | `swa project remove` | ローカル |
+| 役のモデル | 役ごとに `SWA_MODEL` と `SWA_EFFORT` を変える | `/etc/swa/<役>.env` の2行の書き換え | ローカル |
+| 走行 | 仕様書のファイルと言語を選んで開始 | `swa go` | ローカル |
+| 走行 | 止まったところから続ける | `swa continue` | どこからでも |
+| 走行 | 止める | `swa stop` | どこからでも |
+| 走行 | 緑でないモジュールを選び、作業ツリーを最後の緑に戻す。走行中と切り替え中は断る | `swa raw reset <モジュール>` | どこからでも |
+| ホストの写し | 写しを箱の先まで進める | ホストの `swa-pull.cmd` | ローカル |
+| ホストの写し | 最後に緑になったモジュールまでを下書きの PR にする | ホストの `swa-pr.cmd` と同じ `open_draft` | ローカル |
 
-箱への要求は、どれも SSH で `sudo -n /usr/local/bin/loop dash` に標準入力の JSON で渡す。
-`25-runner.sh` が sudoers で保守ユーザーにこの1つだけをパスワード無しで許す。`loop dash` は
-`provision/loop_dash.py` で要求の形と値を確かめ、確かめた値だけで動く。
+箱への要求は、どれも SSH で `sudo -n /usr/local/bin/swa dash` に標準入力の JSON で渡す。
+`25-runner.sh` が sudoers で保守ユーザーにこの1つだけをパスワード無しで許す。`swa dash` は
+`provision/swa_dash.py` で要求の形と値を確かめ、確かめた値だけで動く。
 
 | 要求 | 中身 |
 |---|---|
-| `{"action": "go", "spec": <本文>, "language": <言語>, "framework": <持ち込む先>}` | 本文は root だけが入れる一時ディレクトリに書き、そこから `loop go` が `human/in/spec/` に置く。200000 字まで。言語は `loop.py` の `LANGUAGES` のどれか。持ち込む先はその言語の `FRAMEWORKS` のどれかで、空なら言語の既定 |
+| `{"action": "go", "spec": <本文>, "language": <言語>, "framework": <持ち込む先>}` | 本文は root だけが入れる一時ディレクトリに書き、そこから `swa go` が `human/in/spec/` に置く。200000 字まで。言語は `swa.py` の `LANGUAGES` のどれか。持ち込む先はその言語の `FRAMEWORKS` のどれかで、空なら言語の既定 |
 | `{"action": "continue"}` / `{"action": "stop"}` | 引数なし |
-| `{"action": "reset", "module": <id>}` | id は `loop.py` の `MODULE_ID` に合うもの。200 字まで |
+| `{"action": "reset", "module": <id>}` | id は `swa.py` の `MODULE_ID` に合うもの。200 字まで |
 | `{"action": "approve"}` | 引数なし。段が上流か中段で、走っていないときだけ箱が通す |
-| `{"action": "reject", "text": <コメント>}` | コメントは一時ディレクトリに書き、そこから `loop reject` が `human/in/COMMENT.md` に置く。空は断る。20000 字まで |
+| `{"action": "reject", "text": <コメント>}` | コメントは一時ディレクトリに書き、そこから `swa reject` が `human/in/COMMENT.md` に置く。空は断る。20000 字まで |
 | `{"action": "reopen", "modules": [<id>, ...]}` | 1つ以上。どの id も `reset` と同じ規則 |
-| `{"action": "use", "project": <名前>}` / `{"action": "remove", "project": <名前>}` | 名前は `loop-project.sh` と同じ規則 |
-| `{"action": "init", "project": <名前>, "branch": <ブランチ>, "src": <柵>, "tests": <柵>}` | ブランチは英数字で始まり、英数字と `. _ / -` だけ。柵は `loop.py` の `layout_problems` で確かめ、空なら既定 |
+| `{"action": "use", "project": <名前>}` / `{"action": "remove", "project": <名前>}` | 名前は `swa-project.sh` と同じ規則 |
+| `{"action": "init", "project": <名前>, "branch": <ブランチ>, "src": <柵>, "tests": <柵>}` | ブランチは英数字で始まり、英数字と `. _ / -` だけ。柵は `swa.py` の `layout_problems` で確かめ、空なら既定 |
 | `{"action": "design"}` | 段、基本設計仕様書、詳細設計仕様書、受け入れ条件、`plan/INTERFACE.json`、`plan/CRITIQUE.json`、`plan/FAILURE.md` を JSON で返す |
-| `{"action": "settings"}` | 役ごとの `LOOP_MODEL` と `LOOP_EFFORT`、選べる effort と言語を JSON で返す。資格情報の行は返さない |
+| `{"action": "settings"}` | 役ごとの `SWA_MODEL` と `SWA_EFFORT`、選べる effort と言語を JSON で返す。資格情報の行は返さない |
 | `{"action": "model", "role": <役>, "model": <名前>, "effort": <effort>}` | 名前は英数字と `. _ - [ ]` だけ。effort は `low` / `medium` / `high` / `xhigh` / `max` か空 |
 
 ### 役のモデル
 
-- 書き換えるのは `LOOP_MODEL=` と `LOOP_EFFORT=` の行だけ。行が無ければ足す。資格情報の行には触れない
+- 書き換えるのは `SWA_MODEL=` と `SWA_EFFORT=` の行だけ。行が無ければ足す。資格情報の行には触れない
 - 同じディレクトリに書いてから rename する。所有者と権限（`root:<役> 640`）は元のファイルのものを引き継ぐ
 - 起動スクリプトは呼び出しのたびに `.env` を読む。走行中に変えても、次の呼び出しから効く
 - 空は「アカウントの既定」。モデル欄の候補に無い名前も打てる
 
 ### プロジェクトの切り替え
 
-- 一覧は `loop now` の `projects` で、5秒ごとに届く。状態は使用中、退避中、未構築の3つ
-- 切り替えは一時ユニット `loop-switch` で裏に回す。初めてのプロジェクトはプロビジョニングで数分かかる
-- 出力は箱の `/srv/loop/logs/switch.log` に書き、`loop now` の `switch` が末尾20行を返す
-- 走行中と切り替え中は、開始も切り替えもできない。端末の `loop project` も切り替え中は断る
+- 一覧は `swa now` の `projects` で、5秒ごとに届く。状態は使用中、退避中、未構築の3つ
+- 切り替えは一時ユニット `swa-switch` で裏に回す。初めてのプロジェクトはプロビジョニングで数分かかる
+- 出力は箱の `/srv/swa/logs/switch.log` に書き、`swa now` の `switch` が末尾20行を返す
+- 走行中と切り替え中は、開始も切り替えもできない。端末の `swa project` も切り替え中は断る
 
 ### 取り込み
 
 `importer.py` をこのサーバのスレッドで流し、出力の末尾60行を画面に出す。同時に流せるのは1つだけ。
-`host\loop-import.cmd` も同じ `importer.py` を呼ぶので、手順は端末と画面で変わらない。
+`host\swa-import.cmd` も同じ `importer.py` を呼ぶので、手順は端末と画面で変わらない。
 
 1. リポジトリを `C:\dev\roop-engin\projects\<名前>` にクローンする。もうあれば、`origin` が同じで
    未コミットの変更が無いことを確かめてから fetch する
 2. 作業用ブランチに切り替える。どこにも無ければ親ブランチ（省くと `origin` の既定）から作り、
-   親を `branch.<ブランチ>.loopBase` に記録する。PR の送り先になる
-3. `loop dash` の `init` で箱に空の bare を作る
-4. `loop-runner` でブランチを箱の bare に push する
-5. `loop dash` の `use` で切り替え、`loop now` の `switch` が終わるまで待つ
+   親を `branch.<ブランチ>.swaBase` に記録する。PR の送り先になる
+3. `swa dash` の `init` で箱に空の bare を作る
+4. `swa-runner` でブランチを箱の bare に push する
+5. `swa dash` の `use` で切り替え、`swa now` の `switch` が終わるまで待つ
 
 - URL は `https://`、`ssh://`、`user@host:path` の形だけを通す。`file://` や `ext::` のように
   ホストのファイルやコマンドに届く形は断る
@@ -133,13 +133,13 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 
 ### 写しの更新
 
-`loop-pull.cmd` をこのサーバのスレッドで流し、出力の末尾40行を画面に出す。同時に流せるのは1つだけ。
+`swa-pull.cmd` をこのサーバのスレッドで流し、出力の末尾40行を画面に出す。同時に流せるのは1つだけ。
 終わると画面の写しの欄を読み直す。
 
 ## いまの作業
 
 画面の上の「いまの作業」「設計」「クリティックの指摘」「モジュール」は、ミラーではなく箱から直接読む。
-5秒ごとに `ssh loop-dev loop now` を流し、次を出す。
+5秒ごとに `ssh swa-dev swa now` を流し、次を出す。
 
 - 誰が作業しているか（プランナー、クリティック、ソルバー、ランナー）
 - 何をしているか。日本語の1文で、モジュールと試行の回数と経過時間を添える
@@ -147,30 +147,30 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
   プランナーには戻らない。直させたいことは、設計の欄の差し戻しのコメントに書く
 - 各モジュールの状態（完了、作業中、未着手、中断）
 
-指摘は箱の `/srv/loop/human/in/CRITIQUE.json` から、`loop now` の `findings` として届く。それが無い
+指摘は箱の `/srv/swa/human/in/CRITIQUE.json` から、`swa now` の `findings` として届く。それが無い
 回は、走行ログの最後の `=== critique` の段落をそのまま出す。
 
-箱ではランナーが `/srv/loop/logs/now.json` を書き、`loop now` がそれに走行中かどうか、
-最後の結果、今の回を足す。今の回は、最後の `loop go` から後の走行ログを読んで作る。
+箱ではランナーが `/srv/swa/logs/now.json` を書き、`swa now` がそれに走行中かどうか、
+最後の結果、今の回を足す。今の回は、最後の `swa go` から後の走行ログを読んで作る。
 `[USAGE]` の行を役割ごとに足したトークン数、種類別のトークン数、USD と、最後の
 `=== critique` の段落を持つ。`human/in/CRITIQUE.json` があれば `findings` として足す。
-組み立ては `provision/loop_now.py`。`/srv/loop/logs` は runner と保守ユーザーだけが読める。
-台帳のある `plan/` は runner だけが読めるので、`loop now` はログしか読まない。
+組み立ては `provision/swa_now.py`。`/srv/swa/logs` は runner と保守ユーザーだけが読める。
+台帳のある `plan/` は runner だけが読めるので、`swa now` はログしか読まない。
 
-SSH の宛先は `config.json` の `live.ssh_host`（既定 `loop-dev`）。`BatchMode=yes` で
+SSH の宛先は `config.json` の `live.ssh_host`（既定 `swa-dev`）。`BatchMode=yes` で
 呼ぶので、鍵にパスフレーズがあるなら ssh-agent に載せておく。何人が開いていても、
 SSH は3秒に1回までしか流さない。止めるときは `"live": {"enabled": false}`。
 
 ```json
 "live": {
-  "ssh_host": "loop-dev"
+  "ssh_host": "swa-dev"
 }
 ```
 
 ## 設計
 
-設計の欄は、`loop dash` の `design` で箱の作業ツリーを読む。`plan/` は runner だけが読めるので、
-`loop now` ではなく sudoers が許す `loop dash` を通す。読み直すのは、走行の有無、最後の結果、
+設計の欄は、`swa dash` の `design` で箱の作業ツリーを読む。`plan/` は runner だけが読めるので、
+`swa now` ではなく sudoers が許す `swa dash` を通す。読み直すのは、走行の有無、最後の結果、
 段のどれかが変わったときと、画面から操作した後だけ。
 
 - 段の名前を見出しの横に出す。上流（基本設計）、中段（詳細設計）、下流（実装）、最終確認の4つ
@@ -185,10 +185,10 @@ SSH は3秒に1回までしか流さない。止めるときは `"live": {"enabl
 
 | 段 | 出す操作 | 箱で流れるもの |
 |---|---|---|
-| 上流 | 基本設計の承認と、コメントを付けた差し戻し | `loop approve` / `loop reject` |
-| 中段 | 詳細設計の承認と、コメントを付けた差し戻し。書き直してよいモジュールが決まっていれば並べる | `loop approve` / `loop reject` |
-| 中段（下流で止まった後） | 直すモジュールを選んで中段に戻す | `loop reopen` |
-| 最終確認 | 直すモジュールを選んで中段に戻す | `loop reopen` |
+| 上流 | 基本設計の承認と、コメントを付けた差し戻し | `swa approve` / `swa reject` |
+| 中段 | 詳細設計の承認と、コメントを付けた差し戻し。書き直してよいモジュールが決まっていれば並べる | `swa approve` / `swa reject` |
+| 中段（下流で止まった後） | 直すモジュールを選んで中段に戻す | `swa reopen` |
+| 最終確認 | 直すモジュールを選んで中段に戻す | `swa reopen` |
 
 差し戻しのコメントは空では送らない。プランナーが次の書き直しで読む。
 
@@ -200,11 +200,11 @@ SSH は3秒に1回までしか流さない。止めるときは `"live": {"enabl
 最終確認で「承認」を押すと、承認した状態を親ブランチへの PR として出す。
 中身は `pullrequest.py`。
 
-1. 写し `project` の HEAD を、`loop/<branch>` に持つクローンを `<mirrors>\projects\*` から探す。
-   無ければ断る。`loop-pull` が済んでいないか、`loop-import` で取り込んだプロジェクトではない
-2. 親ブランチを、クローンの `git config branch.<branch>.loopBase` から読む。無ければ断る
+1. 写し `project` の HEAD を、`swa/<branch>` に持つクローンを `<mirrors>\projects\*` から探す。
+   無ければ断る。`swa-pull` が済んでいないか、`swa-import` で取り込んだプロジェクトではない
+2. 親ブランチを、クローンの `git config branch.<branch>.swaBase` から読む。無ければ断る
 3. `origin` から親ブランチを fetch する
-4. 一時的な index の上で、`loop/<branch>` から `plan`、`docs/spec`、`docs/basic`、`docs/modules`、
+4. 一時的な index の上で、`swa/<branch>` から `plan`、`docs/spec`、`docs/basic`、`docs/modules`、
    `conftest.py`、`index.html`、`vitest.config.mjs` を除き、`.gitignore` を親ブランチの版に戻したコミットを作る。
    親ブランチに `.gitignore` が無ければ消す
 5. 出す先のブランチを決める。`<branch>-pr` からの PR が開いていればそれを使う。無く、`<branch>-draft` からの
@@ -227,16 +227,16 @@ SSH は3秒に1回までしか流さない。止めるときは `"live": {"enabl
 
 - ホストの `gh` が GitHub にログインしている（`gh auth status`）
 - クローンの `origin` が GitHub のリポジトリ
-- 親ブランチが記録されている。`loop-import` が取り込むときに書く。それより前に取り込んだ
+- 親ブランチが記録されている。`swa-import` が取り込むときに書く。それより前に取り込んだ
   プロジェクトは、クローンで1回だけ打つ
 
 ```bash
-git -C <clone-dir> config branch.<branch>.loopBase <base-branch>
+git -C <clone-dir> config branch.<branch>.swaBase <base-branch>
 ```
 
 ### 下書きの PR
 
-全モジュールが緑になる前の状態は、「ホストの写し」タブの「下書きの PR を出す」か、ホストの `loop-pr` で
+全モジュールが緑になる前の状態は、「ホストの写し」タブの「下書きの PR を出す」か、ホストの `swa-pr` で
 下書きの PR として出す。どちらも同じ `open_draft` を流す。画面のボタンは、写しの更新が走っている間は押せない。
 中身は `pullrequest.py` の `open_draft` で、手順は上の 1〜7 と同じ。違うのは次の点だ。
 
@@ -246,8 +246,8 @@ git -C <clone-dir> config branch.<branch>.loopBase <base-branch>
   緑は `GREEN` で付き、後の `REOPEN` で外れる
 - 同じ組の PR が開いていれば、push で中身を更新し、`gh pr edit` で本文のモジュールの一覧を書き直す
 - 緑のモジュールが1つも無ければ断る。全モジュールが緑なら、最終確認の承認に回すよう断る
-- 箱の bare の作業ブランチの先を `git ls-remote loop` で読み、写しの HEAD と比べる。箱が先にあれば、
-  本文に「写しが箱に追いついていない」と書き、`loop-pr` は `NOTE` を出す。画面は結果の欄に同じことを出す。箱に届かなければ、
+- 箱の bare の作業ブランチの先を `git ls-remote swa` で読み、写しの HEAD と比べる。箱が先にあれば、
+  本文に「写しが箱に追いついていない」と書き、`swa-pr` は `NOTE` を出す。画面は結果の欄に同じことを出す。箱に届かなければ、
   確かめられなかったと書く。ssh は `BatchMode=yes` と `ConnectTimeout=10` で流す
 
 結果は `decisions.jsonl` に記録しない。
@@ -255,7 +255,7 @@ git -C <clone-dir> config branch.<branch>.loopBase <base-branch>
 ## トークン消費
 
 写しの `plan/ledger.jsonl` にある `USAGE` を、
-`loop go` から完了までの回ごとに足して、3つのグラフにする。横軸はどれも回。
+`swa go` から完了までの回ごとに足して、3つのグラフにする。横軸はどれも回。
 
 | グラフ | 形 | 縦軸 | 切り替え |
 |---|---|---|---|
@@ -282,7 +282,7 @@ USD は `USAGE` の `cost_usd` の和。
 - ツールチップは系統の中の個々のモデルを出す
 - 箱の今の回はモデルごとを数えない。同じ回の写しがあれば写しの値を残す
 
-読む台帳は、写しの置き場の直下とその1段下にある全部。`loop-pull` が書く `project`、
+読む台帳は、写しの置き場の直下とその1段下にある全部。`swa-pull` が書く `project`、
 `projects\<name>`、`runs\<name>` がこれに当たる。置き場は既定で `--project` の親で、
 `--mirrors <dir>` で変えられる。写しを横断して回を並べる。
 
@@ -306,15 +306,15 @@ USD は `USAGE` の `cost_usd` の和。
 - 役割はプランナー、クリティック、ソルバーの3つ
 
 写しの台帳が進むのは GREEN と段のコマンドのコミットのときだけ。
-そこで箱の今の回を、`loop now` の数で重ねる。設計の途中で止まったときも、
+そこで箱の今の回を、`swa now` の数で重ねる。設計の途中で止まったときも、
 その時点のトークン数が出る。
 
 - 同じプロジェクトの写しに開始が5分以内の回があれば、同じ回として箱の数で置き換える。
   無ければ `箱: <project>` として足す
-- 箱の数はログの `[USAGE]` の行から数える。`loop raw` で流した呼び出しはログに出ないので入らない
+- 箱の数はログの `[USAGE]` の行から数える。`swa raw` で流した呼び出しはログに出ないので入らない
 - 種類別は、ログの行の `read`（キャッシュ読み取り）と `write`（キャッシュ書き込み）で入力を分けて数える。
   入力はそれを除いた残り。`read` と `write` の無い行が1つでもある回は種類別を返さず、
-  写しの種類別を残す。USD を返さない `loop now` のときも、写しの USD を残す
+  写しの種類別を残す。USD を返さない `swa now` のときも、写しの USD を残す
 - 箱の回で走っているものは「走行中」と出す
 
 箱の今の回より前の回で止まったものは、最後のコミットより後の消費が写しに届かず、少なく出る。
@@ -347,7 +347,7 @@ tailnet の外から詐称はできません。
 このダッシュボードは設計の全文とプロジェクトのパスを出します。
 
 「操作」「いまの作業」「設計」「クリティックの指摘」「モジュール」以外の表示対象はホスト側ミラーです。最新の状態は先に
-「写しを更新」か `host\loop-pull.cmd` で取得してください。
+「写しを更新」か `host\swa-pull.cmd` で取得してください。
 サンドボックスへ外向きの認証情報を置かないため、同期方向は従来どおりホストからの pull
 だけです。
 

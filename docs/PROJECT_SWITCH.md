@@ -1,6 +1,6 @@
 # プロジェクトを切り替えて走らせる
 
-既存のリポジトリのブランチを新しいプロジェクトとして箱に置き、`loop go` まで走らせる流れ。
+既存のリポジトリのブランチを新しいプロジェクトとして箱に置き、`swa go` まで走らせる流れ。
 Unity のプロジェクトを C# で走らせる場合を例にする。コマンドはどれもホストの PowerShell で打つ。
 個々のコマンドの説明は [COMMANDS.md](COMMANDS.md) にある。
 
@@ -20,52 +20,52 @@ Unity のプロジェクトを C# で走らせる場合を例にする。コマ�
 ## 1. 今のプロジェクトの成果を引き取る
 
 ```powershell
-loop-pull
+swa-pull
 ```
 
 ダッシュボードが読むのは、今のプロジェクトの写し（`C:\dev\roop-engin\project`）だけだ。切り替えると、
 前のプロジェクトの予定レビューは画面から消える。前のプロジェクトの PR を出すなら、ここでダッシュボードから承認する。
 
-切り替えても前のプロジェクトは消えない。箱の中では退避され、`loop project use` で戻せる。
+切り替えても前のプロジェクトは消えない。箱の中では退避され、`swa project use` で戻せる。
 
 ## 2. クローンして作業ブランチを切る
 
 ```powershell
 git clone <repo-url> C:\dev\roop-engin\projects\<project>
 git -C C:\dev\roop-engin\projects\<project> switch --no-track -c <branch> origin/<base-branch>
-git -C C:\dev\roop-engin\projects\<project> config branch.<branch>.loopBase <base-branch>
+git -C C:\dev\roop-engin\projects\<project> config branch.<branch>.swaBase <base-branch>
 ```
 
-- クローンは `C:\dev\roop-engin\projects\<project>` に置く。`loop-pull` とダッシュボードの PR はこの場所を見る
-- `loopBase` は PR の宛先になる。記録が無いと、ダッシュボードから PR を出せない
+- クローンは `C:\dev\roop-engin\projects\<project>` に置く。`swa-pull` とダッシュボードの PR はこの場所を見る
+- `swaBase` は PR の宛先になる。記録が無いと、ダッシュボードから PR を出せない
 
 ## 3. 箱に受け皿を作る
 
 ```powershell
-loop project init <project> --branch <branch> --src <src-dir> --tests <tests-dir>
+swa project init <project> --branch <branch> --src <src-dir> --tests <tests-dir>
 ```
 
-柵の場所はここで決める。Unity なら `--src Assets/Source --tests Assets/Tests/Editor/Loop` のように、`Assets/` の下を指す。
+柵の場所はここで決める。Unity なら `--src Assets/Source --tests Assets/Tests/Editor/Swa` のように、`Assets/` の下を指す。
 
-2 から 4 と 6 は、`loop-import` の1行か、ダッシュボードの「取り込み」タブでまとめて流せる。柵の場所は
+2 から 4 と 6 は、`swa-import` の1行か、ダッシュボードの「取り込み」タブでまとめて流せる。柵の場所は
 `--src` と `--tests`（タブでは「コードの柵」と「テストの柵」）で渡す。渡さないと既定の `src/` と `tests/` で
-プロビジョニングが走り、あとで `loop project layout` を流すともう1回走る。まとめて流したときは、5 の参照を
+プロビジョニングが走り、あとで `swa project layout` を流すともう1回走る。まとめて流したときは、5 の参照を
 切り替えの後に送る。今のプロジェクトに送った参照は、その場でつながる。
 
 ```powershell
-loop-import <project> <repo-url> <branch> <base-branch> --src <src-dir> --tests <tests-dir>
+swa-import <project> <repo-url> <branch> <base-branch> --src <src-dir> --tests <tests-dir>
 ```
 
 ## 4. ブランチを箱へ送る
 
 ```powershell
-git -C C:\dev\roop-engin\projects\<project> push loop-runner:/srv/loop/projects/<project>/repo.git <branch>
+git -C C:\dev\roop-engin\projects\<project> push swa-runner:/srv/swa/projects/<project>/repo.git <branch>
 ```
 
 ## 5. Unity の参照を送る
 
 ```powershell
-loop-unity-refs <project> <unity-project-dir>
+swa-unity-refs <project> <unity-project-dir>
 ```
 
 `<unity-project-dir>` は、Unity で一度開いて `Assembly-CSharp.csproj` ができているディレクトリだ。同じリポジトリを
@@ -75,17 +75,17 @@ loop-unity-refs <project> <unity-project-dir>
 ## 6. 切り替える
 
 ```powershell
-loop project use <project>
+swa project use <project>
 ```
 
 - 初回はプロビジョニングが走るので、数分かかる
-- 走行中は切り替えられない。先に `loop stop` か、終わるのを待つ
+- 走行中は切り替えられない。先に `swa stop` か、終わるのを待つ
 - ブランチが push されていなければ、何も動かさずに止まる
 
 ## 7. 走らせる
 
 ```powershell
-loop go <spec> --language csharp
+swa go <spec> --language csharp
 ```
 
 `--language` を付けないと Python で設計が始まる。言語は最初の基本設計で決まり、後から変えられない。
@@ -97,21 +97,21 @@ loop go <spec> --language csharp
 よければ承認する。中段でも同じように、詳細設計とクリティックの指摘を読んで承認する。
 
 ```powershell
-loop reject <comment>
-loop approve
-loop status
+swa reject <comment>
+swa approve
+swa status
 ```
 
-止まった理由と次の手は `loop status` の「最後」の行に出る。
+止まった理由と次の手は `swa status` の「最後」の行に出る。
 
 ## 8. 成果を引き取り、PR に出す
 
 ```powershell
-loop-pull
-loop-dashboard
+swa-pull
+swa-dashboard
 ```
 
-全モジュールが緑になったら、`loop-pull` で写しを箱の先まで進めてから、ダッシュボードで予定レビューを承認する。
+全モジュールが緑になったら、`swa-pull` で写しを箱の先まで進めてから、ダッシュボードで予定レビューを承認する。
 承認すると `<branch>-pr` から `<base-branch>` への PR が出る。
 
 写しが箱より遅れていると、ダッシュボードに予定レビューが出ない。
@@ -121,19 +121,19 @@ loop-dashboard
 ## 前のプロジェクトに戻る
 
 ```powershell
-loop project list
-loop project use <project>
+swa project list
+swa project use <project>
 ```
 
-`loop project list` の `*` が今のプロジェクトだ。一度作ったプロジェクトに戻るときは、プロビジョニングは走らず、
+`swa project list` の `*` が今のプロジェクトだ。一度作ったプロジェクトに戻るときは、プロビジョニングは走らず、
 退避していた作業ツリーと設計がそのまま戻る。
 
 ## 要らなくなったプロジェクトを消す
 
 ```powershell
-loop project remove <project>
+swa project remove <project>
 ```
 
-箱の `/srv/loop/projects/<project>` と走行ログを消す。退避していた作業ツリーと設計も消え、戻せない。
+箱の `/srv/swa/projects/<project>` と走行ログを消す。退避していた作業ツリーと設計も消え、戻せない。
 今のプロジェクトは消せないので、先にほかへ切り替える。ダッシュボードでは「プロジェクト」タブの「削除」で、
 名前を打って確かめてから消す。ホストのクローン（`C:\dev\roop-engin\projects\<project>`）は残る。

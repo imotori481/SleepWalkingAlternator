@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """本来ならあんたに訊かなければならない質問に、1つのコマンドで全部答える。
 
-    sudo -u solver /srv/loop/bin/smoke-local
+    sudo -u solver /srv/swa/bin/smoke-local
 
 自分ではなく `solver` として走らせる。ランナーが実際に使う経路を、実際に使う
 アカウントで確かめるのが目的だからだ。各検査は PASS か FAIL を出し、FAIL には
@@ -24,9 +24,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-ENDPOINT = os.environ.get("LOOP_LLM_ENDPOINT", "http://127.0.0.1:8080")
-CTX = int(os.environ.get("LOOP_LLM_CTX", "8192"))
-SOLVER_LOCAL = Path("/srv/loop/bin/solver-local")
+ENDPOINT = os.environ.get("SWA_LLM_ENDPOINT", "http://127.0.0.1:8080")
+CTX = int(os.environ.get("SWA_LLM_CTX", "8192"))
+SOLVER_LOCAL = Path("/srv/swa/bin/solver-local")
 
 notes: list[str] = []
 
@@ -66,7 +66,7 @@ def c2_running():
     except urllib.error.URLError as e:
         raise RuntimeError(
             f"nothing answering at {ENDPOINT}: {e.reason}\n"
-            "      Fix: sudo -u llm /srv/loop/bin/llm-serve   (leave it running)") from None
+            "      Fix: sudo -u llm /srv/swa/bin/llm-serve   (leave it running)") from None
     return ENDPOINT
 
 
@@ -79,10 +79,10 @@ def c3_context():
                            "      Fix: LOCAL_SOLVER.md, 'server too old'.")
     if int(n_ctx) < CTX:
         raise RuntimeError(
-            f"server context is {n_ctx} but LOOP_LLM_CTX says {CTX}.\n"
+            f"server context is {n_ctx} but SWA_LLM_CTX says {CTX}.\n"
             "      These disagreeing is the silent-truncation failure: the brief\n"
             "      loses its front and the model looks stupid instead of starved.\n"
-            f"      Fix: start llm-serve with --ctx-size {CTX}, or lower LOOP_LLM_CTX.")
+            f"      Fix: start llm-serve with --ctx-size {CTX}, or lower SWA_LLM_CTX.")
     return f"n_ctx={n_ctx}"
 
 
@@ -185,7 +185,7 @@ def c7_end_to_end():
 CHECKS = [
     ("llama-server is installed", c1_binary),
     ("the server is up and answering", c2_running),
-    ("its context matches LOOP_LLM_CTX", c3_context),
+    ("its context matches SWA_LLM_CTX", c3_context),
     ("it generates fast enough to finish a step", c4_speed),
     ("json_schema constrains the output", c5_constrained),
     ("thinking is off", c6_thinking_off),

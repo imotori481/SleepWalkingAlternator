@@ -15,12 +15,12 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
+import swa  # noqa: E402
 
-GREEN = loop.TestRun(3, 0, 0, 0, [], ["a", "b", "c"], "")
-FAILED = loop.TestRun(3, 1, 0, 0, ["AssertionError"], ["a", "b"], "",
+GREEN = swa.TestRun(3, 0, 0, 0, [], ["a", "b", "c"], "")
+FAILED = swa.TestRun(3, 1, 0, 0, ["AssertionError"], ["a", "b"], "",
                       failure_details=["tests.test_rules::test_score\n    assert 2 == 3"])
-SKIPPED = loop.TestRun(3, 0, 0, 1, [], ["a", "b"], "",
+SKIPPED = swa.TestRun(3, 0, 0, 1, [], ["a", "b"], "",
                        skipped_names=["tests.test_rules::test_slow"])
 
 
@@ -34,10 +34,10 @@ class TheSuiteBeforeTheFirstStep(unittest.TestCase):
             "PROJECT": self.root, "TESTS": self.root / "tests",
             "ledger": lambda event, **f: self.events.append((event, f)),
         }.items():
-            p = mock.patch.object(loop, name, value)
+            p = mock.patch.object(swa, name, value)
             p.start()
             self.addCleanup(p.stop)
-        p = mock.patch.dict(loop.LANGUAGE, loop.LANGUAGES["python"], clear=True)
+        p = mock.patch.dict(swa.LANGUAGE, swa.LANGUAGES["python"], clear=True)
         p.start()
         self.addCleanup(p.stop)
 
@@ -47,9 +47,9 @@ class TheSuiteBeforeTheFirstStep(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("", encoding="utf-8")
 
-    def check(self, result: loop.TestRun):
-        with mock.patch.object(loop, "pytest_run", return_value=result) as run:
-            loop.check_baseline()
+    def check(self, result: swa.TestRun):
+        with mock.patch.object(swa, "pytest_run", return_value=result) as run:
+            swa.check_baseline()
         return run
 
     def test_a_new_project_has_nothing_to_run(self):
@@ -70,7 +70,7 @@ class TheSuiteBeforeTheFirstStep(unittest.TestCase):
 
     def test_a_failing_test_stops_the_run_and_is_named(self):
         self.tests_on_disk("test_rules.py")
-        with self.assertRaises(loop.Halt) as caught:
+        with self.assertRaises(swa.Halt) as caught:
             self.check(FAILED)
         self.assertEqual(caught.exception.phase, "PLAN_LOAD")
         self.assertIn("not green before the first module", caught.exception.reason)
@@ -80,7 +80,7 @@ class TheSuiteBeforeTheFirstStep(unittest.TestCase):
     def test_a_skipped_test_stops_the_run_too(self):
         # VERIFY はスキップを緑と数えない。放っておくと、どのステップも緑にならない。
         self.tests_on_disk("test_rules.py")
-        with self.assertRaises(loop.Halt) as caught:
+        with self.assertRaises(swa.Halt) as caught:
             self.check(SKIPPED)
         self.assertIn("1 skipped", caught.exception.reason)
         self.assertIn("tests.test_rules::test_slow", caught.exception.detail)
@@ -97,7 +97,7 @@ class WhereRunStepAsks(unittest.TestCase):
         tasks = Path(self.temp.name) / "tasks.json"
         tasks.write_text('{"steps": []}', encoding="utf-8")
         self.fail_module = mock.Mock()
-        self.baseline = mock.Mock(side_effect=loop.Halt("PLAN_LOAD", "not green"))
+        self.baseline = mock.Mock(side_effect=swa.Halt("PLAN_LOAD", "not green"))
         for name, value in {
             "TASKS": tasks,
             "load_plan": lambda sid: (self.STEP, "context"),
@@ -109,23 +109,23 @@ class WhereRunStepAsks(unittest.TestCase):
             # ここから先に進んだら、それと分かるように止める。
             "set_writable": mock.Mock(side_effect=RuntimeError("went on to TEST_WRITE")),
         }.items():
-            p = mock.patch.object(loop, name, value)
+            p = mock.patch.object(swa, name, value)
             p.start()
             self.addCleanup(p.stop)
 
     def test_the_first_module_is_stopped_without_going_back_to_the_midstream(self):
-        with mock.patch.object(loop, "green_steps", return_value=set()):
-            with self.assertRaises(loop.Halt):
-                loop.run_step("S1")
+        with mock.patch.object(swa, "green_steps", return_value=set()):
+            with self.assertRaises(swa.Halt):
+                swa.run_step("S1")
         self.baseline.assert_called_once_with()
         self.fail_module.assert_not_called()
 
     def test_once_a_step_is_green_the_suite_is_not_checked_again(self):
         # 緑のステップの後で落ちているテストは、そのステップが壊したものだ。
         # それは VERIFY が回帰として扱う。
-        with mock.patch.object(loop, "green_steps", return_value={"S0"}):
+        with mock.patch.object(swa, "green_steps", return_value={"S0"}):
             with self.assertRaises(RuntimeError):
-                loop.run_step("S1")
+                swa.run_step("S1")
         self.baseline.assert_not_called()
 
 

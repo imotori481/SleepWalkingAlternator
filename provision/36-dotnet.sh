@@ -7,14 +7,14 @@
 #   1. パッケージはローカルのフィードから入れる。NuGet のフィードはプロジェクトが
 #      restore のたびに読むもので、egress を閉じた後も、このフォルダだけで足りる
 #      ようにしておく。ネットワークに出るのは、版を変えたときのこのスクリプトだけ
-#   2. csproj はプロジェクトの外（/srv/loop/dotnet/build）に置き、ランナーが柵の
+#   2. csproj はプロジェクトの外（/srv/swa/dotnet/build）に置き、ランナーが柵の
 #      場所から書く。プロジェクトの根に置くと、取り込んだ Unity のプロジェクトでは
 #      IDE が Unity の生成した csproj と一緒にそれを拾い、Directory.Build.props は
 #      Unity の csproj の出力先まで変えてしまう
 set -euo pipefail
 cd "$(dirname "$0")"
 
-TOOLS=/srv/loop/dotnet
+TOOLS=/srv/swa/dotnet
 FEED="$TOOLS/feed"
 BUILD="$TOOLS/build"
 
@@ -25,7 +25,7 @@ BUILD="$TOOLS/build"
 #
 # SDK は2つ入れる。Unity の計画は 8 で、Promete の計画は 10 で走る。Promete 2.1.0 は
 # net10.0 だけを持つ。どちらを使うかは、ランナーが build に置く global.json が決める
-# （loop.py の dotnet_global_json）。
+# （swa.py の dotnet_global_json）。
 DOTNET_SDKS="8.0 10.0"
 NUNIT_VERSION="3.14.0"
 NUNIT_ADAPTER_VERSION="4.6.0"
@@ -35,10 +35,10 @@ PROMETE_VERSION="2.1.0"
 
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
-install -d -o root -g root -m 755 /srv/loop/bin
-install -o root -g root -m 755 bin/smoke-dotnet /srv/loop/bin/smoke-dotnet
-install -o root -g root -m 755 bin/probe-unity /srv/loop/bin/probe-unity
-install -o root -g root -m 755 bin/probe-promete /srv/loop/bin/probe-promete
+install -d -o root -g root -m 755 /srv/swa/bin
+install -o root -g root -m 755 bin/smoke-dotnet /srv/swa/bin/smoke-dotnet
+install -o root -g root -m 755 bin/probe-unity /srv/swa/bin/probe-unity
+install -o root -g root -m 755 bin/probe-promete /srv/swa/bin/probe-promete
 
 # ---- SDK -------------------------------------------------------------------
 # Ubuntu の archive にある .NET を使う。Microsoft の apt リポジトリを足すと、
@@ -98,21 +98,21 @@ cat > "$TOOLS/nuget.config" <<EOF
 <configuration>
   <packageSources>
     <clear />
-    <add key="loop" value="$FEED" />
+    <add key="swa" value="$FEED" />
   </packageSources>
 </configuration>
 EOF
 
 # ---- ライブラリの参照 -------------------------------------------------------
 # プランナーとソルバーが Promete の型とメンバーを実物から知るための索引。フィードの
-# パッケージの XML ドキュメントから作る（loop_refs.py）。版が変わったときだけ作り直す。
-REFS=/srv/loop/refs
+# パッケージの XML ドキュメントから作る（swa_refs.py）。版が変わったときだけ作り直す。
+REFS=/srv/swa/refs
 install -d -o root -g root -m 755 "$REFS"
 if [ "$(cat "$REFS/promete/.version" 2>/dev/null)" != "$PROMETE_VERSION" ]; then
   pkg="$(find "$FEED" -maxdepth 1 -iname "promete.$PROMETE_VERSION.nupkg" | head -n 1)"
   [ -n "$pkg" ] || { echo "36-dotnet: promete.$PROMETE_VERSION.nupkg がフィードに無い" >&2; exit 1; }
   rm -rf "$REFS/promete.new"
-  python3 loop_refs.py xml "$pkg" Promete.xml "$REFS/promete.new"
+  python3 swa_refs.py xml "$pkg" Promete.xml "$REFS/promete.new"
   echo "$PROMETE_VERSION" > "$REFS/promete.new/.version"
   rm -rf "$REFS/promete"
   mv "$REFS/promete.new" "$REFS/promete"
@@ -130,7 +130,7 @@ install -d -o runner -g runner -m 700 "$BUILD"
 
 # ---- 検査 ------------------------------------------------------------------
 fail=0
-if ! sudo -u runner -H /srv/loop/bin/smoke-dotnet; then
+if ! sudo -u runner -H /srv/swa/bin/smoke-dotnet; then
   echo "FAIL: 凍結したフィードで C# のテストを走らせられない（Unity か Promete の組み合わせ）"; fail=1
 fi
 for who in solver planner critic; do

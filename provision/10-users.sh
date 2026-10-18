@@ -17,7 +17,7 @@
 #           ファイルシステムの事実にする。
 #
 # ループのアカウントは、互いのホームも保守ユーザーのホームも読めてはならない。
-# だからリポジトリはどのホームの下でもなく /srv/loop に置く。
+# だからリポジトリはどのホームの下でもなく /srv/swa に置く。
 set -euo pipefail
 
 ADMIN_USER="${ADMIN_USER:-maint}"
@@ -53,7 +53,7 @@ usermod -aG criticw critic
 usermod -aG criticw runner
 
 # 人間のグループ。保守ユーザーを入れるのは、人が sudo なしで
-# /srv/loop/human/in にファイルを置けるようにするため。runner を入れるのは、
+# /srv/swa/human/in にファイルを置けるようにするため。runner を入れるのは、
 # 置かれたものを読めるようにするため。solver も planner も入れない。そこが
 # 要点だ。プロジェクトを始める仕様書と、設計へのコメントは、人だけが言ってよい
 # 2つのことだ。

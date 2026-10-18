@@ -2,7 +2,7 @@ let session;
 
 async function api(path, options = {}) {
   const headers = {"Content-Type": "application/json", ...(options.headers || {})};
-  if (options.method === "POST") headers["X-Loop-Token"] = session.token;
+  if (options.method === "POST") headers["X-Swa-Token"] = session.token;
   const response = await fetch(path, {...options, headers, cache: "no-store"});
   const value = await response.json();
   if (!response.ok) throw new Error(value.error || `HTTP ${response.status}`);
@@ -149,7 +149,7 @@ function mergeRuns(mirror, live) {
     const entry = {source: `箱: ${live.project}`, started: live.loop.started, tokens: live.loop.tokens,
                    outcome: live.loop.outcome === "running" ? "active" : live.loop.outcome};
     // 箱のログに read と write が無い（それを出す前のランナーの）回は、種類別を
-    // 数えられない。USD を返さない古い `loop now` もある。そのときは写しの値を残す。
+    // 数えられない。USD を返さない古い `swa now` もある。そのときは写しの値を残す。
     if (live.loop.kinds) entry.kinds = live.loop.kinds;
     if (live.loop.usd) entry.usd = live.loop.usd;
     const same = runs.findIndex(run => [`projects/${live.project}`, "project"].includes(run.source)
@@ -251,9 +251,9 @@ function gateActions(label) {
   const box = document.createElement("div"); box.className = "stack";
   const comment = document.createElement("textarea"); comment.maxLength = 4000;
   comment.placeholder = "差し戻すときのコメント。プランナーが次の書き直しで読む";
-  const approve = document.createElement("button"); approve.textContent = `${label}を承認（loop approve）`;
+  const approve = document.createElement("button"); approve.textContent = `${label}を承認（swa approve）`;
   approve.onclick = () => act(approve, "/api/approve", {}, `${label}を承認して次の段へ流します。よいですか？`);
-  const reject = document.createElement("button"); reject.textContent = "差し戻す（loop reject）"; reject.className = "quiet";
+  const reject = document.createElement("button"); reject.textContent = "差し戻す（swa reject）"; reject.className = "quiet";
   reject.onclick = () => {
     if (!comment.value.trim()) { alert("差し戻すにはコメントを書いてください。"); return; }
     act(reject, "/api/reject", {comment: comment.value}, `コメントを付けて${label}を書き直させます。よいですか？`);
@@ -271,7 +271,7 @@ function reopenActions(modules) {
     check.type = "checkbox"; check.value = id; label.append(check, ` ${id}`);
     return {label, check};
   });
-  const button = document.createElement("button"); button.textContent = "選んだモジュールを中段に戻す（loop reopen）";
+  const button = document.createElement("button"); button.textContent = "選んだモジュールを中段に戻す（swa reopen）";
   button.onclick = () => {
     const chosen = boxes.filter(item => item.check.checked).map(item => item.check.value);
     if (!chosen.length) { alert("直すモジュールを1つ以上選んでください。"); return; }
@@ -872,7 +872,7 @@ function fillFrameworks() {
 function modelRow(role, current, efforts) {
   const row = document.createElement("div"); row.className = "model-row";
   row.append(text("span", ROLE_LABEL[role] || role));
-  if (!current) { row.append(text("p", `/etc/loop/${role}.env がありません`, "why")); return row; }
+  if (!current) { row.append(text("p", `/etc/swa/${role}.env がありません`, "why")); return row; }
   const model = document.createElement("input");
   model.value = current.model; model.placeholder = "既定"; model.setAttribute("list", "model-options");
   const effort = document.createElement("select");
@@ -987,7 +987,7 @@ async function startImport(element) {
 }
 
 // 操作の5つの欄はタブで切り替える。選んだタブは、この端末のブラウザにだけ覚える。
-const TAB_KEY = "loop-dashboard-tab";
+const TAB_KEY = "swa-dashboard-tab";
 
 function selectTab(name) {
   const tabs = [...document.querySelectorAll("#control-tabs [role=tab]")].filter(tab => !tab.hidden);

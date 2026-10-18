@@ -1,8 +1,8 @@
 @echo off
 REM Refresh the host-side copies of EVERY repository the sandbox holds.
 REM
-REM Until this runs, everything the loop has produced lives only inside the
-REM distro's VHDX. The runner pushes to /srv/loop/repo.git, but that bare repo
+REM Until this runs, everything SWA has produced lives only inside the
+REM distro's VHDX. The runner pushes to /srv/swa/repo.git, but that bare repo
 REM is in the same VHDX -- it protects a green step from `reset` and `clean`,
 REM not from losing the disk. This is the step that puts it on another one.
 REM
@@ -18,22 +18,22 @@ REM pointing at them. Unreachable objects are what `git gc` deletes, and gc runs
 REM on its own inside ordinary commands. The backup would stop existing at a
 REM moment nobody observed. So:
 REM
-REM     /srv/loop/repo.runN.git  ->  C:\dev\roop-engin\runs\run-NNN  (immutable)
-REM     /srv/loop/repo.git       ->  C:\dev\roop-engin\project        (the live one)
+REM     /srv/swa/repo.runN.git  ->  C:\dev\roop-engin\runs\run-NNN  (immutable)
+REM     /srv/swa/repo.git       ->  C:\dev\roop-engin\project        (the live one)
 REM
 REM which is the shape the sandbox already uses for project.runN. A copy should
 REM look like the thing it is a copy of.
 REM
-REM PROJECTS (loop project init/use) are copied one clone per project:
+REM PROJECTS (swa project init/use) are copied one clone per project:
 REM
-REM     /srv/loop/projects/<name>/repo.git  ->  C:\dev\roop-engin\projects\<name>
+REM     /srv/swa/projects/<name>/repo.git  ->  C:\dev\roop-engin\projects\<name>
 REM
-REM That is the clone loop-import.cmd made, so the sandbox's commits land next
-REM to the GitHub origin as the remote `loop`. The working branch moves only
+REM That is the clone swa-import.cmd made, so the sandbox's commits land next
+REM to the GitHub origin as the remote `swa`. The working branch moves only
 REM when it can fast-forward; anything else is left for a person to sort out.
 REM Pushing the branch to GitHub is also left to a person.
 REM
-REM The runner's step-* tags go to refs/loop-tags/, not refs/tags/. They move on
+REM The runner's step-* tags go to refs/swa-tags/, not refs/tags/. They move on
 REM every run and mean nothing on GitHub, and `git push --tags` must not carry
 REM them there.
 
@@ -42,7 +42,7 @@ setlocal enabledelayedexpansion
 set "MIRRORROOT=C:\dev\roop-engin"
 set "ARCHIVEROOT=%MIRRORROOT%\runs"
 set "PROJECTROOT=%MIRRORROOT%\projects"
-set "SSHHOST=loop-runner"
+set "SSHHOST=swa-runner"
 
 REM The check has to sit INSIDE the `if not exist`. When the directory is
 REM already there mkdir never runs, and errorlevel still holds whatever the
@@ -59,21 +59,21 @@ if not exist "%ARCHIVEROOT%" (
 REM One line, space separated, straight from the shell's own glob: no pipes, so
 REM nothing here needs batch escaping.
 set "REPOS="
-for /f "delims=" %%L in ('ssh -o BatchMode^=yes %SSHHOST% "cd /srv/loop && echo repo*.git"') do set "REPOS=%%L"
+for /f "delims=" %%L in ('ssh -o BatchMode^=yes %SSHHOST% "cd /srv/swa && echo repo*.git"') do set "REPOS=%%L"
 
 if not defined REPOS (
-  echo cannot reach %SSHHOST%, or /srv/loop holds no repository.
-  echo   is the distro up?   loop-dev
+  echo cannot reach %SSHHOST%, or /srv/swa holds no repository.
+  echo   is the distro up?   swa-dev
   exit /b 1
 )
 
 echo repositories on the sandbox: %REPOS%
 echo.
 
-REM Projects first: once /srv/loop/repo.git is a link to the current project,
+REM Projects first: once /srv/swa/repo.git is a link to the current project,
 REM the live mirror below is replaced whenever the current project changes, and
 REM that is only safe once every project has its own copy.
-for /f "delims=" %%P in ('ssh -o BatchMode^=yes %SSHHOST% "cd /srv/loop/projects 2>/dev/null && ls -d */repo.git 2>/dev/null"') do (
+for /f "delims=" %%P in ('ssh -o BatchMode^=yes %SSHHOST% "cd /srv/swa/projects 2>/dev/null && ls -d */repo.git 2>/dev/null"') do (
   call :sync_project "%%P"
   if errorlevel 1 (
     echo FAILED: stopping before the live mirror is changed.
@@ -136,7 +136,7 @@ if /i "%NAME%"=="repo.git" (
 
 if not exist "%DEST%\.git" (
   echo   %NAME%  ^-^>  %DEST%   [clone]
-  git clone --quiet "ssh://%SSHHOST%/srv/loop/%NAME%" "%DEST%"
+  git clone --quiet "ssh://%SSHHOST%/srv/swa/%NAME%" "%DEST%"
   if errorlevel 1 exit /b 1
   exit /b 0
 )
@@ -183,55 +183,55 @@ REM %1 is "<name>/repo.git", straight from ls.
 set "REL=%~1"
 set "NAME=%REL:/repo.git=%"
 set "DEST=%PROJECTROOT%\%NAME%"
-set "URL=ssh://%SSHHOST%/srv/loop/projects/%NAME%/repo.git"
+set "URL=ssh://%SSHHOST%/srv/swa/projects/%NAME%/repo.git"
 
 if not exist "%DEST%\.git" (
   echo   projects/%NAME%  ^-^>  %DEST%   [clone]
-  git clone --quiet --no-tags --origin loop "%URL%" "%DEST%"
+  git clone --quiet --no-tags --origin swa "%URL%" "%DEST%"
   if errorlevel 1 exit /b 1
 ) else (
   echo   projects/%NAME%  ^-^>  %DEST%   [fetch]
 )
 
-REM A loop-import clone has GitHub as origin and no `loop` yet.
-git -C "%DEST%" remote get-url loop >nul 2>&1
+REM A swa-import clone has GitHub as origin and no `swa` yet.
+git -C "%DEST%" remote get-url swa >nul 2>&1
 if errorlevel 1 (
-  git -C "%DEST%" remote add loop "%URL%"
+  git -C "%DEST%" remote add swa "%URL%"
 ) else (
-  git -C "%DEST%" remote set-url loop "%URL%"
+  git -C "%DEST%" remote set-url swa "%URL%"
 )
 if errorlevel 1 exit /b 1
 
-git -C "%DEST%" fetch --quiet --prune --no-tags loop "+refs/heads/*:refs/remotes/loop/*" "+refs/tags/*:refs/loop-tags/*"
+git -C "%DEST%" fetch --quiet --prune --no-tags swa "+refs/heads/*:refs/remotes/swa/*" "+refs/tags/*:refs/swa-tags/*"
 if errorlevel 1 exit /b 1
 
 REM The branch the sandbox works on is the bare's HEAD.
 set "HEADREF="
-for /f "tokens=2" %%H in ('git -C "%DEST%" ls-remote --symref loop HEAD ^| findstr /b "ref:"') do set "HEADREF=%%H"
+for /f "tokens=2" %%H in ('git -C "%DEST%" ls-remote --symref swa HEAD ^| findstr /b "ref:"') do set "HEADREF=%%H"
 if not defined HEADREF (
   echo      cannot tell which branch the sandbox works on.
   exit /b 1
 )
 set "BRANCH=%HEADREF:refs/heads/=%"
-git -C "%DEST%" rev-parse -q --verify "refs/remotes/loop/%BRANCH%" >nul
+git -C "%DEST%" rev-parse -q --verify "refs/remotes/swa/%BRANCH%" >nul
 if errorlevel 1 (
   echo      %BRANCH% has no commits on the sandbox yet.
   exit /b 0
 )
 
-REM The copy is already safe in refs/remotes/loop/. Moving the working branch
+REM The copy is already safe in refs/remotes/swa/. Moving the working branch
 REM is a convenience, so a branch that cannot fast-forward is reported, not
 REM forced, and does not stop the other projects.
 set "CUR="
 for /f "delims=" %%C in ('git -C "%DEST%" symbolic-ref --short -q HEAD') do set "CUR=%%C"
 if "%CUR%"=="%BRANCH%" (
-  git -C "%DEST%" merge --ff-only --quiet "loop/%BRANCH%"
+  git -C "%DEST%" merge --ff-only --quiet "swa/%BRANCH%"
 ) else (
-  git -C "%DEST%" fetch --quiet . "refs/remotes/loop/%BRANCH%:refs/heads/%BRANCH%"
+  git -C "%DEST%" fetch --quiet . "refs/remotes/swa/%BRANCH%:refs/heads/%BRANCH%"
 )
 if errorlevel 1 (
-  echo      NOTE: %BRANCH% was not moved. It has diverged from loop/%BRANCH%,
-  echo            or local changes are in the way. The copy is in loop/%BRANCH%.
+  echo      NOTE: %BRANCH% was not moved. It has diverged from swa/%BRANCH%,
+  echo            or local changes are in the way. The copy is in swa/%BRANCH%.
 )
-git -C "%DEST%" log --oneline -1 "loop/%BRANCH%"
+git -C "%DEST%" log --oneline -1 "swa/%BRANCH%"
 exit /b 0

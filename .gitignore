@@ -1,4 +1,4 @@
-# 資格情報。3役のトークンは箱の /etc/loop/<役>.env に置き、リポジトリには置かない。
+# 資格情報。3役のトークンは箱の /etc/swa/<役>.env に置き、リポジトリには置かない。
 # 公開リポジトリに一度でも入れば自動収集されるので、写しを置く事故も塞いでおく。
 .env
 .env.*
@@ -12,10 +12,10 @@ id_rsa*
 id_ed25519*
 *_ed25519
 *_ed25519.pub
-loop-dev
-loop-dev.pub
-loop-runner
-loop-runner.pub
+swa-dev
+swa-dev.pub
+swa-runner
+swa-runner.pub
 
 # `wsl --export` snapshots. Several GB; keep them outside the repo.
 *.tar

@@ -1,16 +1,16 @@
 """既存リポジトリのブランチを、箱の新しいプロジェクトとして取り込む。
 
-ダッシュボードの「取り込み」タブと `host\\loop-import.cmd` の両方がこれを使う。手順の
+ダッシュボードの「取り込み」タブと `host\\swa-import.cmd` の両方がこれを使う。手順の
 実装を1つにしておけば、片方だけ直してずれることが無い。
 
     1. <url> を WORKROOT\\<project> にクローンする。もうあれば使い回す
     2. <branch> に切り替える。どこにも無ければ <base> から作る
-    3. 箱で loop project init <project> --branch <branch>
-    4. loop-runner で <branch> を箱の bare に push する
-    5. 箱で loop project use <project>。切り替えが終わるまで待つ
+    3. 箱で swa project init <project> --branch <branch>
+    4. swa-runner で <branch> を箱の bare に push する
+    5. 箱で swa project use <project>。切り替えが終わるまで待つ
 
 GitHub とやり取りするのはホストだけだ。箱は push でブランチを受け取り、GitHub の
-資格情報を持たない。3 と 5 は `loop dash` を通すので、パスワードを訊かれない。
+資格情報を持たない。3 と 5 は `swa dash` を通すので、パスワードを訊かれない。
 
 HTTP から来た値は git の引数になる。だから形をここで確かめ、`shell=False` の
 引数配列で渡し、URL の前には `--` を置く。オプションとしては読ませない。
@@ -35,13 +35,13 @@ except ImportError:  # 直接実行したとき: python host/dashboard/importer.
     from live import Live
 
 WORKROOT = Path(r"C:\dev\roop-engin\projects")
-PUSH_HOST = "loop-runner"
+PUSH_HOST = "swa-runner"
 TAIL_LINES = 60
 # 切り替えの待ち。初めてのプロジェクトはプロビジョニングで数分かかる。
 SWITCH_POLL_SECONDS = 3.0
 SWITCH_LIMIT_SECONDS = 30 * 60
 
-# 箱の loop_dash.py と同じ規則。箱でも確かめるが、クローンする前に断る。
+# 箱の swa_dash.py と同じ規則。箱でも確かめるが、クローンする前に断る。
 PROJECT = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 FENCE = re.compile(r"[A-Za-z0-9._/-]{0,200}")
@@ -120,7 +120,7 @@ class Importer:
             message = self.live.init_project(request.project, request.branch,
                                              request.src, request.tests)
         except ValueError as error:
-            raise ImportFailed(f"loop project init failed. Nothing was pushed. {error}")
+            raise ImportFailed(f"swa project init failed. Nothing was pushed. {error}")
         for line in message.splitlines():
             say("      " + line)
 
@@ -131,21 +131,21 @@ class Importer:
             raise ImportFailed(
                 f"{error}\nThe empty project is left on the sandbox. After fixing the cause:\n"
                 f"  git -C \"{dest}\" push {target} {request.branch}\n"
-                f"  then switch to {request.project} on the dashboard (or: loop project use "
+                f"  then switch to {request.project} on the dashboard (or: swa project use "
                 f"{request.project})")
 
         say(f"[5/5] Switching the sandbox to {request.project} ...")
         try:
             say("      " + self.live.use_project(request.project))
         except ValueError as error:
-            raise ImportFailed(f"loop project use failed. The branch is already on the "
+            raise ImportFailed(f"swa project use failed. The branch is already on the "
                                f"sandbox. {error}")
         self._wait_for_switch(request.project, say)
         say(f"OK. {request.project} is the current project. Host clone: {dest}")
 
     def push_target(self, project: str) -> str:
-        """箱のプロジェクトの bare。ホストは runner として loop-runner で push する。"""
-        return f"{self.push_host}:/srv/loop/projects/{project}/repo.git"
+        """箱のプロジェクトの bare。ホストは runner として swa-runner で push する。"""
+        return f"{self.push_host}:/srv/swa/projects/{project}/repo.git"
 
     def _reuse(self, dest: Path, url: str, say: Callable[[str], None]) -> None:
         # 同じ名前の別リポジトリのクローンなら、違う履歴を push してしまう。
@@ -170,7 +170,7 @@ class Importer:
             self._git(dest, "switch", "--quiet", branch)
             if not base:
                 say("      No base branch given. For pull requests from the dashboard, record it:")
-                say(f"        git -C \"{dest}\" config branch.{branch}.loopBase <base-branch>")
+                say(f"        git -C \"{dest}\" config branch.{branch}.swaBase <base-branch>")
                 return
         else:
             # 親を省くと origin の既定のブランチから作る。名前は下で記録するので、
@@ -184,10 +184,10 @@ class Importer:
             # --no-track: 新しいブランチが親ブランチへ push しないように。
             self._git(dest, "switch", "--quiet", "--no-track", "-c", branch, f"origin/{base}")
         # ダッシュボードは、承認した作業をこのブランチへの PR にして送る。
-        self._git(dest, "config", f"branch.{branch}.loopBase", base)
+        self._git(dest, "config", f"branch.{branch}.swaBase", base)
 
     def _wait_for_switch(self, project: str, say: Callable[[str], None]) -> None:
-        """箱の切り替えは一時ユニットで裏に回る。終わるまで `loop now` を見る。"""
+        """箱の切り替えは一時ユニットで裏に回る。終わるまで `swa now` を見る。"""
         waited = 0.0
         value: dict[str, Any] = {}
         while waited < SWITCH_LIMIT_SECONDS:
@@ -275,7 +275,7 @@ def _now() -> str:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="loop-import",
+        prog="swa-import",
         description="put a branch of an existing repository on the sandbox as a new project")
     parser.add_argument("project")
     parser.add_argument("url")
@@ -292,7 +292,7 @@ def main(argv: list[str]) -> int:
     except ValueError as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    print("Next:  loop go <requirements>")
+    print("Next:  swa go <requirements>")
     return 0
 
 

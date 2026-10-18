@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # クリティックはそもそも起動できるか。書いたものは戻ってくるか。
 #
-#     sudo -u runner /srv/loop/bin/smoke-critic
+#     sudo -u runner /srv/swa/bin/smoke-critic
 #
 # あえて安く済ませる。これが確かめるもの（sudoers の許可、資格情報のファイル、
 # 使い捨ての HOME、作業ディレクトリ、Write ツール、ブリーフのグループ）は、
@@ -14,11 +14,11 @@ set -euo pipefail
 
 [ "$(id -un)" = "runner" ] || { echo "run as runner: sudo -u runner $0" >&2; exit 1; }
 
-BRIEF=/srv/loop/critic/brief/smoke.md
-OUT=/srv/loop/critic/out
+BRIEF=/srv/swa/critic/brief/smoke.md
+OUT=/srv/swa/critic/out
 TOKEN="critic-smoke-$$"
 
-mkdir -p /srv/loop/critic/brief
+mkdir -p /srv/swa/critic/brief
 rm -f "$OUT"/* 2>/dev/null || true
 
 cat > "$BRIEF" <<EOF
@@ -34,7 +34,7 @@ chmod 640 "$BRIEF"
 
 echo "starting the critic..."
 set +e
-sudo -u critic /srv/loop/bin/critic-run "$BRIEF" 120 >/tmp/smoke-critic.log 2>&1
+sudo -u critic /srv/swa/bin/critic-run "$BRIEF" 120 >/tmp/smoke-critic.log 2>&1
 rc=$?
 set -e
 

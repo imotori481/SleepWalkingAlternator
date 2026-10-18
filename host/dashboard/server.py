@@ -57,7 +57,7 @@ def send_pull_request(state: DashboardState, pulls: PullRequests | None) -> dict
 
 
 def send_draft_pull_request(pulls: PullRequests | None) -> dict:
-    """最後に緑になったモジュールまでを下書きの PR にする（loop-pr と同じ）。
+    """最後に緑になったモジュールまでを下書きの PR にする（swa-pr と同じ）。
 
     断られたら理由を返す。下書きは承認ではないので、判断の記録には残さない。
     """
@@ -109,7 +109,7 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
             return reach.of(self.headers)
 
         def _authorized(self) -> bool:
-            return secrets.compare_digest(self.headers.get("X-Loop-Token", ""), token)
+            return secrets.compare_digest(self.headers.get("X-Swa-Token", ""), token)
 
         def do_GET(self) -> None:
             scope, user = self._caller()
@@ -141,7 +141,7 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
                 return
             if path == "/api/pull":
                 self._json(mirror.status() if mirror is not None
-                           else {"error": "loop-pull is not configured"})
+                           else {"error": "swa-pull is not configured"})
                 return
             if path == "/api/import":
                 self._json(imports.status() if imports is not None
@@ -258,9 +258,9 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
                 if path == "/api/pull":
                     # ホストのディスクに書く。成果物の起動と同じく、この機械の前でだけ。
                     if scope != LOCAL:
-                        raise ValueError("loop-pull can only be started at the machine itself")
+                        raise ValueError("swa-pull can only be started at the machine itself")
                     if mirror is None:
-                        raise ValueError("loop-pull is not configured")
+                        raise ValueError("swa-pull is not configured")
                     self._json(mirror.start(), HTTPStatus.ACCEPTED)
                     return
                 if path == "/api/import":
@@ -308,7 +308,7 @@ def main() -> int:
                     PullRequests(state.project, state.mirrors / "projects"), MirrorSync(),
                     ImportJob(Importer(live))),
     )
-    print(f"Loop dashboard: http://127.0.0.1:{args.port}")
+    print(f"SWA dashboard: http://127.0.0.1:{args.port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

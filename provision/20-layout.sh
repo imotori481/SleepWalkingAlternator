@@ -6,87 +6,87 @@
 # マウントしても、DrvFs は 40-perms.sh が頼る所有者とモードビットを表せず、
 # テストの凍結を強制できなくなる。
 #
-#   /srv/loop/repo.git   bare リポジトリ。ランナーが段のコマンドと GREEN の
+#   /srv/swa/repo.git   bare リポジトリ。ランナーが段のコマンドと GREEN の
 #                        あとに push し、ホストが `runner` として SSH で引く。
-#                        loop-project.sh で管理する箱では、今のプロジェクトの
-#                        /srv/loop/projects/<名前>/repo.git を指すリンク。
-#   /srv/loop/project    ループが実際に回る作業ツリー。bare の HEAD が指す
+#                        swa-project.sh で管理する箱では、今のプロジェクトの
+#                        /srv/swa/projects/<名前>/repo.git を指すリンク。
+#   /srv/swa/project    ループが実際に回る作業ツリー。bare の HEAD が指す
 #                        ブランチをチェックアウトする
-#   /srv/loop/brief      runner がステップごとのブリーフを書き、solver が読む。
+#   /srv/swa/brief      runner がステップごとのブリーフを書き、solver が読む。
 #                        runner から solver への唯一の経路で、これが
 #                        RUNNER_SPEC 5 を守っている。solver は plan/、docs/、
 #                        ac/ を読まず、設計の全体も受け入れ条件も見ることがない。
 set -euo pipefail
 . "$(dirname "$0")/layout.sh"
 
-# /srv/loop そのものは root 所有。runner の所有にすると、runner は直下の
+# /srv/swa そのものは root 所有。runner の所有にすると、runner は直下の
 # エントリを改名できる。中身が root 所有でも関係なく、bin/ を退けて自分の
 # solver-run を置けば、sudoers はパスで許可しているので、それを solver として
 # 実行できる。runner/ を退ければ関門のコードも差し替えられる。
 # runner が書く場所は、下で1つずつ runner に渡す。
-install -d -o root -g root -m 755 /srv/loop
+install -d -o root -g root -m 755 /srv/swa
 # setgid: runner がここに書くブリーフはグループ solverw にならなければ
 # ならない。そうでないと、solver は自分の唯一の経路を読めない。
-install -d -o runner -g solverw -m 2750 /srv/loop/brief
-# 走行ログの置き場。runner は /srv/loop の直下に書けないので、ここに書く。
+install -d -o runner -g solverw -m 2750 /srv/swa/brief
+# 走行ログの置き場。runner は /srv/swa の直下に書けないので、ここに書く。
 # 走行ログには失敗したテストの中身が載り、now.json にはステップの goal が載る。
 # 読めるのは runner と、humanw にいる保守ユーザーだけにする。setgid で、runner が
 # 作ったファイルもグループ humanw を継ぐ。
-install -d -o runner -g humanw -m 2750 /srv/loop/logs
-chmod -R o-rwx /srv/loop/logs
+install -d -o runner -g humanw -m 2750 /srv/swa/logs
+chmod -R o-rwx /srv/swa/logs
 
 # repo.git と project は runner が中身を作る。直下に作る権限は runner に無いので、
 # 空のディレクトリを root が runner 所有で先に用意する。git init --bare も
 # git clone も、空の既存ディレクトリをそのまま使える。
 # 無いときだけ作る。project は 40-perms.sh が 3770 に締めるので、ここで毎回
 # 755 に戻すと、このスクリプトを単独で流したときに誰からでも読める状態になる。
-[ -d /srv/loop/repo.git ] || install -d -o runner -g runner -m 755 /srv/loop/repo.git
-[ -d /srv/loop/project ]  || install -d -o runner -g runner -m 755 /srv/loop/project
+[ -d /srv/swa/repo.git ] || install -d -o runner -g runner -m 755 /srv/swa/repo.git
+[ -d /srv/swa/project ]  || install -d -o runner -g runner -m 755 /srv/swa/project
 
-if [ ! -f /srv/loop/repo.git/HEAD ]; then
-  sudo -u runner git init --bare -b main /srv/loop/repo.git
+if [ ! -f /srv/swa/repo.git/HEAD ]; then
+  sudo -u runner git init --bare -b main /srv/swa/repo.git
 fi
 
-sudo -u runner git config --global user.name  "loop runner"
+sudo -u runner git config --global user.name  "swa runner"
 sudo -u runner git config --global user.email "runner@$(hostname)"
 sudo -u runner git config --global init.defaultBranch main
 # 作業ツリーは runner の所有だが、グループで書けるディレクトリを含む。
 # git がそれを所有者の疑わしいリポジトリとして扱わないようにする。
 #
-# /srv/loop/repo.git も登録する。loop-project.sh で管理する箱では、これは root 所有の
+# /srv/swa/repo.git も登録する。swa-project.sh で管理する箱では、これは root 所有の
 # シンボリックリンクだ。git はリンクの先ではなくリンクそのものの持ち主を見るので、
 # 登録が無いと clone も push も、ホストからの fetch も "dubious ownership" で拒まれる。
 #
 # 既にある行は足さない。--add は流すたびに同じ行を積む。
-for d in /srv/loop/project /srv/loop/repo.git; do
+for d in /srv/swa/project /srv/swa/repo.git; do
   sudo -u runner git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$d" \
     || sudo -u runner git config --global --add safe.directory "$d"
 done
 
-if [ ! -d /srv/loop/project/.git ]; then
-  sudo -u runner git clone /srv/loop/repo.git /srv/loop/project
+if [ ! -d /srv/swa/project/.git ]; then
+  sudo -u runner git clone /srv/swa/repo.git /srv/swa/project
 fi
 
 # 柵の2つのディレクトリ。場所はプロジェクトごとに決まる（layout.sh）。途中の
 # ディレクトリも runner が作る。
 sudo -u runner install -d -m 755 \
-  "/srv/loop/project/$LAYOUT_SRC" \
-  "/srv/loop/project/$LAYOUT_TESTS"
+  "/srv/swa/project/$LAYOUT_SRC" \
+  "/srv/swa/project/$LAYOUT_TESTS"
 
 # 開いた状態で作って 40-perms.sh が後から締めるのではなく、できた瞬間から
 # 非公開にする。柵を閉じるのを別のスクリプトに任せると、開いたまま残る。
 # 実際、新しい題材のためにプロジェクトを作り直したとき、このファイルだけを
 # 流して 40-perms.sh を流さず、10ステップのあいだ受け入れ条件が全部 solver から
-# 読める状態で走った。40-perms.sh もこれらを設定し、権限が違えば loop.py は
+# 読める状態で走った。40-perms.sh もこれらを設定し、権限が違えば swa.py は
 # 起動を拒む。3つのうち毎回必ず走るのはランナーだけだからだ。
 #
 # docs/ は設計仕様書、ac/ は受け入れ条件。どちらも solver に見せない。設計の
 # 要る部分は runner がブリーフに入れて渡す。
 sudo -u runner install -d -m 700 \
-  /srv/loop/project/plan \
-  /srv/loop/project/.runner \
-  /srv/loop/project/docs \
-  /srv/loop/project/ac
+  /srv/swa/project/plan \
+  /srv/swa/project/.runner \
+  /srv/swa/project/docs \
+  /srv/swa/project/ac
 
 # 根の conftest.py は2つの仕事をし、pytest が自動で読み込む。
 #
@@ -106,9 +106,9 @@ sudo -u runner install -d -m 700 \
 # 取り込んだリポジトリが自分の conftest.py を持っていれば、上書きせずに止まる。
 # 上書きすると、そのリポジトリのテストの前提を黙って壊す。runner 以外がコミット
 # したことのあるファイルは、そのリポジトリの持ち物だ。中身では比べない。比べると、
-# ここの雛形を直しただけで止まる。
-cd /srv/loop/project
-if sudo -u runner git log --format=%an -- conftest.py 2>/dev/null | grep -qvx 'loop runner'; then
+# ここの雛形を直しただけで止まる。loop runner は、名前が loop だったころの runner。
+cd /srv/swa/project
+if sudo -u runner git log --format=%an -- conftest.py 2>/dev/null | grep -qvxE 'swa runner|loop runner'; then
   echo "20-layout: リポジトリが自分の conftest.py を持っている。上書きしない" >&2
   exit 1
 fi
@@ -157,10 +157,10 @@ fi
 # 直下に書けなければ、直下のエントリは改名も削除もできない。bin/ と runner/ を
 # 差し替える経路はこれで閉じる。渡した場所には書けることも合わせて確かめる。
 fail=0
-if sudo -u runner test -w /srv/loop; then
-  echo "FAIL: runner should NOT be able to: test -w /srv/loop"; fail=1
+if sudo -u runner test -w /srv/swa; then
+  echo "FAIL: runner should NOT be able to: test -w /srv/swa"; fail=1
 fi
-for d in /srv/loop/brief /srv/loop/logs /srv/loop/repo.git /srv/loop/project; do
+for d in /srv/swa/brief /srv/swa/logs /srv/swa/repo.git /srv/swa/project; do
   if ! sudo -u runner test -w "$d"; then
     echo "FAIL: runner should be able to: test -w $d"; fail=1
   fi

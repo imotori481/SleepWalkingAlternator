@@ -17,7 +17,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
+import swa  # noqa: E402
 
 
 def git(root: Path, *args: str) -> str:
@@ -40,11 +40,11 @@ class Repository(unittest.TestCase):
         git(self.root, "add", "-A")
         git(self.root, "commit", "-q", "-m", "base")
         # テストの柵は作業ツリーにだけあり、追跡されたファイルが無い。
-        self.tests = self.root / "Assets" / "Tests" / "Editor" / "Loop"
+        self.tests = self.root / "Assets" / "Tests" / "Editor" / "Swa"
         self.tests.mkdir(parents=True)
 
         self.writable = mock.Mock()
-        real_run = loop.run
+        real_run = swa.run
         plan = self.root / "plan"
         for name, value in {
             "PROJECT": self.root, "TESTS": self.tests, "SRC": self.code.parent,
@@ -53,25 +53,25 @@ class Repository(unittest.TestCase):
             "set_writable": self.writable,
             "ledger": lambda *a, **k: None,
         }.items():
-            p = mock.patch.object(loop, name, value)
+            p = mock.patch.object(swa, name, value)
             p.start()
             self.addCleanup(p.stop)
 
 
 class RetryingTestWrite(Repository):
-    FILES = ["Assets/Tests/Editor/Loop/TacticalTests.cs", "Assets/Source/Gameplay/Tactical.cs"]
+    FILES = ["Assets/Tests/Editor/Swa/TacticalTests.cs", "Assets/Source/Gameplay/Tactical.cs"]
 
     def test_an_existing_file_comes_back_even_beside_a_new_one(self):
         (self.tests / "TacticalTests.cs").write_text("broken", encoding="utf-8")
         self.code.write_text("class Tactical { stub }\n", encoding="utf-8")
-        loop.restore_to_head(self.FILES)
+        swa.restore_to_head(self.FILES)
         self.assertEqual(self.code.read_text(encoding="utf-8"), "class Tactical {}\n")
         self.assertFalse((self.tests / "TacticalTests.cs").exists())
-        self.assertEqual(loop.touched_paths(), set())
+        self.assertEqual(swa.touched_paths(), set())
 
     def test_new_files_alone_are_just_removed(self):
         (self.tests / "TacticalTests.cs").write_text("broken", encoding="utf-8")
-        loop.restore_to_head(self.FILES[:1])
+        swa.restore_to_head(self.FILES[:1])
         self.assertFalse((self.tests / "TacticalTests.cs").exists())
 
 
@@ -79,7 +79,7 @@ class Reset(Repository):
     def test_a_fence_without_tracked_files_survives_the_clean(self):
         (self.tests / "TacticalTests.cs").write_text("written by the solver", encoding="utf-8")
         self.code.write_text("class Tactical { half done }\n", encoding="utf-8")
-        loop.cmd_reset("S1")
+        swa.cmd_reset("S1")
         self.assertTrue(self.tests.is_dir())
         self.assertEqual(list(self.tests.iterdir()), [])
         self.assertEqual(self.code.read_text(encoding="utf-8"), "class Tactical {}\n")
@@ -88,7 +88,7 @@ class Reset(Repository):
 
     def test_a_fence_already_gone_is_made_again(self):
         self.tests.rmdir()
-        loop.cmd_reset("S1")
+        swa.cmd_reset("S1")
         self.assertTrue(self.tests.is_dir())
 
 
@@ -106,14 +106,14 @@ class FenceDirectories(unittest.TestCase):
         self.sub.chmod(0o755)
         for name, value in {"SRC": self.src, "TESTS": Path(temp.name) / "tests",
                             "shutil": mock.Mock()}.items():
-            p = mock.patch.object(loop, name, value)
+            p = mock.patch.object(swa, name, value)
             p.start()
             self.addCleanup(p.stop)
 
     def test_a_subdirectory_opens_and_closes_with_the_fence(self):
-        loop.set_writable(tests=None, src=True)
+        swa.set_writable(tests=None, src=True)
         self.assertEqual(self.sub.stat().st_mode & 0o777, 0o775)
-        loop.set_writable(tests=None, src=False)
+        swa.set_writable(tests=None, src=False)
         self.assertEqual(self.sub.stat().st_mode & 0o777, 0o755)
 
 

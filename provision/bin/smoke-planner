@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # ランナーはプランナーを動かせるか。プランナーは本当に柵の中にいるか。
 #
-#     sudo -u runner /srv/loop/bin/smoke-planner
+#     sudo -u runner /srv/swa/bin/smoke-planner
 #
 # 後半のほうが大事だ。動くプランナーは簡単に作れる。要点は、設計を直接書けず、
 # 既存のコードは読めても書けず、テストには届かないプランナーであること
 # （BOOTSTRAP 1-1）。それを約束ではなく、ファイルシステムの事実として確かめる。
 #
-# 設計の何を変えてよいかは別の問いで、loop.py の検査（check_modules_out）が
+# 設計の何を変えてよいかは別の問いで、swa.py の検査（check_modules_out）が
 # 受け持つ。
 set -euo pipefail
 
 [ "$(id -un)" = "runner" ] || { echo "run as runner: sudo -u runner $0" >&2; exit 1; }
 
-BRIEF=/srv/loop/planner/brief/smoke.md
-OUT=/srv/loop/planner/out
+BRIEF=/srv/swa/planner/brief/smoke.md
+OUT=/srv/swa/planner/out
 TARGET="$OUT/smoke-proposal.txt"
 MARKER="planner-smoke-ok"
 
@@ -31,7 +31,7 @@ EOF
 
 echo "--- invoking planner ---"
 rc=0
-sudo -u planner /srv/loop/bin/planner-run "$BRIEF" 180 || rc=$?
+sudo -u planner /srv/swa/bin/planner-run "$BRIEF" 180 || rc=$?
 echo "--- planner exited rc=$rc ---"
 
 fail=0
@@ -66,7 +66,7 @@ fi
 # 設計をプランナーから隠すためではない。プランナーは設計の書き手で、ランナーは
 # 今の設計を out/ に写して渡す。書いたものは検査を通ってから戻る。
 for d in plan docs ac; do
-  mode="$(stat -c '%U:%G %a' "/srv/loop/project/$d")"
+  mode="$(stat -c '%U:%G %a' "/srv/swa/project/$d")"
   if [ "$mode" = "runner:runner 700" ]; then
     note "ok: $d/ is runner:runner 700 -- every change goes through the runner"
   else
@@ -74,11 +74,11 @@ for d in plan docs ac; do
   fi
 done
 
-# 柵の場所。規則は loop.py の LAYOUT にしか書かないので、そこから読む。
-read -r LAYOUT_SRC LAYOUT_TESTS <<<"$(python3 -B -c "import sys; sys.path.insert(0, '/srv/loop/runner'); import loop; print(loop.LAYOUT['src'], loop.LAYOUT['tests'])")"
+# 柵の場所。規則は swa.py の LAYOUT にしか書かないので、そこから読む。
+read -r LAYOUT_SRC LAYOUT_TESTS <<<"$(python3 -B -c "import sys; sys.path.insert(0, '/srv/swa/runner'); import swa; print(swa.LAYOUT['src'], swa.LAYOUT['tests'])")"
 planner_groups=" $(id -nG planner) "
 for d in "$LAYOUT_SRC" "$LAYOUT_TESTS"; do
-  grp="$(stat -c '%G' "/srv/loop/project/$d")"
+  grp="$(stat -c '%G' "/srv/swa/project/$d")"
   case "$planner_groups" in
     *" $grp "*) bad "planner is in group $grp, which owns $d/ -- it could write there" ;;
     *)          note "ok: planner is not in $grp, so it cannot write $d/" ;;
@@ -87,13 +87,13 @@ done
 
 # 既存のコードは ACL で読める。書き込みのビットは持たない（40-perms.sh）。
 # テストには ACL が無く、グループにもいないので届かない。
-src_acl="$(getfacl -p --omit-header "/srv/loop/project/$LAYOUT_SRC" 2>/dev/null \
+src_acl="$(getfacl -p --omit-header "/srv/swa/project/$LAYOUT_SRC" 2>/dev/null \
   | grep '^user:planner:' || true)"
 case "$src_acl" in
   user:planner:r-x*) note "ok: planner reads $LAYOUT_SRC/ through its ACL, and cannot write it" ;;
   *)                 bad "the ACL of $LAYOUT_SRC/ for planner is '$src_acl', expected 'user:planner:r-x'" ;;
 esac
-if getfacl -p --omit-header "/srv/loop/project/$LAYOUT_TESTS" 2>/dev/null | grep -q '^user:planner:'; then
+if getfacl -p --omit-header "/srv/swa/project/$LAYOUT_TESTS" 2>/dev/null | grep -q '^user:planner:'; then
   bad "$LAYOUT_TESTS/ has an ACL entry for planner -- it must never see the tests"
 else
   note "ok: $LAYOUT_TESTS/ has no ACL entry for planner"

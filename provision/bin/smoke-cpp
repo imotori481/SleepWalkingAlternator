@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # C++ のテストがビルドされ、走り、junit のレポートを出すか。
 #
-#     sudo -u runner -H /srv/loop/bin/smoke-cpp
+#     sudo -u runner -H /srv/swa/bin/smoke-cpp
 #
 # 37-cpp.sh がプロビジョニングのたびに流す。ランナーと同じ形の CMakeLists.txt
 # （コードは静的ライブラリ、テストは gtest_main とつなぐ）で、通るテスト、
@@ -36,20 +36,20 @@ TEST(CalcTest, HitsTheStub) { EXPECT_EQ(1, unwritten()); }
 EOF
 cat > "$WORK/build/CMakeLists.txt" <<EOF
 cmake_minimum_required(VERSION 3.16)
-project(LoopCpp CXX)
+project(SwaCpp CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(GTest REQUIRED)
-add_library(loop_code STATIC "$WORK/src/calc/Calc.cpp")
-target_include_directories(loop_code PUBLIC "$WORK/src" "$WORK")
-add_executable(loop_tests "$WORK/tests/CalcTest.cpp")
-target_link_libraries(loop_tests PRIVATE loop_code GTest::gtest_main)
+add_library(swa_code STATIC "$WORK/src/calc/Calc.cpp")
+target_include_directories(swa_code PUBLIC "$WORK/src" "$WORK")
+add_executable(swa_tests "$WORK/tests/CalcTest.cpp")
+target_link_libraries(swa_tests PRIVATE swa_code GTest::gtest_main)
 EOF
 
 cmake -S "$WORK/build" -B "$WORK/build/out" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug >/dev/null
 cmake --build "$WORK/build/out" --parallel >/dev/null
-"$WORK/build/out/loop_tests" --gtest_output="xml:$WORK/report.xml" \
+"$WORK/build/out/swa_tests" --gtest_output="xml:$WORK/report.xml" \
   --gtest_also_run_disabled_tests --gtest_filter='CalcTest.*' >/dev/null || true
 
 python3 - "$WORK/report.xml" <<'PY'

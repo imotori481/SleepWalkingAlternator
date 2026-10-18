@@ -1,6 +1,6 @@
-"""`loop dash` が、ダッシュボードの要求を確かめてから通し、役の設定だけを読み書きすること。
+"""`swa dash` が、ダッシュボードの要求を確かめてから通し、役の設定だけを読み書きすること。
 
-`loop dash` は root で動き、役の .env は起動スクリプトがシェルで読み込む。通した値が
+`swa dash` は root で動き、役の .env は起動スクリプトがシェルで読み込む。通した値が
 そのままコマンドやシェルの文になるので、形の確かめがここの要だ。
 
     python3 -m unittest discover -s runner/tests
@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "provision"))
 
-import loop_dash  # noqa: E402
+import swa_dash  # noqa: E402
 
 TOKEN = "CLAUDE_CODE_OAUTH_TOKEN=sk-secret"
 
@@ -27,10 +27,10 @@ class Request(unittest.TestCase):
         self.work = Path(temp.name)
 
     def parse(self, request):
-        return loop_dash.parse(request, str(self.work))
+        return swa_dash.parse(request, str(self.work))
 
     def refused(self, request):
-        with self.assertRaises(loop_dash.Refused):
+        with self.assertRaises(swa_dash.Refused):
             self.parse(request)
 
     def test_actions_without_values_pass_as_one_line(self):
@@ -44,7 +44,7 @@ class Request(unittest.TestCase):
         self.assertEqual((self.work / "spec.md").read_text(encoding="utf-8"), text)
 
     def test_a_framework_left_empty_becomes_the_language_s_own(self):
-        # ダッシュボードは選ばれていない持ち込む先を空で送る。loop には名前で渡す。
+        # ダッシュボードは選ばれていない持ち込む先を空で送る。swa には名前で渡す。
         self.assertEqual(self.parse({"action": "go", "spec": "x", "language": "cpp",
                                      "framework": ""}), ["go", "cpp", "dxlib"])
         self.assertEqual(self.parse({"action": "go", "spec": "x",
@@ -60,10 +60,10 @@ class Request(unittest.TestCase):
     def test_a_run_needs_a_known_language_and_a_specification(self):
         self.refused({"action": "go", "spec": "x", "language": "cobol"})
         self.refused({"action": "go", "spec": "  \n", "language": "python"})
-        self.refused({"action": "go", "spec": "x" * (loop_dash.MAX_SPEC + 1),
+        self.refused({"action": "go", "spec": "x" * (swa_dash.MAX_SPEC + 1),
                       "language": "python"})
 
-    def test_a_project_name_follows_the_rule_of_loop_project(self):
+    def test_a_project_name_follows_the_rule_of_swa_project(self):
         self.assertEqual(self.parse({"action": "use", "project": "game-2"}), ["use", "game-2"])
         for name in ("CURRENT", "../etc", "-x", "Game", "a b", "", None, "a\nb"):
             self.refused({"action": "use", "project": name})
@@ -87,8 +87,8 @@ class Request(unittest.TestCase):
         self.refused({"action": "model", "role": "runner", "model": "", "effort": ""})
 
     def test_an_import_passes_the_project_the_branch_and_the_fences(self):
-        self.assertEqual(self.parse({"action": "init", "project": "game", "branch": "loop/x"}),
-                         ["init", "game", "loop/x", "", ""])
+        self.assertEqual(self.parse({"action": "init", "project": "game", "branch": "swa/x"}),
+                         ["init", "game", "swa/x", "", ""])
         self.assertEqual(
             self.parse({"action": "init", "project": "game", "branch": "feature/a.b_c-1",
                         "src": "Assets/Source", "tests": "Assets/Tests"}),
@@ -123,7 +123,7 @@ class Request(unittest.TestCase):
         text = "モジュールを分けすぎている\n$(rm -rf /)"
         self.assertEqual(self.parse({"action": "reject", "text": text}), ["reject"])
         self.assertEqual((self.work / "comment.md").read_text(encoding="utf-8"), text + "\n")
-        for text in ("", "  \n", None, 5, "x" * (loop_dash.MAX_COMMENT + 1)):
+        for text in ("", "  \n", None, 5, "x" * (swa_dash.MAX_COMMENT + 1)):
             self.refused({"action": "reject", "text": text})
 
     def test_anything_else_is_refused(self):
@@ -138,8 +138,8 @@ class RoleSettings(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.etc = Path(temp.name)
-        for role in loop_dash.ROLES:
-            self.env(role, "# 資格情報", TOKEN, "", "LOOP_MODEL=", "LOOP_EFFORT=")
+        for role in swa_dash.ROLES:
+            self.env(role, "# 資格情報", TOKEN, "", "SWA_MODEL=", "SWA_EFFORT=")
 
     def env(self, role, *lines):
         (self.etc / f"{role}.env").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -148,9 +148,9 @@ class RoleSettings(unittest.TestCase):
         return (self.etc / f"{role}.env").read_text(encoding="utf-8")
 
     def test_settings_carry_the_model_and_effort_and_never_the_token(self):
-        self.env("planner", TOKEN, 'LOOP_MODEL="claude-opus-5-5"', "LOOP_EFFORT=xhigh")
+        self.env("planner", TOKEN, 'SWA_MODEL="claude-opus-5-5"', "SWA_EFFORT=xhigh")
         (self.etc / "critic.env").unlink()
-        value = loop_dash.settings(str(self.etc))
+        value = swa_dash.settings(str(self.etc))
         self.assertEqual(value["roles"]["planner"], {"model": "claude-opus-5-5", "effort": "xhigh"})
         self.assertEqual(value["roles"]["solver"], {"model": "", "effort": ""})
         self.assertIsNone(value["roles"]["critic"])
@@ -161,27 +161,27 @@ class RoleSettings(unittest.TestCase):
         self.assertNotIn("sk-secret", json.dumps(value))
 
     def test_a_change_rewrites_two_lines_and_keeps_the_rest(self):
-        loop_dash.set_model(str(self.etc), "solver", "claude-sonnet-5-5", "medium")
+        swa_dash.set_model(str(self.etc), "solver", "claude-sonnet-5-5", "medium")
         self.assertEqual(self.read("solver"),
-                         "# 資格情報\n" + TOKEN + "\n\nLOOP_MODEL=claude-sonnet-5-5\nLOOP_EFFORT=medium\n")
-        self.assertEqual(loop_dash.read_role(str(self.etc / "solver.env")),
+                         "# 資格情報\n" + TOKEN + "\n\nSWA_MODEL=claude-sonnet-5-5\nSWA_EFFORT=medium\n")
+        self.assertEqual(swa_dash.read_role(str(self.etc / "solver.env")),
                          {"model": "claude-sonnet-5-5", "effort": "medium"})
 
     def test_missing_lines_are_added(self):
         self.env("critic", TOKEN)
-        loop_dash.set_model(str(self.etc), "critic", "", "low")
-        self.assertEqual(self.read("critic"), TOKEN + "\nLOOP_MODEL=\nLOOP_EFFORT=low\n")
+        swa_dash.set_model(str(self.etc), "critic", "", "low")
+        self.assertEqual(self.read("critic"), TOKEN + "\nSWA_MODEL=\nSWA_EFFORT=low\n")
 
     @unittest.skipIf(os.name == "nt", "POSIX の権限")
     def test_the_mode_of_the_file_is_kept(self):
         os.chmod(self.etc / "planner.env", 0o640)
-        loop_dash.set_model(str(self.etc), "planner", "opus", "")
+        swa_dash.set_model(str(self.etc), "planner", "opus", "")
         self.assertEqual(os.stat(self.etc / "planner.env").st_mode & 0o777, 0o640)
 
     def test_a_bad_value_writes_nothing(self):
         before = self.read("solver")
-        with self.assertRaises(loop_dash.Refused):
-            loop_dash.set_model(str(self.etc), "solver", "x;id", "")
+        with self.assertRaises(swa_dash.Refused):
+            swa_dash.set_model(str(self.etc), "solver", "x;id", "")
         self.assertEqual(self.read("solver"), before)
         self.assertEqual(sorted(p.name for p in self.etc.iterdir()),
                          ["critic.env", "planner.env", "solver.env"])
@@ -207,7 +207,7 @@ class Design(unittest.TestCase):
         self.write("docs/modules/game/board.md", "## 振る舞い\n盤")
         self.write("ac/game/board.json", '{"criteria": []}')
         self.write("plan/FAILURE.md", "止まった")
-        value = loop_dash.design(str(self.root))
+        value = swa_dash.design(str(self.root))
         self.assertEqual(value["stage"]["stage"], "midstream")
         self.assertEqual(value["basic"], {"design": "## 概要\n目的"})
         self.assertEqual(value["modules"], {"game/board": "## 振る舞い\n盤"})
@@ -216,13 +216,13 @@ class Design(unittest.TestCase):
         self.assertIsNone(value["interface"])
 
     def test_nothing_there_is_an_empty_design(self):
-        value = loop_dash.design(str(self.root))
+        value = swa_dash.design(str(self.root))
         self.assertEqual((value["stage"], value["modules"], value["ac"], value["failure"]),
                          ({}, {}, {}, None))
 
     def test_criteria_that_are_not_json_come_back_as_text(self):
         self.write("ac/a.json", "{broken")
-        self.assertEqual(loop_dash.design(str(self.root))["ac"], {"a": "{broken"})
+        self.assertEqual(swa_dash.design(str(self.root))["ac"], {"a": "{broken"})
 
 
 if __name__ == "__main__":

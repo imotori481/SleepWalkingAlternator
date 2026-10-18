@@ -4,7 +4,7 @@
     solver-local <brief-file> <seconds>
 
 ランナーが名前 `local` を渡すと、solver-run がこれを呼ぶ。cwd はすでに
-/srv/loop/project、uid はすでに `solver` になっている。どちらも solver-run が
+/srv/swa/project、uid はすでに `solver` になっている。どちらも solver-run が
 決めることで、このスクリプトは触らない。
 
 なぜエージェントの CLI にしないか
@@ -54,8 +54,8 @@ from pathlib import Path
 # 調整する値。変えたくなりそうなものは、すべてこのまとまりにある。
 # --------------------------------------------------------------------------
 
-ENDPOINT = os.environ.get("LOOP_LLM_ENDPOINT", "http://127.0.0.1:8080")
-MODEL = os.environ.get("LOOP_LLM_MODEL", "local")
+ENDPOINT = os.environ.get("SWA_LLM_ENDPOINT", "http://127.0.0.1:8080")
+MODEL = os.environ.get("SWA_LLM_MODEL", "local")
 
 # 0 にはしない。好みの問題ではない。`policy.retry: "resample"` は試行の予算を
 # 「独立した抽選」に使う。温度 0 では、どの抽選も同じ抽選になり、予算全部で
@@ -72,8 +72,8 @@ MODEL = os.environ.get("LOOP_LLM_MODEL", "local")
 # policy.retry = "resample" は、ばらつきが役に立つところ、つまり IMPL の試行で
 # すでにそれを与えている。行き詰まった実装に別の角度を与えることが、そこでの
 # 狙いだ。IMPL より前はすべて書き写しで、書き写しは退屈なほうがよい。
-TEMPERATURE = float(os.environ.get("LOOP_LLM_TEMPERATURE", "0.2"))
-TOP_P = float(os.environ.get("LOOP_LLM_TOP_P", "0.9"))
+TEMPERATURE = float(os.environ.get("SWA_LLM_TEMPERATURE", "0.2"))
+TOP_P = float(os.environ.get("SWA_LLM_TOP_P", "0.9"))
 
 # サーバを起動したときの値（llm-serve が --ctx-size で渡す）、つまり llm-serve の
 # 既定と一致させる。これが防ぐ失敗は黙って起きる。上限を超えたプロンプトは、
@@ -82,7 +82,7 @@ TOP_P = float(os.environ.get("LOOP_LLM_TOP_P", "0.9"))
 # 配置ではない。しかし代わりにサーバへ起動時の値を訊くと、それ自体が失敗しうる
 # 問い合わせになる。この経路の仕事は、収まらないプロンプトに何分も使う前に
 # 断ることだ。
-CTX_TOKENS = int(os.environ.get("LOOP_LLM_CTX", "16384"))
+CTX_TOKENS = int(os.environ.get("SWA_LLM_CTX", "16384"))
 # 出力に予約するのは、ループが実際に出す量に合わせる。run 8 の S1 は2つの
 # ファイルを書き、中身は全部で約 960 トークンだった。4096 を予約していたときは、
 # 5051 トークンのブリーフが、窓に 3000 トークンの空きを残したまま断られた。
@@ -92,7 +92,7 @@ CTX_TOKENS = int(os.environ.get("LOOP_LLM_CTX", "16384"))
 # 正しい JSON にならず、solver-local は読み取りで失敗し、そう言う。多く予約して
 # 外れると逆向きに失敗する。収まったはずの仕事を断り、その失敗は仕事のできない
 # モデルに見える。
-MAX_OUTPUT_TOKENS = int(os.environ.get("LOOP_LLM_MAX_OUTPUT", "2560"))
+MAX_OUTPUT_TOKENS = int(os.environ.get("SWA_LLM_MAX_OUTPUT", "2560"))
 
 # 大まかで、あえて悲観的な値。コードも日本語も、1トークンあたり3文字を下回る。
 # 始まる前から切り捨てが決まっている生成に何分も使う前に、断るためだけに使う。
@@ -187,7 +187,7 @@ def files_from_brief(brief: str) -> list[str]:
     """ブリーフが許すパスを、3つのブリーフが共通に使う見出しから読む。
 
     TEST_WRITE、STUB、IMPL は別々のブリーフで、たまたまこの見出しで揃っている
-    （loop.py の `brief_test_write`、`brief_stub`、`brief_impl`）。この一致は要なのに
+    （swa.py の `brief_test_write`、`brief_stub`、`brief_impl`）。この一致は要なのに
     どこにも宣言されていない。だから、もし崩れたら、黙って何も書かないのではなく
     断る。黙って何もしないバックエンドは、そのステップの試行を全部使い、問題を
     解けなかったモデルとして報告される。
@@ -195,8 +195,8 @@ def files_from_brief(brief: str) -> list[str]:
     if FILES_HEADING not in brief:
         die(EXIT_BRIEF_SHAPE,
             f"the brief has no {FILES_HEADING!r} section.\n"
-            "  loop.py's brief format changed and this backend was not updated.\n"
-            "  Fix: compare with brief_impl() in runner/loop.py.")
+            "  swa.py's brief format changed and this backend was not updated.\n"
+            "  Fix: compare with brief_impl() in runner/swa.py.")
     tail = brief.split(FILES_HEADING, 1)[1]
     paths = []
     for line in tail.splitlines():
@@ -258,7 +258,7 @@ def post(path: str, payload: dict | None, seconds: float) -> dict:
     except urllib.error.URLError as e:
         die(EXIT_SERVER,
             f"cannot reach the inference server at {url}: {e.reason}\n"
-            "  Fix: sudo -u llm /srv/loop/bin/llm-serve   (or check it is still up:\n"
+            "  Fix: sudo -u llm /srv/swa/bin/llm-serve   (or check it is still up:\n"
             "       pgrep -a -u llm llama-server)")
     except json.JSONDecodeError:
         die(EXIT_SERVER, f"the server at {url} did not answer with JSON.")
@@ -279,7 +279,7 @@ def main() -> int:
         die(EXIT_TIMEOUT,
             f"no answer within {seconds}s.\n"
             "  A local 9B on CPU does not finish a step in this budget. Fix:\n"
-            "  raise timeouts.solver in /srv/loop/settings.json, or give the server a GPU.")
+            "  raise timeouts.solver in /srv/swa/settings.json, or give the server a GPU.")
     signal.signal(signal.SIGALRM, out_of_time)
     signal.alarm(seconds)
 
@@ -306,7 +306,7 @@ def main() -> int:
             f"prompt is about {estimated} tokens and only {room} fit "
             f"(ctx {CTX_TOKENS} minus {MAX_OUTPUT_TOKENS} reserved for output).\n"
             "  Fix, cheapest first: raise --ctx-size in bin/llm-serve and\n"
-            "  LOOP_LLM_CTX to match; or split the step so files_write and its\n"
+            "  SWA_LLM_CTX to match; or split the step so files_write and its\n"
             "  tests are smaller (see LOCAL_SOLVER.md, 'the step is too big').")
 
     body = post("/v1/chat/completions", {
@@ -332,7 +332,7 @@ def main() -> int:
         die(EXIT_CONTEXT,
             f"the server read {used} prompt tokens with a context of {CTX_TOKENS}; "
             "the front of the brief was dropped.\n"
-            "  Fix: raise --ctx-size in bin/llm-serve and LOOP_LLM_CTX to match.")
+            "  Fix: raise --ctx-size in bin/llm-serve and SWA_LLM_CTX to match.")
 
     text = ((body.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
 

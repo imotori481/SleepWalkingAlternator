@@ -133,7 +133,7 @@ def usage_models(record: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def token_runs(ledger: list[dict[str, Any]], source: str = "") -> list[dict[str, Any]]:
-    """1つの台帳を、loop go から完了までの回に分け、回ごと役ごとのトークン数を足す。
+    """1つの台帳を、swa go から完了までの回に分け、回ごと役ごとのトークン数を足す。
 
     tokens は役ごとの合計、kinds は役ごとの種類別、usd は役ごとの cost_usd の和。
     models は役ごとモデルごとのトークン数と USD。
@@ -180,7 +180,7 @@ def token_runs(ledger: list[dict[str, Any]], source: str = "") -> list[dict[str,
 
 
 def ledger_files(root: Path) -> list[Path]:
-    """写しの置き場の下にある台帳。loop-pull の projects\\*、runs\\*、project を拾う。
+    """写しの置き場の下にある台帳。swa-pull の projects\\*、runs\\*、project を拾う。
 
     同じ回が2か所にあるときは先に拾ったほうの名前が残る。project より
     projects\\<name> のほうが、どのプロジェクトかが分かるので先に拾う。
@@ -335,7 +335,7 @@ class DashboardState:
     def __init__(self, project: Path, data_dir: Path, mirrors: Path | None = None):
         self.project = project.resolve()
         self.data_dir = data_dir.resolve()
-        # トークンの履歴を読む写しの置き場。loop-pull は project と同じ場所に
+        # トークンの履歴を読む写しの置き場。swa-pull は project と同じ場所に
         # projects と runs を置く。
         self.mirrors = mirrors.resolve() if mirrors is not None else self.project.parent
         self.decisions_file = self.data_dir / "decisions.jsonl"

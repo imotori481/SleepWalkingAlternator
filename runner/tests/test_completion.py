@@ -9,20 +9,20 @@ from unittest.mock import call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
+import swa  # noqa: E402
 
 
 class GreenCheckpoint(unittest.TestCase):
-    @patch("loop.publish")
-    @patch("loop.run")
-    @patch("loop.ledger")
+    @patch("swa.publish")
+    @patch("swa.run")
+    @patch("swa.ledger")
     def test_green_is_written_before_the_module_is_committed(self, ledger, run, publish):
         order = []
         ledger.side_effect = lambda *args, **kwargs: order.append("ledger")
         run.side_effect = lambda *args, **kwargs: order.append("git")
         publish.side_effect = lambda *args, **kwargs: order.append("publish")
 
-        loop.complete_green("game/state", "finish the game", 1, design="d1")
+        swa.complete_green("game/state", "finish the game", 1, design="d1")
 
         self.assertEqual(order, ["ledger", "git", "git", "git", "publish"])
         ledger.assert_called_once_with("GREEN", step="game/state", attempts=1, design="d1")
@@ -43,14 +43,14 @@ class RunCheckpoint(unittest.TestCase):
         self.ledger_file = plan / "ledger.jsonl"
         self.stage_file = plan / "stage.json"
         self.stage_file.write_text('{"stage": "downstream"}', encoding="utf-8")
-        for p in (patch.object(loop, "LEDGER", self.ledger_file),
-                  patch.object(loop, "STAGE_FILE", self.stage_file)):
+        for p in (patch.object(swa, "LEDGER", self.ledger_file),
+                  patch.object(swa, "STAGE_FILE", self.stage_file)):
             p.start()
             self.addCleanup(p.stop)
 
     def complete(self):
-        with patch("loop.commit_paths") as commit:
-            loop.complete_run({"b", "a"}, {"steps": [{"id": "a"}, {"id": "b"}],
+        with patch("swa.commit_paths") as commit:
+            swa.complete_run({"b", "a"}, {"steps": [{"id": "a"}, {"id": "b"}],
                                            "digest": "abc"})
         return commit
 
@@ -59,7 +59,7 @@ class RunCheckpoint(unittest.TestCase):
         record = json.loads(self.ledger_file.read_text(encoding="utf-8"))
         self.assertEqual((record["event"], record["steps"], record["plan_sha256"]),
                          ("ALL_GREEN", ["a", "b"], "abc"))
-        self.assertEqual(loop.read_stage()["stage"], "review")
+        self.assertEqual(swa.read_stage()["stage"], "review")
         commit.assert_called_once_with([self.ledger_file, self.stage_file],
                                        "run: all modules green", "run completion")
 
@@ -82,8 +82,8 @@ class GreenIsReadFromTheLedger(unittest.TestCase):
                 {"event": "GREEN", "step": "b", "design": "d2"},
                 {"event": "REOPEN", "modules": ["a"]},
             ]) + "\n", encoding="utf-8")
-            with patch.object(loop, "LEDGER", path):
-                self.assertEqual(loop.green_designs(), {"b": "d2"})
+            with patch.object(swa, "LEDGER", path):
+                self.assertEqual(swa.green_designs(), {"b": "d2"})
 
 
 if __name__ == "__main__":

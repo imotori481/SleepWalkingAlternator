@@ -1,8 +1,8 @@
 # ---------------------------------------------------------------
-#  loop-unity-refs -- send the assemblies a Unity project compiles
-#  against to the sandbox, so the loop can build its C# there.
+#  swa-unity-refs -- send the assemblies a Unity project compiles
+#  against to the sandbox, so SWA can build its C# there.
 #
-#    loop-unity-refs <project> <unity-project-dir>
+#    swa-unity-refs <project> <unity-project-dir>
 #
 #  The list comes from Assembly-CSharp.csproj, which Unity writes
 #  for the external code editor. It names every DLL Unity itself
@@ -14,12 +14,12 @@
 #  Left out on purpose:
 #    - native DLLs: they are not .NET assemblies and break the build
 #    - NetStandard facades: the .NET SDK brings its own netstandard
-#    - Assembly-CSharp and its editor twins: the loop compiles that code
+#    - Assembly-CSharp and its editor twins: SWA compiles that code
 #      itself (Assembly-CSharp-firstpass, i.e. Assets/Plugins, is kept)
-#    - UNITY_EDITOR* symbols: the loop builds the player's code
+#    - UNITY_EDITOR* symbols: SWA builds the player's code
 #
-#  The sandbox keeps them under /srv/loop/projects/<project>/unity-refs
-#  (loop project unity-refs), owned by root and frozen.
+#  The sandbox keeps them under /srv/swa/projects/<project>/unity-refs
+#  (swa project unity-refs), owned by root and frozen.
 #
 #  ASCII only: PowerShell 5.1 reads a BOM-less UTF-8 file as ANSI.
 # ---------------------------------------------------------------
@@ -31,7 +31,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $Distro = "Ubuntu-24.04"
-$SshHost = "loop-dev"
+$SshHost = "swa-dev"
 $Port = 2222
 
 $projectDir = (Resolve-Path $UnityProject).Path
@@ -67,7 +67,7 @@ foreach ($node in $xml.SelectNodes("//*[local-name()='ProjectReference']")) {
   else { Write-Host "WARN: no $dll for the project reference $assembly" }
 }
 
-$stage = Join-Path $env:TEMP ("loop-unity-refs-" + [guid]::NewGuid().ToString("N"))
+$stage = Join-Path $env:TEMP ("swa-unity-refs-" + [guid]::NewGuid().ToString("N"))
 $refs = Join-Path $stage "refs"
 New-Item -ItemType Directory -Path $refs | Out-Null
 $seen = @{}
@@ -78,9 +78,9 @@ try {
     $leaf = Split-Path $p -Leaf
     if (-not (Test-Path $p)) { Write-Host "WARN: missing $p"; continue }
     if ($p -match '[\\/]NetStandard[\\/]') { $skipped++; continue }
-    # Only the assembly the loop compiles itself, and the editor ones. Keep
+    # Only the assembly SWA compiles itself, and the editor ones. Keep
     # Assembly-CSharp-firstpass: it is Assets/Plugins (DOTween's modules,
-    # for one), which the project's code calls and the loop never builds.
+    # for one), which the project's code calls and SWA never builds.
     if ($leaf -match '^Assembly-CSharp(-Editor.*)?\.dll$') { $skipped++; continue }
     if ($leaf -notmatch '^[A-Za-z0-9._+-]+\.dll$') { Write-Host "WARN: odd name, skipped: $p"; continue }
     try { [Reflection.AssemblyName]::GetAssemblyName($p) | Out-Null }
@@ -116,7 +116,7 @@ try {
 
   Write-Host "Unity $version, C# $langVersion, $($seen.Count) assemblies ($skipped left out), $($defines.Count) symbols"
 
-  $tarPath = Join-Path $env:TEMP "loop-unity-refs.tar"
+  $tarPath = Join-Path $env:TEMP "swa-unity-refs.tar"
   if (Test-Path $tarPath) { Remove-Item $tarPath }
   # Windows's own tar by full path. With Git on PATH, `tar` can be GNU tar,
   # which reads "C:\..." as host "C" and fails.
@@ -125,8 +125,8 @@ try {
   if ($DryRun) { Write-Host "dry run: $tarPath was built and not sent"; exit 0 }
 
   # ---- to the sandbox -----------------------------------------------
-  # Start the distro and wait for sshd, the same way loop.cmd does. Done
-  # here rather than through a `loop` command, which would ask for the
+  # Start the distro and wait for sshd, the same way swa.cmd does. Done
+  # here rather than through a `swa` command, which would ask for the
   # sudo password once more for nothing.
   & wsl.exe -d $Distro -u root --exec /usr/bin/true
   if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: failed to start distro $Distro"; exit 1 }
@@ -136,11 +136,11 @@ try {
     if (-not $up) { Start-Sleep -Milliseconds 500 }
   }
   if (-not $up) { Write-Host "ERROR: sshd did not come up within 20 seconds"; exit 1 }
-  & scp -q $tarPath "${SshHost}:loop-unity-refs.tar"
+  & scp -q $tarPath "${SshHost}:swa-unity-refs.tar"
   if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: could not copy $tarPath to the sandbox"; exit 1 }
   # The remote shell expands ~ to the maintenance user's home before sudo.
-  & "$PSScriptRoot\loop.cmd" project unity-refs $Name "~/loop-unity-refs.tar"
-  if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: loop project unity-refs failed"; exit 1 }
+  & "$PSScriptRoot\swa.cmd" project unity-refs $Name "~/swa-unity-refs.tar"
+  if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: swa project unity-refs failed"; exit 1 }
   Remove-Item $tarPath
 }
 finally {

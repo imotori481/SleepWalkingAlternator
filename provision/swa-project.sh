@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 # 箱に複数のプロジェクトを置き、1つずつ切り替えて使う。root で流す。
-# 普段は `loop project <コマンド>` で呼ぶ。`loop` がまだ無い箱では直接流す:
+# 普段は `swa project <コマンド>` で呼ぶ。`swa` がまだ無い箱では直接流す:
 #
-#   cd /tmp && sudo ADMIN_USER=<保守ユーザー> bash /opt/swa/provision/loop-project.sh <コマンド>
+#   cd /tmp && sudo ADMIN_USER=<保守ユーザー> bash /opt/swa/provision/swa-project.sh <コマンド>
 #
 # コマンドは usage() を参照。
 #
 # 同時に走るのは1つだけ。3役は同じサブスクリプションの枠を分け合うので、並べても
 # 枠の上限で待つ時間が増えるだけだ。
 #
-# 作業ツリーは、切り替えのたびに /srv/loop/project へ mv で出し入れする。ランナーも
-# provision も sudoers も /srv/loop/project を名指ししており、パスを変えずに済む。
-# venv の実行ファイルも /srv/loop/project/.venv を絶対パスで持っている。シンボリック
+# 作業ツリーは、切り替えのたびに /srv/swa/project へ mv で出し入れする。ランナーも
+# provision も sudoers も /srv/swa/project を名指ししており、パスを変えずに済む。
+# venv の実行ファイルも /srv/swa/project/.venv を絶対パスで持っている。シンボリック
 # リンクにしないのは、40-perms.sh の chown -R と find がリンクをたどらず、黙って
 # 何もしないからだ。
 #
 # bare リポジトリは動かさない。ホストはプロジェクトごとの決まったパス
-# /srv/loop/projects/<名前>/repo.git から引く。/srv/loop/repo.git は今のプロジェクトの
+# /srv/swa/projects/<名前>/repo.git から引く。/srv/swa/repo.git は今のプロジェクトの
 # bare を指すリンクで、作業ツリーの origin はこちらを指す。git はリンクをたどる。
 set -euo pipefail
 
-LOOP=/srv/loop
-PROJECTS=$LOOP/projects
+SWA=/srv/swa
+PROJECTS=$SWA/projects
 CURRENT=$PROJECTS/CURRENT
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
@@ -31,7 +31,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # 退避先では / を - に替えた名前で parked/ の下に置く。
 SLOTS=(project human/in planner/out planner/brief critic/out critic/brief brief)
 
-die() { echo "loop-project: $*" >&2; exit 1; }
+die() { echo "swa-project: $*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "sudo で流す"
 
@@ -45,7 +45,7 @@ current() { [ -f "$CURRENT" ] && cat "$CURRENT" || true; }
 # 走っているループの作業場所を動かすと、ランナーは消えた木に書き続ける。
 # 3役のアカウントのプロセスは、何であれ走行の一部とみなす。
 busy() {
-  pgrep -u runner -f 'loop\.py' >/dev/null 2>&1 && return 0
+  pgrep -u runner -f 'swa\.py' >/dev/null 2>&1 && return 0
   local u
   for u in solver planner critic; do
     id -u "$u" >/dev/null 2>&1 || continue
@@ -54,33 +54,33 @@ busy() {
   return 1
 }
 
-# /srv/loop/repo.git を、指定のプロジェクトの bare に向け直す。一時的な名前で
+# /srv/swa/repo.git を、指定のプロジェクトの bare に向け直す。一時的な名前で
 # リンクを作ってから rename するので、途中でリンクが無い瞬間ができない。
 link_repo() {
-  ln -sfn "$PROJECTS/$1/repo.git" "$LOOP/.repo.git.new"
-  mv -T "$LOOP/.repo.git.new" "$LOOP/repo.git"
+  ln -sfn "$PROJECTS/$1/repo.git" "$SWA/.repo.git.new"
+  mv -T "$SWA/.repo.git.new" "$SWA/repo.git"
 }
 
-# プロジェクトごとに持つものを、/srv/loop の直下からリンクする。持っていなければ
+# プロジェクトごとに持つものを、/srv/swa の直下からリンクする。持っていなければ
 # リンクを消す。ランナーとプロビジョニングは直下のパスだけを読む。
 #
 #   layout.json  書き込みの柵の場所。無ければ既定の src と tests
-#   unity-refs/  Unity の参照アセンブリ（loop-unity-refs）。無ければ Unity 無し
+#   unity-refs/  Unity の参照アセンブリ（swa-unity-refs）。無ければ Unity 無し
 #
 # リンクも中身も root の所有なので、ランナーは自分の柵も参照も動かせない。
 link_project_files() {
   local entry
   for entry in layout.json unity-refs; do
     if [ -e "$PROJECTS/$1/$entry" ]; then
-      ln -sfn "$PROJECTS/$1/$entry" "$LOOP/.$entry.new"
-      mv -T "$LOOP/.$entry.new" "$LOOP/$entry"
+      ln -sfn "$PROJECTS/$1/$entry" "$SWA/.$entry.new"
+      mv -T "$SWA/.$entry.new" "$SWA/$entry"
     else
-      rm -f "$LOOP/$entry"
+      rm -f "$SWA/$entry"
     fi
   done
 }
 
-# 柵の場所を検査する。規則は loop.py の layout_problems にしか書かない。何かを
+# 柵の場所を検査する。規則は swa.py の layout_problems にしか書かない。何かを
 # 作る前に呼ぶ。
 check_layout() {
   local src="$1" tests="$2"
@@ -88,8 +88,8 @@ check_layout() {
     || die "柵の場所に使えない（src='$src' tests='$tests'）"
 import sys
 sys.path.insert(0, sys.argv[1])
-import loop
-problems = loop.layout_problems({"src": sys.argv[2], "tests": sys.argv[3]})
+import swa
+problems = swa.layout_problems({"src": sys.argv[2], "tests": sys.argv[3]})
 for p in problems:
     print(f"  {p}", file=sys.stderr)
 sys.exit(1 if problems else 0)
@@ -111,7 +111,7 @@ ensure_root() {
 cmd_list() {
   local cur d name branch state
   cur="$(current)"
-  [ -d "$PROJECTS" ] || { echo "（プロジェクトは無い。今の箱に名前を付けるなら 'loop project adopt <名前>'）"; return 0; }
+  [ -d "$PROJECTS" ] || { echo "（プロジェクトは無い。今の箱に名前を付けるなら 'swa project adopt <名前>'）"; return 0; }
   # 状態の語はどれも3文字にそろえる。printf の幅はバイトで数えるので、字数が
   # そろっていないと列がずれる。
   for d in "$PROJECTS"/*/; do
@@ -130,20 +130,20 @@ cmd_list() {
   done
 }
 
-# 今の箱を、名前を付けたプロジェクトとして登録する。loop-project.sh ができる前に
-# 作った箱は、/srv/loop/repo.git が実体のディレクトリになっている。
+# 今の箱を、名前を付けたプロジェクトとして登録する。swa-project.sh ができる前に
+# 作った箱は、/srv/swa/repo.git が実体のディレクトリになっている。
 cmd_adopt() {
   local name="$1"
   valid_name "$name"
   [ -z "$(current)" ] || die "もう名前が付いている。今のプロジェクトは '$(current)'"
-  [ -d "$LOOP/repo.git" ] && [ ! -L "$LOOP/repo.git" ] \
-    || die "$LOOP/repo.git が実体のディレクトリではない。名前を付けるものが無い"
+  [ -d "$SWA/repo.git" ] && [ ! -L "$SWA/repo.git" ] \
+    || die "$SWA/repo.git が実体のディレクトリではない。名前を付けるものが無い"
   [ ! -e "$PROJECTS/$name" ] || die "$PROJECTS/$name がもうある"
   busy && die "ループかエージェントが走っている。終わるのを待つ"
 
   ensure_root
   install -d -o root -g root -m 755 "$PROJECTS/$name"
-  mv "$LOOP/repo.git" "$PROJECTS/$name/repo.git"
+  mv "$SWA/repo.git" "$PROJECTS/$name/repo.git"
   link_repo "$name"
   link_project_files "$name"
   echo "$name" > "$CURRENT"
@@ -176,7 +176,7 @@ cmd_init() {
   [ -z "$branch" ] || echo "$branch" > "$PROJECTS/$name/branch"
   echo "$PROJECTS/$name/repo.git を作った（HEAD -> ${branch:-main}）"
   if [ -n "$branch" ]; then
-    echo "次は、ホストから '$branch' をここへ push し、'loop project use $name' を流す"
+    echo "次は、ホストから '$branch' をここへ push し、'swa project use $name' を流す"
   fi
 }
 
@@ -187,8 +187,8 @@ park() {
   # solver が solverw 経由で届かないようにする。
   install -d -o root -g root -m 700 "$parked"
   for slot in "${SLOTS[@]}"; do
-    [ -e "$LOOP/$slot" ] || continue
-    mv "$LOOP/$slot" "$parked/${slot//\//-}"
+    [ -e "$SWA/$slot" ] || continue
+    mv "$SWA/$slot" "$parked/${slot//\//-}"
   done
 }
 
@@ -196,8 +196,8 @@ unpark() {
   local name="$1" slot parked="$PROJECTS/$1/parked"
   for slot in "${SLOTS[@]}"; do
     [ -e "$parked/${slot//\//-}" ] || continue
-    [ ! -e "$LOOP/$slot" ] || die "$LOOP/$slot が邪魔をしている。上書きしない"
-    mv "$parked/${slot//\//-}" "$LOOP/$slot"
+    [ ! -e "$SWA/$slot" ] || die "$SWA/$slot が邪魔をしている。上書きしない"
+    mv "$parked/${slot//\//-}" "$SWA/$slot"
   done
   rmdir "$parked"
 }
@@ -205,14 +205,14 @@ unpark() {
 cmd_use() {
   local name="$1" cur
   valid_name "$name"
-  [ -d "$PROJECTS/$name/repo.git" ] || die "プロジェクト '$name' は無い。先に 'loop project init $name'"
-  if [ -e "$LOOP/repo.git" ] && [ ! -L "$LOOP/repo.git" ]; then
-    die "$LOOP/repo.git が実体のディレクトリのまま。先に 'loop project adopt <名前>'"
+  [ -d "$PROJECTS/$name/repo.git" ] || die "プロジェクト '$name' は無い。先に 'swa project init $name'"
+  if [ -e "$SWA/repo.git" ] && [ ! -L "$SWA/repo.git" ]; then
+    die "$SWA/repo.git が実体のディレクトリのまま。先に 'swa project adopt <名前>'"
   fi
   cur="$(current)"
   [ "$cur" != "$name" ] || { echo "'$name' はもう今のプロジェクトだ"; return 0; }
-  if [ -z "$cur" ] && [ -e "$LOOP/project" ]; then
-    die "$LOOP/project はあるが、名前が付いていない。先に 'loop project adopt <名前>'"
+  if [ -z "$cur" ] && [ -e "$SWA/project" ]; then
+    die "$SWA/project はあるが、名前が付いていない。先に 'swa project adopt <名前>'"
   fi
   busy && die "ループかエージェントが走っている。終わるのを待つ"
 
@@ -241,7 +241,7 @@ cmd_use() {
     # 打ち直しても「もう今のプロジェクトだ」で終わるので、続きの流し方を示す。
     ADMIN_USER="${ADMIN_USER:-maint}" bash "$HERE/provision.sh" \
       || die "プロビジョニングが途中で止まった。今のプロジェクトはもう '$name' だ。
-原因を直してから、'loop project use' ではなく次で続きを流す:
+原因を直してから、'swa project use' ではなく次で続きを流す:
     cd /tmp && sudo ADMIN_USER=${ADMIN_USER:-maint} bash $HERE/provision.sh"
   fi
   echo "今のプロジェクト: $name"
@@ -253,7 +253,7 @@ cmd_use() {
 cmd_layout() {
   local name="$1" src="$2" tests="$3"
   valid_name "$name"
-  [ -d "$PROJECTS/$name/repo.git" ] || die "プロジェクト '$name' は無い。先に 'loop project init $name'"
+  [ -d "$PROJECTS/$name/repo.git" ] || die "プロジェクト '$name' は無い。先に 'swa project init $name'"
   check_layout "$src" "$tests"
   busy && die "ループかエージェントが走っている。終わるのを待つ"
   write_layout "$name" "$src" "$tests"
@@ -266,7 +266,7 @@ cmd_layout() {
     cd /tmp && sudo ADMIN_USER=${ADMIN_USER:-maint} bash $HERE/provision.sh"
 }
 
-# Unity の参照アセンブリを受け取って凍結する。ホストの loop-unity-refs が、Unity の
+# Unity の参照アセンブリを受け取って凍結する。ホストの swa-unity-refs が、Unity の
 # 生成した Assembly-CSharp.csproj から集めて tar で送ってくる。中身は次だけ:
 #
 #   refs/*.dll       参照アセンブリ（コンパイルに使うだけで、配らない）
@@ -280,7 +280,7 @@ cmd_layout() {
 cmd_unity_refs() {
   local name="$1" tar="$2" work target="$PROJECTS/$1/unity-refs" f bad
   valid_name "$name"
-  [ -d "$PROJECTS/$name/repo.git" ] || die "プロジェクト '$name' は無い。先に 'loop project init $name'"
+  [ -d "$PROJECTS/$name/repo.git" ] || die "プロジェクト '$name' は無い。先に 'swa project init $name'"
   [ -f "$tar" ] || die "ファイルが無い: $tar"
   busy && die "ループかエージェントが走っている。終わるのを待つ"
 
@@ -320,9 +320,9 @@ $bad"
   [ "$(current)" != "$name" ] || link_project_files "$name"
 }
 
-# プロジェクトを消す。/srv/loop/projects/<名前> を丸ごと消すので、bare、退避した
+# プロジェクトを消す。/srv/swa/projects/<名前> を丸ごと消すので、bare、退避した
 # 作業ツリーと計画、柵の場所、Unity の参照が残らない。走行ログも消す。戻せない。
-# 今のプロジェクトは消さない。/srv/loop の直下のリンクと作業ツリーが指しているからだ。
+# 今のプロジェクトは消さない。/srv/swa の直下のリンクと作業ツリーが指しているからだ。
 # ホストのクローンには触らない。
 cmd_remove() {
   local name="$1" log
@@ -333,8 +333,8 @@ cmd_remove() {
 
   rm -rf -- "${PROJECTS:?}/$name"
   # 名前が前方で重なる別のプロジェクト（game と game-2）のログを巻き込まないよう、
-  # loop の start が付ける形 <名前>-<日付>-<時刻>.log と <名前>-latest.log だけを消す。
-  for log in "$LOOP/logs/$name"-*.log; do
+  # swa の start が付ける形 <名前>-<日付>-<時刻>.log と <名前>-latest.log だけを消す。
+  for log in "$SWA/logs/$name"-*.log; do
     [[ "$(basename "$log")" =~ ^"$name"-([0-9]{8}-[0-9]{6}|latest)\.log$ ]] || continue
     rm -f -- "$log"
   done
@@ -343,8 +343,8 @@ cmd_remove() {
 
 usage() {
   cat >&2 <<EOF
-使い方: loop project <コマンド>
-  または: sudo ADMIN_USER=<保守ユーザー> bash $HERE/loop-project.sh <コマンド>
+使い方: swa project <コマンド>
+  または: sudo ADMIN_USER=<保守ユーザー> bash $HERE/swa-project.sh <コマンド>
 
   list                            プロジェクトの一覧。* が今のもの
   current                         今のプロジェクトの名前
@@ -359,8 +359,8 @@ usage() {
   layout <名前> --src <ディレクトリ> --tests <ディレクトリ>
                                   作ってあるプロジェクトの柵の場所を変える
   unity-refs <名前> <tar>         Unity の参照アセンブリを置く。tar はホストの
-                                  loop-unity-refs が作って送ったもの
-  adopt <名前>                    loop-project.sh より前に作った箱に名前を付ける
+                                  swa-unity-refs が作って送ったもの
+  adopt <名前>                    swa-project.sh より前に作った箱に名前を付ける
 EOF
   exit 2
 }

@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
-from loop import FINDINGS_NAME, brief_critique, read_findings, render_findings  # noqa: E402
+import swa  # noqa: E402
+from swa import FINDINGS_NAME, brief_critique, read_findings, render_findings  # noqa: E402
 
 SPEC = "- 開始直後から遊べること\n- セーブを消去できること\n"
 BASIC = "--- basic/design.md ---\n## 概要\n放置ゲームを作る。\n"
@@ -60,15 +60,15 @@ class ReadingTheAnswer(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.out = Path(self.temp.name)
-        self.saved_out = loop.CRITIC_OUT
-        self.saved_ledger = loop.ledger
-        loop.CRITIC_OUT = self.out
+        self.saved_out = swa.CRITIC_OUT
+        self.saved_ledger = swa.ledger
+        swa.CRITIC_OUT = self.out
         self.events: list[tuple[str, dict]] = []
-        loop.ledger = lambda event, **fields: self.events.append((event, fields))
+        swa.ledger = lambda event, **fields: self.events.append((event, fields))
 
     def tearDown(self) -> None:
-        loop.CRITIC_OUT = self.saved_out
-        loop.ledger = self.saved_ledger
+        swa.CRITIC_OUT = self.saved_out
+        swa.ledger = self.saved_ledger
         self.temp.cleanup()
 
     def write(self, body: str) -> None:
@@ -91,17 +91,17 @@ class ReadingTheAnswer(unittest.TestCase):
         # 「クリティックは何も見つけなかった」と「クリティックは走らなかった」は
         # 同じに見えてはならない。parse_junit が壊れたレポートを失敗ゼロと読まない
         # のと同じ理由だ。
-        with self.assertRaises(loop.Halt):
+        with self.assertRaises(swa.Halt):
             read_findings()
 
     def test_unreadable_json_halts(self):
         self.write("{ not json")
-        with self.assertRaises(loop.Halt):
+        with self.assertRaises(swa.Halt):
             read_findings()
 
     def test_a_file_without_a_findings_list_halts(self):
         self.write(json.dumps({"verdict": "looks good to me"}))
-        with self.assertRaises(loop.Halt):
+        with self.assertRaises(swa.Halt):
             read_findings()
 
     def test_a_stray_file_is_deleted_and_recorded(self):

@@ -19,7 +19,7 @@
 | 主体 | 実体 | 担当 |
 |---|---|---|
 | **プランナー** | Claude Code（サンドボックス内・uid `planner`） | 仕様と受け入れ条件を書く。コードは書かない |
-| **ランナー** | **`runner/loop.py`（v1・実装済み）** | 関門を機構として強制する。AI ではない |
+| **ランナー** | **`runner/swa.py`（v1・実装済み）** | 関門を機構として強制する。AI ではない |
 | **ソルバー** | Codex CLI（サンドボックス内） | 実装を書く。記憶を持たず、1ステップ分の情報しか受け取らない |
 
 AI は両端の2つだけで、真ん中は普通のプログラム。**関門の値打ちは判断しないことにある**ので、
@@ -36,7 +36,7 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
 
 **題材はインクリメンタルゲームに決定**（2026-08-19）。Python でシミュレーション核から作り、
 遊べる画面はループの外に置く。`BOOTSTRAP.md` §2 に書いてあった検索エンジンは**もう題材ではない**。
-題材の一次情報は `/srv/loop/human/in/REQUIREMENTS.md`（人間が書く要件）で、
+題材の一次情報は `/srv/swa/human/in/REQUIREMENTS.md`（人間が書く要件）で、
 そこから `plan bootstrap` が `plan/SYSTEM_SPEC.md` / `plan/CONTEXT.md` / `plan/tasks.json` を起こす。
 
 ## 3. いまどこまで進んだか
@@ -57,23 +57,23 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
   - `/etc/wsl.conf` で automount / interop を無効化（隔離）
   - sshd を 2222 で鍵認証のみ、`AllowUsers maint`
   - `.wslconfig`（8GB / 6 proc / NAT / sparseVhd）と keepalive タスク
-  - ホスト側 `loop-dev` ランチャ（起動 → sshd 待機 → VS Code Remote-SSH）
+  - ホスト側 `swa-dev` ランチャ（起動 → sshd 待機 → VS Code Remote-SSH）
   - **WSLg を無効化**（`.wslconfig` `guiApplications=false`）。`automount` / `interop` を
     切っても閉じない別経路だった。2026-08-17 適用・反映確認済み（`provision/README.md` §3-8）
   - Node 22 LTS と Codex CLI / Claude Code をシステムワイドに導入
 - **`provision/` 一式を WSL2 向けに書き換え、実走完了**（`05`〜`50`。2026-08-17）。
   この時点で成立していることを実測で確認:
   - `runner`(1001) / `solver`(1002) が存在し、どちらも sudo 不可
-  - `/srv/loop/{repo.git, project, brief}` が runner 所有で存在
+  - `/srv/swa/{repo.git, project, brief}` が runner 所有で存在
   - solver から `plan/` `.git/` `.runner/` `/home/runner` `/home/maint` が**読めない**
   - solver は `.venv` に**書けない**（pytest の実行だけできる）
   - FREEZE を模して `chmod -R a-w tests/` すると solver の書き込みが**実際に弾かれる**
   - ホストから `runner` 鍵で bare リポジトリに到達でき、`solver` は SSH を**拒否される**
-- **`runner` 用 SSH 鍵**（`C:\Users\yoshi\.ssh\loop-runner_ed25519`）を作成。
+- **`runner` 用 SSH 鍵**（`C:\Users\yoshi\.ssh\swa-runner_ed25519`）を作成。
   保守用の `id_ed25519` とは別。git 経路専用
 - **ランナー → ソルバーの起動経路が通った**（2026-08-18、`smoke-solver` PASS）。
   `45-agent-invoke.sh` / `bin/solver-run` / `bin/smoke-solver`。実測で確かめたこと:
-  - `runner` の sudo 権限は `(solver) NOPASSWD: /srv/loop/bin/solver-run` の**1行だけ**
+  - `runner` の sudo 権限は `(solver) NOPASSWD: /srv/swa/bin/solver-run` の**1行だけ**
     （`(ALL)` も `(root)` も無いことをスクリプトが assert する）
   - `codex exec` が端末なしで完走し、**solver 自身の ChatGPT サブスクリプション**で認証する
     （`/home/solver/.codex`、home は 700。API キーは使っていない）
@@ -86,7 +86,7 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
   JUnit XML が `solver` 所有で生成される。**自己申告ではなくレポートの中身で検証**している
   （2件中1件 failure）。ついでに、**ソルバーは落ちるテストを直さずに報告した**
 
-- **ランナー v1 が縦に1本通った**（2026-08-18、`runner/loop.py`、step `S1` GREEN）。
+- **ランナー v1 が縦に1本通った**（2026-08-18、`runner/swa.py`、step `S1` GREEN）。
   `PLAN_LOAD → TEST_WRITE → STUB → RED_GATE → FREEZE → IMPL → VERIFY → GREEN` を
   実際に走らせ、`normalize()` の実装とテスト6件が1回の試行で green になった。
   途中で見つけて潰した設計上の穴:
@@ -94,7 +94,7 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
     書き込みフェンスを開けても閉じられなかった。`chown` は root が要る。
     **読んで・消して・runner として書き直す**（`adopt()`）ことで、特権を増やさず所有権を取り戻す。
     ディレクトリが runner 所有であることが unlink を可能にしている
-  - `/srv/loop/brief` に setgid が無く、ブリーフが `runner:runner` で作られて
+  - `/srv/swa/brief` に setgid が無く、ブリーフが `runner:runner` で作られて
     **solver が読めなかった**（`solver exited 2` としか出ない）。2750 に変更
   - `__pycache__` の `.pyc` は実行した uid の所有物になり、同じ chmod 問題を起こす。
     ランナーの pytest は `PYTHONDONTWRITEBYTECODE=1` で走らせる
@@ -128,9 +128,9 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
   覗くテストを書き、スタブに対して `AttributeError` で落ちて R5 が正しく弾く。
   委譲のような実装上の要求は `goal`（IMPL にしか渡らない）に書く
 - **プランナーの起動口が通った**（2026-08-18、`smoke-planner` PASS）。
-  `bin/planner-run` / `(planner)` の Runas 例外 / `plannerw` グループ / `/srv/loop/planner/{brief,out}`。
+  `bin/planner-run` / `(planner)` の Runas 例外 / `plannerw` グループ / `/srv/swa/planner/{brief,out}`。
   - **費用はゼロ。** `claude setup-token` の**サブスクリプショントークン**で非対話実行できる
-    （`/etc/loop/planner.env` の `CLAUDE_CODE_OAUTH_TOKEN`）。購入済みの Console キーは
+    （`/etc/swa/planner.env` の `CLAUDE_CODE_OAUTH_TOKEN`）。購入済みの Console キーは
     `ANTHROPIC_API_KEY_CONSOLE` として残してあり、`planner-run` はトークンが空のときだけ
     そちらに落ちて、落ちたことを stderr に言う
   - **`--bare` は使えない。** 「OAuth とキーチェーンは決して読まない」と明記されており、
@@ -142,7 +142,7 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
     残りようがなくする方が原則に合う。実測で `/home/planner` に残留物は出ない
   - **プランナーは `plan/` に書けない**（0700 runner）。`out/` に**提案**を書くだけで、
     適用するかはランナーが決める（下の「提案経路」で機構になった）
-- **プランナーの提案経路が閉じた**（2026-08-19、`loop.py plan propose/show/apply`、
+- **プランナーの提案経路が閉じた**（2026-08-19、`swa.py plan propose/show/apply`、
   `smoke-plan` 16項目 PASS）。**これで「プランナーは受け入れ条件を緩められない」が
   規律ではなく機構になった。**
   - **「3ファイルに収まっているか」は差分検査ではなくファイル名の許可リストで実装した。**
@@ -203,9 +203,9 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
     もう一度 S4 という id を使うと上限を消費済みの状態から始まる（台帳は履歴なので正しい）
 - **最初の計画を起こす経路が通った**（2026-08-19、`plan bootstrap`）。
   **これで人間の入り口は「要件 .md を書く」1点になった。** BOOTSTRAP Phase 0〜3 を
-  対話でやる必要が無くなり、`/srv/loop/human/in/REQUIREMENTS.md` を置いて
+  対話でやる必要が無くなり、`/srv/swa/human/in/REQUIREMENTS.md` を置いて
   `plan bootstrap` を叩けば、プランナーが3ファイルか質問（`ESCALATE.md`）を返す。
-  - `/srv/loop/human/in` は `runner:humanw 3770`。**プランナーも solver も入っていない**。
+  - `/srv/swa/human/in` は `runner:humanw 3770`。**プランナーも solver も入っていない**。
     `maint` は humanw なので sudo なしで置ける（グループ反映には再ログインが要る）。
     あとで Web フロントを付けるときは、ここに書く uid が1つ増えるだけ
   - `plan apply` は計画が無いとき P1〜P5 が空振りするので、代わりに
@@ -257,7 +257,7 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
   - `conftest.py` が `src` を `sys.path` に載せるようにした。
     `src/incgame/models.py` を `from incgame.models import ...` で import できる
     （Python 標準の src-layout）。以前は空ファイルで、ルートしか通していなかった
-- **フィクスチャ計画は `/srv/loop/project.fixture` に退避**（2026-08-19）。
+- **フィクスチャ計画は `/srv/swa/project.fixture` に退避**（2026-08-19）。
   normalize / tokenize / token_counts の3ステップ green。消していないので戻せる。
   なお `smoke-plan` は**計画が存在しないと実行できない**（変更に対する関門の試験なので）。
   新しい計画が1つ緑になるまでは走らせられない
@@ -299,7 +299,7 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
     それは TEST_WRITE の設計どおり。壊れていたのは**先のステップの条件と全体設計が
     見えた**こと、および凍結マニフェストが見えたこと
   - 対処3点: `20-layout.sh` が最初から 700 で作る / `40-perms.sh` はそのまま /
-    **`loop.py` が起動時に検査して、開いていたら走らない**（`fence_is_open()`）。
+    **`swa.py` が起動時に検査して、開いていたら走らない**（`fence_is_open()`）。
     **直さずに拒否する。** モードが違うということは過去の実行で既に読めていた可能性が
     あるということで、それは「その実行に何の値打ちがあったか」の話だから、
     黙って直して先に進むのは間違い。プロビジョニングは構築時に1回しか走らないが、
@@ -314,8 +314,8 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
   34件のテストが全部まとめても通る。1ステップ 58〜91秒で、`timeouts` の 960 に対して10倍以上の余裕
   - **run 2 は変数をフェンスだけに絞ってある**: 同じ `tasks.json`、同じ venv（移設）、
     新しい `repo.git` と新しい台帳。計画は**本物の経路**（planner 所有で `out/` に置いて
-    `plan apply` に検査させる）で入れた。run 1 は `/srv/loop/project.run1`,
-    `/srv/loop/repo.run1.git`, `/srv/loop/run1.log` に**保存してある**
+    `plan apply` に検査させる）で入れた。run 1 は `/srv/swa/project.run1`,
+    `/srv/swa/repo.run1.git`, `/srv/swa/run1.log` に**保存してある**
   - **10モジュール中6つがバイト単位で一致。** 違った4つも差は些細
     （`from idlecore.x` と `from .x`、空行1つ、`sum(..., 0.0)`、
     受け入れ条件が要求していない引数チェックの有無）。
@@ -383,7 +383,7 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
   HEAD が既にそのステップの緑だと何も戻さない。続けて `run <id>` すると
   **同じステップのコミットが2つ積まれる**（タグは新しい方に移る）。
   `run --all` は緑を飛ばすので起きない。人間が明示的に緑のステップを回したときだけ
-- **`loop-pull.cmd` がタグで止まっていた**（run 2 のミラー更新で露見）。
+- **`swa-pull.cmd` がタグで止まっていた**（run 2 のミラー更新で露見）。
   `fetch --prune --tags` は**動いたタグを "would clobber existing tag" で拒否し、
   fetch 全体を失敗させる**。ミラーは作業コピーではなく `repo.git` の写しなので、
   `--prune-tags --force` を付けた。**バックアップが黙って止まる形の1つ**だった
@@ -391,20 +391,20 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
 - **成果物が VHDX の外に出るようになった**（2026-08-19）。それまで**計画も緑コミットも
   ディストロの VHDX の中にしか無かった** ── `repo.git` は用意してあり、ホストには
   `runner` 鍵もあったのに、`run_step` が push していなかった。3段に分けて塞いだ:
-  - **段1** `loop.py` の `publish()`。GREEN の commit/tag 直後と `plan apply` の直後に
-    `origin`（＝`/srv/loop/repo.git`、ローカルパス）へ push する。**失敗しても止めない** ──
+  - **段1** `swa.py` の `publish()`。GREEN の commit/tag 直後と `plan apply` の直後に
+    `origin`（＝`/srv/swa/repo.git`、ローカルパス）へ push する。**失敗しても止めない** ──
     ステップが緑なのはテストが通ったからで、ミラーが受理したからではない。
     台帳に `PUBLISH` / `PUBLISH_FAILED` を残して先へ進む
   - **ブランチは `--force` を付けない。** ランナーは履歴を書き換えない（`reset` は HEAD、
     つまり最後の緑に戻るだけ）ので、non-fast-forward はこのコードが知らない何かが
     起きた印。潰すのは間違い。**タグだけ `--force`**（`tag -f step-<id>` で動くため）
-  - **段2** `host/loop-pull.cmd`。ホストが `ssh://loop-runner/srv/loop/repo.git` から
+  - **段2** `host/swa-pull.cmd`。ホストが `ssh://swa-runner/srv/swa/repo.git` から
     `C:\dev\roop-engin\project` に引く。**別のディスクに乗るのはここが初めて。**
     段1 の repo.git は同じ VHDX の中なので、守れるのは `reset`/`clean` までで
     ディスクの消失は守れない
   - **押すのではなく引く。** サンドボックスは生成コードを実行する場所なので、
     外に届く認証情報をその中に置かない。GitHub に上げる場合も鍵はホスト側だけが持つ
-  - `~/.ssh/config` に `Host loop-runner` が**実際には入っていなかった**
+  - `~/.ssh/config` に `Host swa-runner` が**実際には入っていなかった**
     （`host/README.md` に手順はあったが未適用）。追加して `git ls-remote` で確認
 - **keepalive がタスクバーの窓だった**（2026-08-19 に修正）。タスクが `wsl.exe` を
   直接起動していたため、`/rl limited` の対話タスクとして**閉じられるコンソール窓**が
@@ -431,7 +431,7 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
   | 消費者 | 資格情報 | 財布 |
   |---|---|---|
   | ホスト側の対話セッション | あなたの Claude | 5時間ウィンドウ → 超過後クレジット |
-  | サンドボックスのプランナー | `CLAUDE_CODE_OAUTH_TOKEN`（`/etc/loop/planner.env`） | **同じ財布** |
+  | サンドボックスのプランナー | `CLAUDE_CODE_OAUTH_TOKEN`（`/etc/swa/planner.env`） | **同じ財布** |
   | ソルバー | Codex CLI（ChatGPT） | 別の財布 |
   - **`run --all` は Claude をほとんど消費しない。** エージェント呼び出しは全部 Codex で、
     Claude を使うのはエスカレーション時の `plan propose` だけ。コストを理由に実行を止める必要はない
@@ -442,7 +442,7 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
   `solver-run` / `planner-run` は `timeout --kill-after=30 "${2:-900}"` を適用するが、
   ランナーは第2引数を渡していなかった。**`TIMEOUTS` は実際の上限ではなく、
   ランナー側 `subprocess` のバックストップにしかなっていなかった** ──
-  run 5 は loop.py に 1800 と書いた状態で 900 秒で2回殺された。
+  run 5 は swa.py に 1800 と書いた状態で 900 秒で2回殺された。
   `agent_command()` に切り出して渡すよう修正し、テストで固定（`runner/tests/test_agent_call.py`）。
   ランナー側の待ち時間は `limit + 120`（スクリプトの `--kill-after=30` の外側）。
 - **規則の棚卸しを1回入れた**（2026-08-21、`RUNNER_SPEC.md` §8-1）。
@@ -497,7 +497,7 @@ AI は両端の2つだけで、真ん中は普通のプログラム。**関門�
 - **段3（ホストのミラー → GitHub など）**。段1・段2 は通した。やる場合、
   **鍵は VM に入れない**（`host/README.md` の3段の表）
 - **フロント**。要件は「要件 .md を投入 → プランナーへ → 実行 → エスカレを通知 →
-  チャットで1往復で決める」。いま存在するのは投入口の `/srv/loop/human/in` だけ。
+  チャットで1往復で決める」。いま存在するのは投入口の `/srv/swa/human/in` だけ。
   最小構成は3つ ── 台帳を tail する読み取り専用ビュー / `ESCALATION.md` の通知 /
   **答えを「人間の承認」として台帳に記録する経路**（P2 を人間だけが緩められるように）
 - **較正**。`timeouts`（120 / 960）は**まだ一度も発火させていない**。
@@ -560,7 +560,7 @@ Hyper-V を無効化すれば VirtualBox は安定するが、WSL2 と Docker De
 `validate` の判定が実行状態に依存し、**まっさらな状態から通らない `tasks.json`** が
 正史として残る。リンタは「唯一の**客観的**関門」なので、そこに状態依存は持ち込まない。
 
-**1-4(c) に従って破棄する緑を明言する**（run 3、`/srv/loop/project.run3` に保存）:
+**1-4(c) に従って破棄する緑を明言する**（run 3、`/srv/swa/project.run3` に保存）:
 
 | 破棄する緑 | 理由 |
 |---|---|
@@ -634,7 +634,7 @@ Claude を使うのは対話セッションと**プランナー**（bootstrap / 
 台帳には `DISCARD` が残る。
 
 `solver-run` はバックエンド名で分岐するようになった。ランナーが渡すのは**名前だけで
-コマンドではなく**、`/srv/loop/bin/solver-<name>`（root 所有 0755、引数は
+コマンドではなく**、`/srv/swa/bin/solver-<name>`（root 所有 0755、引数は
 `<brief> <seconds>`）を置くのは sudo を持つ人間の仕事。**これが2つ目のソルバーの統合面の
 全部**で、書き込みの柵も1ブリーフの経路も走る uid も、エージェントではなく uid と
 ファイルシステムの性質なので、何が動いても既に正しい。
@@ -936,8 +936,8 @@ L15・S10 の `goal` に続いて3度目の同じ構図 ── **ブリーフに
 #### 再開するとき
 
 ```bash
-host\loop-pull.cmd          # サンドボックス → ホスト（済み）
-host\loop-dashboard.cmd     # http://127.0.0.1:8443
+host\swa-pull.cmd          # サンドボックス → ホスト（済み）
+host\swa-dashboard.cmd     # http://127.0.0.1:8443
 ```
 
 ダッシュボードは `phase: review_required` を出している。承認はローカルのみ
@@ -981,7 +981,7 @@ tests/failures/errors/skipped）なので、**ランナーの判定部はほぼ�
 
 #### 入れたもの
 
-- `provision/35-node.sh` ── vitest 4.1.11 + happy-dom 20.13.1 を `/srv/loop/node` に
+- `provision/35-node.sh` ── vitest 4.1.11 + happy-dom 20.13.1 を `/srv/swa/node` に
   入れて凍結し、`project/node_modules` からシンボリックリンクで見せる。
   `project/vitest.config.mjs` を runner 所有で置く。solver 視点の assert 付き
 - `provision/bin/smoke-dom` ── 上の実測を再実行可能にしたもの
@@ -1087,18 +1087,18 @@ run 8 の成果物は HTML ページなので、`python -m` に相当する検�
 **中断地点。** run 8（TypeScript でアイドルゲーム）の準備は**全部終わっている**。
 残りは `plan bootstrap` を1回走らせるところから。
 
-    ssh loop-runner
-    cd /srv/loop/project
-    python3 /srv/loop/runner/loop.py plan bootstrap --language typescript
-    python3 /srv/loop/runner/loop.py plan show
-    python3 /srv/loop/runner/loop.py plan apply
-    nohup python3 /srv/loop/runner/loop.py run --all > /srv/loop/run8.log 2>&1 &
+    ssh swa-runner
+    cd /srv/swa/project
+    python3 /srv/swa/runner/swa.py plan bootstrap --language typescript
+    python3 /srv/swa/runner/swa.py plan show
+    python3 /srv/swa/runner/swa.py plan apply
+    nohup python3 /srv/swa/runner/swa.py run --all > /srv/swa/run8.log 2>&1 &
 
 **できている準備:**
 
 - run 7 は `project.run7` / `repo.run7.git` に退避。新しい `project/` は
   `20-layout.sh` + `35-node.sh` + `40-perms.sh` を通し、assert 全通過
-- `/srv/loop/human/in/REQUIREMENTS.md` は Web 版に差し替え済み（起動の行が
+- `/srv/swa/human/in/REQUIREMENTS.md` は Web 版に差し替え済み（起動の行が
   「ルートに `index.html`、開発サーバをルートで起動」に変わっている）
 - `index.html` は**環境が持っている**（runner 所有 644、`35-node.sh` が置く）。
   `import { start } from "/src/main.ts"` を呼ぶだけの4行。プランは
@@ -1108,7 +1108,7 @@ run 8 の成果物は HTML ページなので、`python -m` に相当する検�
 **1回目のブートストラップは3回目で通り、その計画を私が壊した。** 権限の切り分けで
 `os.O_WRONLY|os.O_TRUNC` を使って「開けるか」を試し、開けたので中身が消えた
 （37,942 → 0 バイト）。**権限の確認に破壊的なフラグを使ってはいけない。**
-`CONTEXT.md` と `SYSTEM_SPEC.md` は `/srv/loop/salvage8/` に退避してある ──
+`CONTEXT.md` と `SYSTEM_SPEC.md` は `/srv/swa/salvage8/` に退避してある ──
 次の計画と読み比べる用で、そのまま使うものではない。
 
 **その過程で engine の欠陥を2件見つけて直した（配備済み）。**
@@ -1134,15 +1134,15 @@ Python の区切り文字のためのもので、TypeScript ではただの拡�
 
 ### run 8 の計画（2026-09-13。適用済み。**再開点は下の 09-21 の節**）
 
-**ブートストラップは終わっている。やり直さないこと。** `/srv/loop/planner/out/` の
+**ブートストラップは終わっている。やり直さないこと。** `/srv/swa/planner/out/` の
 `tasks.json`（10ステップ・58テスト・`language: typescript` 刻み済み）は
 **リンタ違反ゼロ**で検算済み。次の一手は critique から:
 
-    ssh loop-runner
-    cd /srv/loop/project
-    python3 -u /srv/loop/runner/loop.py critique     # ← 本番初運用。まだ一度も通していない
-    python3 -u /srv/loop/runner/loop.py plan apply
-    nohup python3 -u /srv/loop/runner/loop.py run --all > /srv/loop/run8.log 2>&1 &
+    ssh swa-runner
+    cd /srv/swa/project
+    python3 -u /srv/swa/runner/swa.py critique     # ← 本番初運用。まだ一度も通していない
+    python3 -u /srv/swa/runner/swa.py plan apply
+    nohup python3 -u /srv/swa/runner/swa.py run --all > /srv/swa/run8.log 2>&1 &
 
 **`python3 -u` を付けること。** 付けないと標準出力がブロックバッファリングされ、
 **ログが25分間空のまま**になる。今日それを「プランナーが止まっている」と誤読した。
@@ -1282,7 +1282,7 @@ codex 3）外し続けた。ソルバーに届いていたのはこれだけ:
 
 ```
 Tests that passed before this step are now failing: tests/engine.test.ts
-JUNIT report written to /srv/loop/project/.runner/pytest-verify-5.xml
+JUNIT report written to /srv/swa/project/.runner/pytest-verify-5.xml
 ```
 
 **`expected +0 to be 7` が一言も渡っていない。** JUnit のパスは書いてあるが
@@ -1330,7 +1330,7 @@ export function createGame(): GameState {
 
 ```bash
 # 載るか試す（root）。載れば room は 13,824 になり S9・S10 まで見通せる
-bash /srv/loop/ctxtest.sh 16384      # 駄目なら 12288、戻すなら off
+bash /srv/swa/ctxtest.sh 16384      # 駄目なら 12288、戻すなら off
 ```
 
 VRAM は 6144 MiB 中 5276 使用済み、空き 868 MiB。載らない場合は CONTEXT.md
@@ -1404,7 +1404,7 @@ cursor が無ければ比較の前に落ち、R5 になる）。これは STUB �
 
 #### codex は従量課金ではない（訂正）
 
-`loop.py`・`RUNNER_SPEC.md`・`test_attempts.py` に「metered / 従量課金」と書いていたが、
+`swa.py`・`RUNNER_SPEC.md`・`test_attempts.py` に「metered / 従量課金」と書いていたが、
 この機械の codex は **ChatGPT のサブスクリプション**で、planner の Claude 側と同じ形。
 請求は増えず、**人間が自分の対話で使っている枠が減る。**
 
@@ -1483,25 +1483,25 @@ bootstrap と refine）と、時間切れで打ち切られたソルバーの呼
 ### 実行環境の在庫（2026-08-19 終了時点）
 
 ```
-/srv/loop/project          run 3。S1〜S7 緑、S8 が停止状態のまま（ESCALATION.md あり、ツリーは dirty）
-/srv/loop/project.run2     run 2。10ステップ緑（フェンスを閉じてから）
-/srv/loop/project.run1     run 1。10ステップ緑（フェンスが開いていた）
-/srv/loop/project.fixture  normalize/tokenize の3ステップ
-/srv/loop/repo.git  repo.run1.git  repo.run2.git
-/srv/loop/run.log   run1.log  run2.log
+/srv/swa/project          run 3。S1〜S7 緑、S8 が停止状態のまま（ESCALATION.md あり、ツリーは dirty）
+/srv/swa/project.run2     run 2。10ステップ緑（フェンスを閉じてから）
+/srv/swa/project.run1     run 1。10ステップ緑（フェンスが開いていた）
+/srv/swa/project.fixture  normalize/tokenize の3ステップ
+/srv/swa/repo.git  repo.run1.git  repo.run2.git
+/srv/swa/run.log   run1.log  run2.log
 ホスト: C:\dev\roop-engin\project  = run 3 のミラー
 ```
 
 **A を選ぶ場合の手順**（run 2 → run 3 のときと同じ）:
 
 ```bash
-mv /srv/loop/run.log /srv/loop/run3.log
-mv /srv/loop/project /srv/loop/project.run3
-mv /srv/loop/repo.git /srv/loop/repo.run3.git
+mv /srv/swa/run.log /srv/swa/run3.log
+mv /srv/swa/project /srv/swa/project.run3
+mv /srv/swa/repo.git /srv/swa/repo.run3.git
 bash /home/maint/provision/20-layout.sh
-mv /srv/loop/project.run3/.venv /srv/loop/project/.venv   # venv を移して変数を減らす
+mv /srv/swa/project.run3/.venv /srv/swa/project/.venv   # venv を移して変数を減らす
 bash /home/maint/provision/40-perms.sh
-sudo -u runner python3 /srv/loop/runner/loop.py plan bootstrap
+sudo -u runner python3 /srv/swa/runner/swa.py plan bootstrap
 ```
 
 ホストのミラーは**改名できない**（ロックされる）ので、

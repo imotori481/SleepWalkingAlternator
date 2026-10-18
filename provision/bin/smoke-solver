@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 最初の実験。ランナーはそもそもソルバーを動かせるか。
 #
-#     sudo -u runner /srv/loop/bin/smoke-solver
+#     sudo -u runner /srv/swa/bin/smoke-solver
 #
 # これが通るまで、その先は何も意味を持たない。だから、あえて最小の往復にする。
 # runner がブリーフを書き、solver を別の uid で起動し、solver が src/ に
@@ -9,7 +9,7 @@
 #
 # 確かめること（順に）:
 #   1. sudoers の Runas の例外が効き、起動スクリプトに届く
-#   2. エージェントが人のログインではなく /etc/loop/solver.env で認証する
+#   2. エージェントが人のログインではなく /etc/swa/solver.env で認証する
 #   3. エージェントが端末なしで最後まで動く
 #   4. できたファイルが solver の所有である。つまり、書いたのは本当に solver で、
 #      runner ではない
@@ -17,11 +17,11 @@ set -euo pipefail
 
 [ "$(id -un)" = "runner" ] || { echo "run as runner: sudo -u runner $0" >&2; exit 1; }
 
-# 柵の場所。規則は loop.py の LAYOUT にしか書かないので、そこから読む。
-read -r LAYOUT_SRC LAYOUT_TESTS <<<"$(python3 -B -c "import sys; sys.path.insert(0, '/srv/loop/runner'); import loop; print(loop.LAYOUT['src'], loop.LAYOUT['tests'])")"
-BRIEF=/srv/loop/brief/smoke.md
-TARGET="/srv/loop/project/$LAYOUT_SRC/smoke.txt"
-MARKER="loop-smoke-ok"
+# 柵の場所。規則は swa.py の LAYOUT にしか書かないので、そこから読む。
+read -r LAYOUT_SRC LAYOUT_TESTS <<<"$(python3 -B -c "import sys; sys.path.insert(0, '/srv/swa/runner'); import swa; print(swa.LAYOUT['src'], swa.LAYOUT['tests'])")"
+BRIEF=/srv/swa/brief/smoke.md
+TARGET="/srv/swa/project/$LAYOUT_SRC/smoke.txt"
+MARKER="swa-smoke-ok"
 
 rm -f "$TARGET"
 
@@ -35,7 +35,7 @@ EOF
 
 echo "--- invoking solver ---"
 rc=0
-sudo -u solver /srv/loop/bin/solver-run "$BRIEF" || rc=$?
+sudo -u solver /srv/swa/bin/solver-run "$BRIEF" || rc=$?
 echo "--- solver exited rc=$rc ---"
 
 fail=0
@@ -62,7 +62,7 @@ fi
 # ではなく、モードを見て確かめる。sudoers の例外は solver-run だけを名指しして
 # いるので、ここで `sudo -u solver test ...` は拒否され、どちらの結果も何も
 # 証明しない。
-planmode="$(stat -c '%U:%G %a' /srv/loop/project/plan)"
+planmode="$(stat -c '%U:%G %a' /srv/swa/project/plan)"
 if [ "$planmode" = "runner:runner 700" ]; then
   note "ok: plan/ still runner:runner 700"
 else

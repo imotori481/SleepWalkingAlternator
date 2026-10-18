@@ -33,17 +33,17 @@ AI に実装させると、**「テストが通りました」が自己申告に
 | **solver** | 1002 | `src/` `tests/`（凍結まで） | `plan/` `docs/` `ac/` `.git/`（設計の全体と受け入れ条件を読めない） |
 | **critic** | 1004 | `critic/out/FINDINGS.json` | `plan/` `ac/` `tests/` `src/` |
 
-runner は普通のプログラム（`runner/loop.py`）です。残りの3役は、それぞれの uid で
+runner は普通のプログラム（`runner/swa.py`）です。残りの3役は、それぞれの uid で
 起動される Claude Code です。
 
 | 役 | 起動スクリプト | 許すツール | 資格情報 |
 |---|---|---|---|
-| planner | `planner-run` | `Read` `Write` `Edit` `Grep` `Glob` | `/etc/loop/planner.env` |
-| solver | `solver-run` → `solver-claude` | `Read` `Write` `Edit`。**`Bash` は禁止** | `/etc/loop/solver.env` |
-| critic | `critic-run` | `Read` `Write` | `/etc/loop/critic.env` |
+| planner | `planner-run` | `Read` `Write` `Edit` `Grep` `Glob` | `/etc/swa/planner.env` |
+| solver | `solver-run` → `solver-claude` | `Read` `Write` `Edit`。**`Bash` は禁止** | `/etc/swa/solver.env` |
+| critic | `critic-run` | `Read` `Write` | `/etc/swa/critic.env` |
 
 資格情報のファイルは、その役の uid だけが読めます。モデルと effort も同じファイルの
-`LOOP_MODEL` と `LOOP_EFFORT` で役ごとに決めます。
+`SWA_MODEL` と `SWA_EFFORT` で役ごとに決めます。
 
 **solver にコマンドを実行させないのは、テストを走らせる許可が、自分の書いたコードを
 動かす許可と同じだからです。** 合否を出すのは runner の VERIFY だけです。
@@ -275,5 +275,6 @@ run 8 の S1 は13回止まり、**12回がこれ**でした。
 
 ## 更新履歴
 
+- 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更
 - 2026/10/14: 役の権限、位相の図、輪、人間の仕事を3段（上流、中段、下流）の設計に変更
 - 2026/09/26: 3役の実体（Claude Code）、許すツール、資格情報の置き場を §2 に追加

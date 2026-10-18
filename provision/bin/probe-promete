@@ -2,9 +2,9 @@
 # Promete 2.1.0 のどこまでが、箱のテストで動くかを測る。関門ではなく測定なので、
 # 結果が悪くても落ちない。落ちるのは、測る道具がそろっていないときだけ。
 #
-#     sudo -u runner -H /srv/loop/bin/probe-promete
+#     sudo -u runner -H /srv/swa/bin/probe-promete
 #
-# ランナーと同じ形で測る（loop.py の FRAMEWORKS["csharp"]["promete"]）。コードの
+# ランナーと同じ形で測る（swa.py の FRAMEWORKS["csharp"]["promete"]）。コードの
 # プロジェクトが Promete を参照してシーンを持ち、テストのプロジェクトがコードを参照する。
 # どちらも net10.0 で、SDK 10、NUnit 3。画面も GPU も無く、アプリはヘッドレスで作る。
 #
@@ -18,11 +18,11 @@
 #      登録し、ProjectReference はジェネレータを渡さない。コードのプロジェクトの
 #      シーンを、テストから読み込めるかを、UseScenesFrom の有無で測る
 #
-# 結果は loop.py の promete_facts に書く（テストで確かめられない振る舞いの条件を
-# 書かせない）。全文は /srv/loop/logs/probe-promete-<日時>.log に残す。
+# 結果は swa.py の promete_facts に書く（テストで確かめられない振る舞いの条件を
+# 書かせない）。全文は /srv/swa/logs/probe-promete-<日時>.log に残す。
 set -euo pipefail
 
-TOOLS="${LOOP_DOTNET_TOOLS:-/srv/loop/dotnet}"
+TOOLS="${SWA_DOTNET_TOOLS:-/srv/swa/dotnet}"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
 [ -r "$TOOLS/nuget.config" ] || { echo "probe-promete: no $TOOLS/nuget.config; run 36-dotnet.sh" >&2; exit 2; }
@@ -32,7 +32,7 @@ version_of() { tr ' ' '\n' <<<"$versions" | sed -n "s/^$1=//p"; }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-LOG="/srv/loop/logs/probe-promete-$(date +%Y%m%d-%H%M%S).log"
+LOG="/srv/swa/logs/probe-promete-$(date +%Y%m%d-%H%M%S).log"
 : > "$LOG" 2>/dev/null || LOG="$WORK/probe.log"
 
 mkdir -p "$WORK/src" "$WORK/tests" "$WORK/code" "$WORK/test"

@@ -2,7 +2,7 @@
 # プランナーのエージェントを、1つのブリーフに対して非対話で起動する。
 #
 # ランナーはこう呼ぶ:
-#     sudo -u planner /srv/loop/bin/planner-run <brief-file> [seconds]
+#     sudo -u planner /srv/swa/bin/planner-run <brief-file> [seconds]
 #
 # 形も理由も solver-run と同じ。ランナーは sudo を持たず、
 # /etc/sudoers.d/92-runner-to-planner の唯一の例外はこのスクリプトだけを名指しし、
@@ -10,7 +10,7 @@
 #
 # プランナーが何に触れてよいかは、このスクリプトではなくファイルシステムが
 # 決める。`docs/` と `ac/` は 0700 runner なので、プランナーは設計を直接書けない。
-# ランナーが今の設計を /srv/loop/planner/out に写して置き、プランナーはそれを
+# ランナーが今の設計を /srv/swa/planner/out に写して置き、プランナーはそれを
 # 書き直す。ランナーは検査を通したものだけを docs/ と ac/ に戻す。差し戻しで
 # 指定外のモジュールが変わっていれば、それも拒む。src/ は ACL で読めるが、
 # 書けない（40-perms.sh）。
@@ -20,15 +20,15 @@ BRIEF="${1:?usage: planner-run <brief-file> [seconds]}"
 LIMIT="${2:-900}"
 [ -r "$BRIEF" ] || { echo "planner-run: cannot read brief: $BRIEF" >&2; exit 2; }
 
-OUT=/srv/loop/planner/out
+OUT=/srv/swa/planner/out
 
 # 資格情報。CLAUDE_CODE_OAUTH_TOKEN は `claude setup-token` で作るサブスクリプション
 # のトークン。ANTHROPIC_API_KEY_CONSOLE は予備に置く従量課金の Console クレジット。
 # export するのはちょうど1つなので、どちらが代金を払ったかが曖昧にならない。
 # トークンが無いときは、分かりにくい認証エラーではなく課金に切り替わる。
-if [ -r /etc/loop/planner.env ]; then
+if [ -r /etc/swa/planner.env ]; then
   set -a
-  . /etc/loop/planner.env
+  . /etc/swa/planner.env
   set +a
 fi
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
@@ -36,28 +36,28 @@ if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
     export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY_CONSOLE"
     echo "planner-run: サブスクリプションのトークンが無いので、Console のクレジットを使う" >&2
   else
-    echo "planner-run: /etc/loop/planner.env に資格情報が無い" >&2
+    echo "planner-run: /etc/swa/planner.env に資格情報が無い" >&2
     echo "    サブスクリプション（推奨）: sudo -u planner -H claude setup-token で発行して書く" >&2
     exit 3
   fi
 fi
 unset ANTHROPIC_API_KEY_CONSOLE
 
-# モデルと effort。planner.env の LOOP_MODEL を --model で、LOOP_EFFORT を
+# モデルと effort。planner.env の SWA_MODEL を --model で、SWA_EFFORT を
 # --effort で渡す。空ならアカウントの既定。effort の値が間違っていたら、claude を
 # 呼ぶ前に止める。claude 側で落ちると、ランナーはそれを設計の失敗と扱う。
 role_args=()
-if [ -n "${LOOP_MODEL:-}" ]; then
-  role_args+=(--model "$LOOP_MODEL")
+if [ -n "${SWA_MODEL:-}" ]; then
+  role_args+=(--model "$SWA_MODEL")
 fi
-if [ -n "${LOOP_EFFORT:-}" ]; then
-  case "$LOOP_EFFORT" in
-    low|medium|high|xhigh|max) role_args+=(--effort "$LOOP_EFFORT") ;;
-    *) echo "planner-run: bad LOOP_EFFORT in planner.env: $LOOP_EFFORT" >&2; exit 5 ;;
+if [ -n "${SWA_EFFORT:-}" ]; then
+  case "$SWA_EFFORT" in
+    low|medium|high|xhigh|max) role_args+=(--effort "$SWA_EFFORT") ;;
+    *) echo "planner-run: bad SWA_EFFORT in planner.env: $SWA_EFFORT" >&2; exit 5 ;;
   esac
 fi
 
-# サブエージェント。planner.env の LOOP_SUBAGENT_MODEL が空でなければ、そのモデルで
+# サブエージェント。planner.env の SWA_SUBAGENT_MODEL が空でなければ、そのモデルで
 # 動く読むだけの助手 scout を --agents で定義し、Agent ツールで呼ばせる。空なら何も
 # 足さない。既存のコードを探して読む分が scout の文脈に入り、プランナーには答え
 # だけが戻る。書き換えの助手は渡さない。設計を書くのはプランナー自身だ。
@@ -66,12 +66,12 @@ agent_tools=""
 agent_allow=""
 agent_args=()
 agent_note=""
-if [ -n "${LOOP_SUBAGENT_MODEL:-}" ]; then
-  if ! [[ "$LOOP_SUBAGENT_MODEL" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "planner-run: bad LOOP_SUBAGENT_MODEL in planner.env: $LOOP_SUBAGENT_MODEL" >&2
+if [ -n "${SWA_SUBAGENT_MODEL:-}" ]; then
+  if ! [[ "$SWA_SUBAGENT_MODEL" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "planner-run: bad SWA_SUBAGENT_MODEL in planner.env: $SWA_SUBAGENT_MODEL" >&2
     exit 5
   fi
-  export CLAUDE_CODE_SUBAGENT_MODEL="$LOOP_SUBAGENT_MODEL"
+  export CLAUDE_CODE_SUBAGENT_MODEL="$SWA_SUBAGENT_MODEL"
   agent_tools=",Agent"
   agent_allow=" Agent(scout)"
   agent_args=(--agents "$(cat <<EOF
@@ -80,7 +80,7 @@ if [ -n "${LOOP_SUBAGENT_MODEL:-}" ]; then
     "description": "Read-only code search on a small model. Use it to find existing types, functions, call sites and how a feature is wired across many files instead of reading them yourself. It returns paths, signatures and short excerpts.",
     "prompt": "You search code for the planner of an automated build loop. Use Grep, Glob and Read with absolute paths. Answer exactly what you were asked: file paths with line numbers, declarations and signatures, and only the excerpts that answer the question. Do not paste whole files. Say plainly when you find nothing. You cannot write files.",
     "tools": ["Read", "Grep", "Glob"],
-    "model": "$LOOP_SUBAGENT_MODEL"
+    "model": "$SWA_SUBAGENT_MODEL"
   }
 }
 EOF

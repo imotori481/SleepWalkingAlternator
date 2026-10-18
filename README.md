@@ -48,7 +48,7 @@ GitHub のリポジトリのブランチを取り込み、その上で走らせ�
 - 既存コードの公開されている型や関数をプランナーに渡す。プランナーはコードを読めるが書けない。設計はそれらを使える
 - 走る前に既存のテストが通るかを確かめ、落ちていれば止まる。既存のテストはソルバーが書き換えられないので、振る舞いを壊すとそのテストが落ちる
 - 人が確かめて承認すると、元のブランチへの PR を出す。作業用に置いたファイルと設計は PR に入らない
-- 全モジュールが緑になる前でも、最後に緑になったモジュールまでを下書きの PR として出せる（`loop-pr`）
+- 全モジュールが緑になる前でも、最後に緑になったモジュールまでを下書きの PR として出せる（`swa-pr`）
 
 GitHub の資格情報は Windows 側にだけ置く。AI の役が動く WSL2 には置かない。
 
@@ -64,13 +64,13 @@ GitHub の資格情報は Windows 側にだけ置く。AI の役が動く WSL2 �
 
 ## 使い方
 
-操作は Windows 側のダッシュボードで行う。`host\loop-dashboard.cmd` を起動し、ブラウザで <http://127.0.0.1:8443> を開く。
+操作は Windows 側のダッシュボードで行う。`host\swa-dashboard.cmd` を起動し、ブラウザで <http://127.0.0.1:8443> を開く。
 環境構築は [provision/README.md](provision/README.md) と [host/README.md](host/README.md) に従う。
 
 1. 仕様書を書く。手元だけで使う仕様書は `requirements/local/` に置く
 2. 既存リポジトリで作業させるなら、「取り込み」タブでリポジトリとブランチを指定する
 3. 「走行」タブで仕様書のファイルと言語を選び、開始する
-4. 各段の出口で、設計を読んで `loop approve` か `loop reject <コメント>` を打つ
+4. 各段の出口で、設計を読んで `swa approve` か `swa reject <コメント>` を打つ
 5. 「いまの作業」と「ステップ」で下流の進み具合を見る。誰が何をしているかが、試行の回数と経過時間と一緒に出る
 6. 「ホストの写し」タブで成果を Windows 側に写し、動かして確かめる
 7. 画面で承認する。既存リポジトリなら PR が出る。直してほしければ差し戻す
@@ -90,7 +90,7 @@ AI の3役は、Windows 側（以下、ホスト）から切り離した WSL2 �
 | プランナー | Claude Code | 設計の置き場に直接書けない。実装コードは読めるが書けない。テストは読めない |
 | クリティック | Claude Code | 受け入れ条件もコードもテストも読めず、承認もできない |
 | ソルバー | Claude Code。ファイルの読み書きと検索だけを許す | 設計の全体と受け入れ条件を読めない。コマンドを実行できない |
-| ランナー | `runner/loop.py`（標準ライブラリのみ） | ― |
+| ランナー | `runner/swa.py`（標準ライブラリのみ） | ― |
 
 ランナーは、次の関門を機械的に適用する。
 
@@ -103,7 +103,7 @@ AI の3役は、Windows 側（以下、ホスト）から切り離した WSL2 �
 
 各実行の全イベントは台帳（`plan/ledger.jsonl`）に `RED_GATE` / `FREEZE` / `VERIFY` / `GREEN` / `FAILED` / `USAGE` として残り、後から検証できる。
 
-役ごとに、使うモデルと effort を `/etc/loop/<役>.env` の `LOOP_MODEL` と `LOOP_EFFORT` で決める。3役が同じサブスクリプションの枠を使うので、ランナーは利用上限に当たった呼び出しを失敗として扱わず、待ってからやり直す。呼び出しごとの消費量は台帳に残る。
+役ごとに、使うモデルと effort を `/etc/swa/<役>.env` の `SWA_MODEL` と `SWA_EFFORT` で決める。3役が同じサブスクリプションの枠を使うので、ランナーは利用上限に当たった呼び出しを失敗として扱わず、待ってからやり直す。呼び出しごとの消費量は台帳に残る。
 
 中心となる原則は次のとおり。
 
@@ -131,7 +131,7 @@ AI の3役は、Windows 側（以下、ホスト）から切り離した WSL2 �
 2. [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) — 設計思想と、プランナーが作る成果物
 3. [docs/RUNNER_SPEC.md](docs/RUNNER_SPEC.md) — ランナーの関門、状態遷移、CLI、データ形式
 4. [docs/AGENT_IO.md](docs/AGENT_IO.md) — 役どうしの受け渡しとトークン消費の読み方
-5. [runner/loop.py](runner/loop.py) — 上記仕様の実装
+5. [runner/swa.py](runner/swa.py) — 上記仕様の実装
 
 作業の一覧と進み具合は [PLANS.md](PLANS.md)、実行環境の経緯は [docs/HANDOFF.md](docs/HANDOFF.md) にある。
 
@@ -153,29 +153,29 @@ AI の3役は、Windows 側（以下、ホスト）から切り離した WSL2 �
 │   └── HANDOFF.md        # 進捗と引き継ぎ
 ├── requirements/         # 仕様書の置き場（local/ は手元用で、コミットしない）
 ├── runner/
-│   ├── loop.py           # ランナー本体（関門の適用、状態遷移、台帳）
+│   ├── swa.py           # ランナー本体（関門の適用、状態遷移、台帳）
 │   └── tests/            # ランナー自身のテスト
 ├── host/
 │   ├── README.md         # Windows ホスト側の手順
 │   ├── dashboard/        # 人間向けのローカルWeb GUI
-│   ├── loop.cmd          # ホストから箱の loop を呼ぶ
-│   ├── loop-dashboard.cmd # GUIランチャー
-│   ├── loop-dev.cmd      # 開発環境ランチャー
-│   ├── loop-import.cmd   # 既存リポジトリのブランチを箱に取り込む
-│   ├── loop-pr.cmd       # 途中の成果を下書きの PR に出す
-│   ├── loop-pull.cmd     # 成果物の取り出し（プロジェクトごとに写しを分ける）
-│   ├── loop-unity-refs.* # Unity の参照アセンブリを箱に送る
+│   ├── swa.cmd          # ホストから箱の swa を呼ぶ
+│   ├── swa-dashboard.cmd # GUIランチャー
+│   ├── swa-dev.cmd      # 開発環境ランチャー
+│   ├── swa-import.cmd   # 既存リポジトリのブランチを箱に取り込む
+│   ├── swa-pr.cmd       # 途中の成果を下書きの PR に出す
+│   ├── swa-pull.cmd     # 成果物の取り出し（プロジェクトごとに写しを分ける）
+│   ├── swa-unity-refs.* # Unity の参照アセンブリを箱に送る
 │   └── wsl-keepalive.vbs # VM のアイドル停止を防ぐ常駐
 └── provision/
     ├── README.md         # サンドボックス構築手順
     ├── provision.sh      # プロビジョニングの入口
-    ├── loop-project.sh   # プロジェクトの作成、切り替え、柵の場所の設定
+    ├── swa-project.sh   # プロジェクトの作成、切り替え、柵の場所の設定
     ├── layout.sh         # 柵の場所を読む
-    ├── loop_now.py       # loop now の JSON を組み立てる
-    ├── loop_dash.py      # ダッシュボードからの要求を確かめて流す
-    ├── loop_findings.py  # クリティックの指摘を読み書きする
+    ├── swa_now.py       # swa now の JSON を組み立てる
+    ├── swa_dash.py      # ダッシュボードからの要求を確かめて流す
+    ├── swa_findings.py  # クリティックの指摘を読み書きする
     ├── bin/              # 隔離環境内に置く実行ファイル
-    │                     #   loop / solver-run / solver-claude / planner-run /
+    │                     #   swa / solver-run / solver-claude / planner-run /
     │                     #   critic-run / probe-unity / smoke-*
     └── *.sh              # 隔離、ユーザー、配置、ランナー本体、Python、Node、
                           #   .NET、C++、権限、エージェント起動、egress の設定
@@ -189,6 +189,7 @@ WSL2 は既定のままでは隔離環境ではない。この構成では Windo
 
 ## 更新履歴
 
+- 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更
 - 2026/10/15: タイトルを Sleep Walking Alternator (SWA) に変更
 - 2026/10/14: 役、流れ、止まったときの手を3段（上流、中段、下流）の設計に変更
 - 2026/10/07: 途中の成果を下書きの PR として出す `loop-pr` を追加

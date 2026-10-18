@@ -1,20 +1,20 @@
-"""`loop dash` の中身。ホストのダッシュボードが SSH で流す要求を確かめ、役の設定を読み書きする。
+"""`swa dash` の中身。ホストのダッシュボードが SSH で流す要求を確かめ、役の設定を読み書きする。
 
-`loop dash` は sudoers が保守ユーザーにパスワード無しで許す唯一の入口で、root で動く。
+`swa dash` は sudoers が保守ユーザーにパスワード無しで許す唯一の入口で、root で動く。
 要求は標準入力の JSON 1つで、コマンドラインには何も載らない。ここで形と値を確かめ、
-確かめた値だけを1行ずつ返す。`loop` はその行で動く。
+確かめた値だけを1行ずつ返す。`swa` はその行で動く。
 
-役の設定は /etc/loop/<役>.env の LOOP_MODEL と LOOP_EFFORT の行だけを読み書きする。
+役の設定は /etc/swa/<役>.env の SWA_MODEL と SWA_EFFORT の行だけを読み書きする。
 同じファイルにある資格情報は読み出さず、書き換えもしない。起動スクリプトはこのファイルを
 シェルで読み込むので、書く値は使える文字を絞ってから書く。
 
 設計（段、基本設計、詳細設計、受け入れ条件、インターフェースチェック、批評、止まった
 理由）は読むだけで返す。plan/、docs/、ac/ は runner だけが読めるので、root のここで読む。
 
-    python3 loop_dash.py request <作業ディレクトリ>   # 標準入力に要求の JSON
-    python3 loop_dash.py settings <ディレクトリ>
-    python3 loop_dash.py set-model <ディレクトリ> <役> <モデル> <effort>
-    python3 loop_dash.py design <作業ツリー>
+    python3 swa_dash.py request <作業ディレクトリ>   # 標準入力に要求の JSON
+    python3 swa_dash.py settings <ディレクトリ>
+    python3 swa_dash.py set-model <ディレクトリ> <役> <モデル> <effort>
+    python3 swa_dash.py design <作業ツリー>
 """
 
 from __future__ import annotations
@@ -27,23 +27,23 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "runner"))
 
-import loop  # noqa: E402
+import swa  # noqa: E402
 
 ROLES = ("planner", "critic", "solver")
 # 起動スクリプト（planner-run、critic-run、solver-claude）が受け付けるものと合わせる。
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 # --model に渡す名前。シェルで読み込まれるので、空白、引用符、$ などは通さない。
 MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,99}")
-# loop-project.sh の valid_name と同じ規則。
+# swa-project.sh の valid_name と同じ規則。
 PROJECT = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 # 取り込むブランチ。行にもオプションにもならない文字だけを通す。git の規則
-# （check-ref-format）は loop-project.sh の init が確かめる。
+# （check-ref-format）は swa-project.sh の init が確かめる。
 BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 # 仕様書の本文。
 MAX_SPEC = 200_000
 # 差し戻しのコメント。ダッシュボードの欄は 4000 字までだが、箱の側でも絞る。
 MAX_COMMENT = 20_000
-KEYS = {"model": "LOOP_MODEL", "effort": "LOOP_EFFORT"}
+KEYS = {"model": "SWA_MODEL", "effort": "SWA_EFFORT"}
 
 
 class Refused(Exception):
@@ -81,8 +81,8 @@ def check_branch(value: object) -> str:
 
 
 def check_module(value: object) -> str:
-    """モジュールの id。src/ の下のパスから拡張子を落としたもの（loop.MODULE_ID）。"""
-    if not isinstance(value, str) or len(value) > 200 or not loop.MODULE_ID.fullmatch(value):
+    """モジュールの id。src/ の下のパスから拡張子を落としたもの（swa.MODULE_ID）。"""
+    if not isinstance(value, str) or len(value) > 200 or not swa.MODULE_ID.fullmatch(value):
         raise Refused(f"モジュールの id に使えない: {value!r}")
     return value
 
@@ -92,14 +92,14 @@ def check_fence(src: object, tests: object) -> tuple[str, str]:
     if not isinstance(src, str) or not isinstance(tests, str):
         raise Refused("柵の場所は文字列で渡す")
     if src or tests:
-        problems = loop.layout_problems({"src": src or "src", "tests": tests or "tests"})
+        problems = swa.layout_problems({"src": src or "src", "tests": tests or "tests"})
         if problems:
             raise Refused("柵の場所に使えない: " + "; ".join(problems))
     return src, tests
 
 
 def parse(request: object, work: str) -> list[str]:
-    """要求を確かめ、`loop` に返す行を作る。仕様書とコメントの本文は作業ディレクトリに書く。"""
+    """要求を確かめ、`swa` に返す行を作る。仕様書とコメントの本文は作業ディレクトリに書く。"""
     if not isinstance(request, dict):
         raise Refused("JSON のオブジェクトを渡す")
     action = request.get("action")
@@ -125,12 +125,12 @@ def parse(request: object, work: str) -> list[str]:
     if action == "go":
         language, text = request.get("language"), request.get("spec")
         framework = request.get("framework", "")
-        if language not in loop.LANGUAGES:
+        if language not in swa.LANGUAGES:
             raise Refused(f"知らない言語: {language!r}")
         # 空なら言語の既定。返す行には、いつも名前を入れる。
         if framework == "":
-            framework = loop.LANGUAGES[language]["framework"]
-        if framework not in loop.FRAMEWORKS[language]:
+            framework = swa.LANGUAGES[language]["framework"]
+        if framework not in swa.FRAMEWORKS[language]:
             raise Refused(f"{language} の持ち込む先に無い: {framework!r}")
         if not isinstance(text, str) or not text.strip():
             raise Refused("仕様書が空")
@@ -160,7 +160,7 @@ def unquote(value: str) -> str:
 
 
 def read_role(path: str) -> dict[str, str]:
-    """1つの役の LOOP_MODEL と LOOP_EFFORT。ほかの行は返さない。"""
+    """1つの役の SWA_MODEL と SWA_EFFORT。ほかの行は返さない。"""
     found = dict.fromkeys(KEYS, "")
     with open(path, encoding="utf-8") as handle:
         for line in handle:
@@ -178,10 +178,10 @@ def settings(directory: str) -> dict:
         except OSError:
             roles[role] = None
     # 持ち込む先は言語ごとの一覧で、先頭が言語の既定。
-    frameworks = {language: [loop.LANGUAGES[language]["framework"]]
-                  + sorted(set(loop.FRAMEWORKS[language]) - {loop.LANGUAGES[language]["framework"]})
-                  for language in loop.LANGUAGES}
-    return {"roles": roles, "efforts": list(EFFORTS), "languages": sorted(loop.LANGUAGES),
+    frameworks = {language: [swa.LANGUAGES[language]["framework"]]
+                  + sorted(set(swa.FRAMEWORKS[language]) - {swa.LANGUAGES[language]["framework"]})
+                  for language in swa.LANGUAGES}
+    return {"roles": roles, "efforts": list(EFFORTS), "languages": sorted(swa.LANGUAGES),
             "frameworks": frameworks}
 
 
@@ -231,13 +231,13 @@ def design(project: str) -> dict:
 
 
 def set_model(directory: str, role: str, model: str, effort: str) -> None:
-    """LOOP_MODEL と LOOP_EFFORT の行を書き換える。行が無ければ足す。
+    """SWA_MODEL と SWA_EFFORT の行を書き換える。行が無ければ足す。
 
     ほかの行はそのまま残す。同じディレクトリに書いてから rename するので、起動スクリプトが
     書きかけのファイルを読み込むことは無い。所有者と権限は元のファイルのものを引き継ぐ。
     """
     check_role(role)
-    values = {"LOOP_MODEL": check_model(model), "LOOP_EFFORT": check_effort(effort)}
+    values = {"SWA_MODEL": check_model(model), "SWA_EFFORT": check_effort(effort)}
     path = os.path.join(directory, f"{role}.env")
     status = os.stat(path)
     with open(path, encoding="utf-8") as handle:
@@ -284,12 +284,12 @@ def main(argv: list[str]) -> int:
             print(f"{argv[3]} の設定を書き換えた。次の呼び出しから効く")
             return 0
     except Refused as error:
-        print(f"loop dash: {error}", file=sys.stderr)
+        print(f"swa dash: {error}", file=sys.stderr)
         return 1
     except OSError as error:
-        print(f"loop dash: {error}", file=sys.stderr)
+        print(f"swa dash: {error}", file=sys.stderr)
         return 1
-    print("使い方: loop_dash.py request <dir> | settings <dir> | design <dir>"
+    print("使い方: swa_dash.py request <dir> | settings <dir> | design <dir>"
           " | set-model <dir> <役> <モデル> <effort>",
           file=sys.stderr)
     return 2

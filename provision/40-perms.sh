@@ -7,7 +7,7 @@
 # 存在しないのと同じだ。
 set -euo pipefail
 . "$(dirname "$0")/layout.sh"
-P=/srv/loop/project
+P=/srv/swa/project
 ADMIN_USER="${ADMIN_USER:-maint}"
 # 柵の2つのディレクトリ。場所はプロジェクトごとに決まる（layout.sh）。
 SRC="$P/$LAYOUT_SRC"
@@ -66,8 +66,8 @@ chmod 2770 "$SRC" "$TESTS"
 # インタプリタとライブラリ。読めて実行できるが、書けない。
 chmod -R go-w "$P/.venv"
 
-chown runner:solverw /srv/loop/brief
-chmod 2750 /srv/loop/brief   # setgid: ブリーフはグループ solverw にならなければならない
+chown runner:solverw /srv/swa/brief
+chmod 2750 /srv/swa/brief   # setgid: ブリーフはグループ solverw にならなければならない
 
 # planner は src/ を読めるが、書けない。既存のコードの形を読んで設計に使う。
 # グループでは渡せない。solverw に入れると src/ と tests/ に書けてしまい、
@@ -113,7 +113,7 @@ rm -f "$P/.perm-probe-runner" "$P/.perm-probe-solver" "$P/.perm-probe-moved"
 chk_can    test -w "$SRC"
 chk_can    test -w "$TESTS"
 chk_can    test -x "$P/.venv/bin/python"
-chk_can    test -r /srv/loop/brief
+chk_can    test -r /srv/swa/brief
 
 chk_cannot test -w "$P/.venv/bin/python"
 # 根にある柵のファイル。どれかを書き換えれば、凍結が見張るファイルの外から
@@ -124,14 +124,14 @@ chk_cannot test -w "$P/.gitignore"
 chk_cannot ls "$P/.git"
 chk_cannot ls "$P/plan"
 chk_cannot ls "$P/.runner"
-chk_cannot test -w /srv/loop/brief
+chk_cannot test -w /srv/swa/brief
 # ライブラリの参照（36-dotnet.sh）。読んで引くもので、書き換えて逃げる場所ではない。
-if [ -d /srv/loop/refs ]; then
-  chk_can    test -r /srv/loop/refs
-  chk_cannot test -w /srv/loop/refs
+if [ -d /srv/swa/refs ]; then
+  chk_can    test -r /srv/swa/refs
+  chk_cannot test -w /srv/swa/refs
 fi
 # 走行ログは失敗したテストの中身を含む。
-chk_cannot ls /srv/loop/logs
+chk_cannot ls /srv/swa/logs
 chk_cannot ls /home/runner
 
 # solverw にいないアカウントは、テストに届いてはならない。planner は基準を

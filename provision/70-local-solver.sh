@@ -27,19 +27,19 @@ if ! id -u llm >/dev/null 2>&1; then
 fi
 
 # 重みとサーバのログ。root の所有で、llm が読む。ほかに読む必要のある者はいない。
-install -d -o root -g root -m 755 /srv/loop/models
-chown root:llm /srv/loop/models
-chmod 2750 /srv/loop/models
+install -d -o root -g root -m 755 /srv/swa/models
+chown root:llm /srv/swa/models
+chmod 2750 /srv/swa/models
 
-install -o root -g root -m 755 bin/llm-serve    /srv/loop/bin/llm-serve
-install -o root -g root -m 755 bin/solver-local /srv/loop/bin/solver-local
-install -o root -g root -m 755 bin/smoke-local  /srv/loop/bin/smoke-local
+install -o root -g root -m 755 bin/llm-serve    /srv/swa/bin/llm-serve
+install -o root -g root -m 755 bin/solver-local /srv/swa/bin/solver-local
+install -o root -g root -m 755 bin/smoke-local  /srv/swa/bin/smoke-local
 
 echo
 echo "置いたもの:"
-echo "  /srv/loop/bin/llm-serve      （llm として動かす）"
-echo "  /srv/loop/bin/solver-local   （計画が local を挙げたとき、solver-run が起動する）"
-echo "  /srv/loop/bin/smoke-local    （solver として流す）"
+echo "  /srv/swa/bin/llm-serve      （llm として動かす）"
+echo "  /srv/swa/bin/solver-local   （計画が local を挙げたとき、solver-run が起動する）"
+echo "  /srv/swa/bin/smoke-local    （solver として流す）"
 
 # --------------------------------------------------------------------------
 # このスクリプトが確かめずには行わない唯一の手順。
@@ -71,12 +71,12 @@ Vulkan 版は、WSL では llvmpipe しか見つけない（2026-09-01 にこの
 EOF
 fi
 
-if [ ! -r /srv/loop/models/model.gguf ] && [ -z "${LOOP_LLM_WEIGHTS:-}" ]; then
+if [ ! -r /srv/swa/models/model.gguf ] && [ -z "${SWA_LLM_WEIGHTS:-}" ]; then
   cat <<'EOF'
 
-重みがまだ無い。.gguf を /srv/loop/models/model.gguf に置く:
+重みがまだ無い。.gguf を /srv/swa/models/model.gguf に置く:
 
-    install -o root -g llm -m 0440 <ダウンロードしたもの>.gguf /srv/loop/models/model.gguf
+    install -o root -g llm -m 0440 <ダウンロードしたもの>.gguf /srv/swa/models/model.gguf
 
 0440 root:llm は意図したものだ。solver のアカウントには、自分に答えを返している
 モデルを読む理由が無い。読ませれば、設計が取り上げたものを返すことになる。
@@ -87,14 +87,14 @@ fi
 # サーバを動かし続ける
 # --------------------------------------------------------------------------
 if [ -d /run/systemd/system ]; then
-  cat > /etc/systemd/system/loop-llm.service <<'EOF'
+  cat > /etc/systemd/system/swa-llm.service <<'EOF'
 [Unit]
-Description=loop local inference server
+Description=swa local inference server
 After=network.target
 
 [Service]
 User=llm
-ExecStart=/srv/loop/bin/llm-serve
+ExecStart=/srv/swa/bin/llm-serve
 Restart=on-failure
 RestartSec=5
 
@@ -104,15 +104,15 @@ EOF
   systemctl daemon-reload
   echo
   echo "systemd がある。次で起動する:"
-  echo "    systemctl enable --now loop-llm"
-  echo "    systemctl status loop-llm --no-pager"
+  echo "    systemctl enable --now swa-llm"
+  echo "    systemctl status swa-llm --no-pager"
 else
   cat <<'EOF'
 
 このディストロでは systemd が動いていないので、有効にするユニットが無い。
 サーバを切り離して起動し、そのまま置いておく:
 
-    sudo -u llm setsid nohup /srv/loop/bin/llm-serve >/srv/loop/models/serve.out 2>&1 &
+    sudo -u llm setsid nohup /srv/swa/bin/llm-serve >/srv/swa/models/serve.out 2>&1 &
 
 サーバは VM が生きているあいだ動く。VM は keepalive タスクが生きているあいだ動く。
 だから README 3-2 の決まりがここでも効く。`wsl --shutdown` は使わない。
@@ -122,9 +122,9 @@ fi
 cat <<'EOF'
 
 次:
-    sudo -u solver /srv/loop/bin/smoke-local
+    sudo -u solver /srv/swa/bin/smoke-local
 
-そのあと、root で /srv/loop/settings.json に:
+そのあと、root で /srv/swa/settings.json に:
     {"solver_tiers": ["local", "claude"],
      "policy": {"retry": "resample"},
      "limits": {"attempts": 8}}

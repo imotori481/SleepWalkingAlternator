@@ -21,8 +21,8 @@ from xml.etree import ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
-from loop import (  # noqa: E402
+import swa  # noqa: E402
+from swa import (  # noqa: E402
     LANGUAGE, LANGUAGES, failure_kind, load_settings, modules_of, parse_junit,
     test_argv,
 )
@@ -84,10 +84,10 @@ class WhereTheCodeGoes(Language):
         self.assertEqual(LANGUAGE["environment_files"],
                          frozenset({"index.html", "vitest.config.mjs"}))
         self.assertIn("THE PAGE ALREADY EXISTS", LANGUAGE["layout_note"])
-        self.assertNotIn("THE PAGE", loop.LANGUAGE_BASES["typescript"]["layout_note"])
+        self.assertNotIn("THE PAGE", swa.LANGUAGE_BASES["typescript"]["layout_note"])
 
     def test_the_stage_s_framework_is_used(self):
-        loop.use_stage_language({"language": "cpp", "framework": "dxlib"})
+        swa.use_stage_language({"language": "cpp", "framework": "dxlib"})
         self.assertEqual(LANGUAGE["framework"], "dxlib")
 
 
@@ -151,7 +151,7 @@ class ContractsMustStateAShape(Language):
             {"case": "boundary", "kind": "unit", "given": "g", "then": "x == 0"},
             {"case": "error", "kind": "unit", "given": "g", "then": "raises ValueError"},
         ]})
-        _, problems = loop.design_problems({"pkg/models": doc}, {"pkg/models": ac})
+        _, problems = swa.design_problems({"pkg/models": doc}, {"pkg/models": ac})
         return [p for p in problems if p.startswith("形")]
 
     def test_a_bare_python_container_is_refused(self):
@@ -185,14 +185,14 @@ class TheSolverIsToldWhereAThingLives(Language):
     def test_python_names_the_module_it_is_defined_in(self):
         self.speak("python")
         self.assertEqual(
-            loop.legacy_line("def f() -> int", loop.module_files("incgame/engine")),
+            swa.legacy_line("def f() -> int", swa.module_files("incgame/engine")),
             "def f() -> int -- defined in incgame.engine")
 
     def test_typescript_puts_the_file_in_front_and_drops_the_export(self):
         self.speak("typescript")
         self.assertEqual(
-            loop.legacy_line("export interface GameState { resource: number }",
-                             loop.module_files("idlegame/model")),
+            swa.legacy_line("export interface GameState { resource: number }",
+                             swa.module_files("idlegame/model")),
             "src/idlegame/model.ts: interface GameState { resource: number }")
 
 
@@ -205,13 +205,13 @@ class TheLanguageComesFromTheStage(Language):
     """
 
     def test_the_tasks_carry_the_stage_s_language_and_framework(self):
-        with patch.object(loop, "basic_overview", return_value=""):
-            tasks = loop.build_tasks({}, {"language": "csharp", "framework": "unity"})
+        with patch.object(swa, "basic_overview", return_value=""):
+            tasks = swa.build_tasks({}, {"language": "csharp", "framework": "unity"})
         self.assertEqual((tasks["language"], tasks["framework"]), ("csharp", "unity"))
 
 
 class ReadingTheReport(unittest.TestCase):
-    def report(self, body: str) -> loop.TestRun:
+    def report(self, body: str) -> swa.TestRun:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "report.xml"
             path.write_text(body, encoding="utf-8")
@@ -266,11 +266,11 @@ class AFileThatNeverCompiled(unittest.TestCase):
     になる）ので、これは2つ目の言語が来て初めて現れた。
     """
 
-    def report(self, body: str) -> loop.TestRun:
+    def report(self, body: str) -> swa.TestRun:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "r.xml"
             path.write_text(body, encoding="utf-8")
-            return loop.parse_junit(path)
+            return swa.parse_junit(path)
 
     def test_a_transform_failure_counts_as_an_error_not_a_test(self):
         run = self.report(
@@ -302,11 +302,11 @@ class TheTestWritingBrief(Language):
         # 写すと文字列が終わり、ファイル全体がコンパイルできなくなる。run 8 の S1 は
         # それでテスト12件すべてを失った。
         self.speak("typescript")
-        self.assertIn("DOUBLE quotes", loop.naming_note())
+        self.assertIn("DOUBLE quotes", swa.naming_note())
 
     def test_python_is_not_told_about_a_trap_it_does_not_have(self):
         self.speak("python")
-        self.assertEqual(loop.naming_note(), "")
+        self.assertEqual(swa.naming_note(), "")
 
 
 class TheStubBrief(unittest.TestCase):
@@ -317,7 +317,7 @@ class TheStubBrief(unittest.TestCase):
         step = {"files_write": ["src/pkg/engine.ts"],
                 "contracts": {"provides": [
                     "src/pkg/engine.ts: function canAfford(s: S, c: C, id: string): boolean"]}}
-        brief = loop.brief_stub(step)
+        brief = swa.brief_stub(step)
         self.assertIn("THERE IS NO WRONG BOOLEAN", brief)
         self.assertIn('return "__stub__" as unknown as boolean', brief)
         # キャストそのものは要点ではない。このブリーフの最初の版に対しては
@@ -341,7 +341,7 @@ class RewritingTestsThatDoNotCompile(unittest.TestCase):
         # テスト名にアポストロフィを入れるなと言っていたが、ソルバーはそれでも
         # そうした。誤りの前に読んだ規則はブリーフのほかのすべてと競り合い、
         # エラーは誤りの後に、それだけで届く。
-        section = loop.compile_failure_section(
+        section = swa.compile_failure_section(
             "<did not compile: tests/engine.test.ts>" + chr(10) * 2
             + "PARSE_ERROR at 58:92")
         self.assertIn("DID NOT COMPILE", section)
@@ -349,29 +349,29 @@ class RewritingTestsThatDoNotCompile(unittest.TestCase):
         self.assertIn("check every other line", section)
 
     def test_a_first_attempt_carries_no_such_section(self):
-        self.assertEqual(loop.compile_failure_section(""), "")
+        self.assertEqual(swa.compile_failure_section(""), "")
 
     def test_the_colour_codes_are_stripped(self):
         # vitest は変換エラーに色を付け、そのエスケープのせいで、引用した先の
         # どこでも文が読めなくなる。
         coloured = chr(27) + "[31m" + "PARSE_ERROR" + chr(27) + "[0m"
-        self.assertEqual(loop.ANSI.sub("", coloured), "PARSE_ERROR")
+        self.assertEqual(swa.ANSI.sub("", coloured), "PARSE_ERROR")
 
     def test_the_codes_that_lost_their_escape_in_the_xml_are_stripped_too(self):
         # JUnit の XML に ESC は書けないので、vitest は ESC だけを落とす。
         # Claude で回した run 8 の S1 では、ソルバーがこの切れ端を6回渡された。
         coloured = "[38;5;249ma[0m[38;5;249ms[0m"
-        self.assertEqual(loop.ANSI.sub("", coloured), "as")
+        self.assertEqual(swa.ANSI.sub("", coloured), "as")
         # 数字の無い `[m` は、コードの一部かもしれないので残す。
-        self.assertEqual(loop.ANSI.sub("", "arr[m]"), "arr[m]")
+        self.assertEqual(swa.ANSI.sub("", "arr[m]"), "arr[m]")
 
 
 NRE = "System.NullReferenceException"
 
 
-def crash_run(*kinds: str) -> loop.TestRun:
+def crash_run(*kinds: str) -> swa.TestRun:
     """kinds の順に落ちたテストの赤。名前は T0, T1, ... にする。"""
-    return loop.TestRun(len(kinds), len(kinds), 0, 0, list(kinds), [], "",
+    return swa.TestRun(len(kinds), len(kinds), 0, 0, list(kinds), [], "",
                         failure_details=[f"T{i}\n    {kind} : boom"
                                          for i, kind in enumerate(kinds)])
 
@@ -386,20 +386,20 @@ class TestsThatCrashAgainstTheStub(Language):
 
     def test_a_csharp_brief_says_the_fields_are_null(self):
         self.speak("csharp")
-        brief = loop.brief_test_write(RewritingACrashedTestFile.STEP, "CONTEXT")
+        brief = swa.brief_test_write(RewritingACrashedTestFile.STEP, "CONTEXT")
         self.assertIn("a stub whose methods throw", brief)
         self.assertIn("WITHOUT its initialiser", brief)
         self.assertIn("Assert.IsNotNull", brief)
 
     def test_other_languages_keep_their_stub(self):
         self.speak("python")
-        brief = loop.brief_test_write(RewritingACrashedTestFile.STEP, "CONTEXT")
+        brief = swa.brief_test_write(RewritingACrashedTestFile.STEP, "CONTEXT")
         self.assertIn("a wrong value of the right type", brief)
         self.assertNotIn("THE STUB, IN C#", brief)
 
     def test_only_null_and_index_crashes_are_the_writers_to_fix(self):
         self.speak("csharp")
-        crashed = loop.crashed_tests(crash_run("AssertionException", NRE,
+        crashed = swa.crashed_tests(crash_run("AssertionException", NRE,
                                                "StubNotImplemented"))
         self.assertIn("T1", crashed)
         self.assertNotIn("T0", crashed)
@@ -407,17 +407,17 @@ class TestsThatCrashAgainstTheStub(Language):
     def test_another_exception_in_the_mix_is_not_rewritten(self):
         # 契約の側が壊れているかもしれない。書き直しでは直らない。
         self.speak("csharp")
-        self.assertEqual(loop.crashed_tests(crash_run(NRE, "System.InvalidCastException")), "")
+        self.assertEqual(swa.crashed_tests(crash_run(NRE, "System.InvalidCastException")), "")
 
     def test_python_does_not_rewrite_on_a_crash(self):
         self.speak("python")
-        self.assertEqual(loop.crashed_tests(crash_run("AttributeError")), "")
+        self.assertEqual(swa.crashed_tests(crash_run("AttributeError")), "")
 
     def test_the_second_brief_carries_the_crashed_tests(self):
-        section = loop.crash_section("T1\n    System.NullReferenceException : boom")
+        section = swa.crash_section("T1\n    System.NullReferenceException : boom")
         self.assertIn("CRASHED AGAINST THE STUB", section)
         self.assertIn("T1", section)
-        self.assertEqual(loop.crash_section(""), "")
+        self.assertEqual(swa.crash_section(""), "")
 
 
 class RewritingACrashedTestFile(Language):
@@ -438,10 +438,10 @@ class RewritingACrashedTestFile(Language):
         (root / ".runner").mkdir()
         (root / ".runner" / "tasks.json").write_text('{"steps": []}', encoding="utf-8")
         self.briefs: list[str] = []
-        self.failed: list[loop.Halt] = []
+        self.failed: list[swa.Halt] = []
         self.greens: list[int] = []
         self.restored = 0
-        self.runs: list[loop.TestRun] = []
+        self.runs: list[swa.TestRun] = []
 
         def call(phase, brief, backend=None):
             if phase == "TEST_WRITE":
@@ -473,15 +473,15 @@ class RewritingACrashedTestFile(Language):
             "fail_module": lambda step, halt, n, run: self.failed.append(halt),
         }
         for name, value in patches.items():
-            p = patch.object(loop, name, value)
+            p = patch.object(swa, name, value)
             p.start()
             self.addCleanup(p.stop)
 
     def test_a_crash_is_rewritten_and_the_step_goes_on(self):
-        green = loop.TestRun(2, 0, 0, 0, [], ["T0", "T1"], "")
+        green = swa.TestRun(2, 0, 0, 0, [], ["T0", "T1"], "")
         self.runs = [crash_run("AssertionException", NRE),
                      crash_run("AssertionException", "AssertionException"), green]
-        self.assertEqual(loop.run_step("S3"), 0)
+        self.assertEqual(swa.run_step("S3"), 0)
         self.assertEqual(len(self.briefs), 2)
         self.assertNotIn("CRASHED", self.briefs[0])
         self.assertIn("CRASHED AGAINST THE STUB", self.briefs[1])
@@ -491,11 +491,11 @@ class RewritingACrashedTestFile(Language):
 
     def test_the_last_crash_reaches_red_gate_with_the_tests_named(self):
         self.runs = [crash_run("AssertionException", NRE)
-                     for _ in range(loop.LIMITS["test_writes"])]
-        self.assertEqual(loop.run_step("S3"), 2)
-        self.assertEqual(len(self.briefs), loop.LIMITS["test_writes"])
+                     for _ in range(swa.LIMITS["test_writes"])]
+        self.assertEqual(swa.run_step("S3"), 2)
+        self.assertEqual(len(self.briefs), swa.LIMITS["test_writes"])
         # 最後の試行のファイルは残す。止まった理由を人が読む。
-        self.assertEqual(self.restored, loop.LIMITS["test_writes"] - 1)
+        self.assertEqual(self.restored, swa.LIMITS["test_writes"] - 1)
         self.assertEqual(len(self.failed), 1)
         self.assertTrue(self.failed[0].reason.startswith("R5"))
         self.assertIn("T1", self.failed[0].detail)
@@ -515,7 +515,7 @@ class TellingTheSolverWhatFailed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "r.xml"
             path.write_text(body, encoding="utf-8")
-            return loop.parse_junit(path)
+            return swa.parse_junit(path)
 
     def test_the_assertion_comes_back_with_the_test_name(self):
         run = self.report(
@@ -560,7 +560,7 @@ class TheRunnerWritesTheStub(Language):
 
     def build(self):
         self.speak("typescript")
-        return loop.generate_stub(self.S1, [])
+        return swa.generate_stub(self.S1, [])
 
     def test_every_declaration_is_exported(self):
         # ソルバーが忘れ続けたもの。システムプロンプトは Python を書いていると
@@ -605,7 +605,7 @@ class TheRunnerWritesTheStub(Language):
         # 拒む。テストは確かめる前に値を分解するので、番兵の値は「形」を運ばなければ
         # ならない。
         self.speak("typescript")
-        stub = loop.generate_stub(
+        stub = swa.generate_stub(
             {"files_write": ["src/idlegame/catalog.ts"],
              "contracts": {"provides": ["src/idlegame/catalog.ts: const CATALOG: Catalog"]}},
             ["src/idlegame/model.ts: interface GeneratorDef { id: string; baseCost: number }",
@@ -622,7 +622,7 @@ class TheRunnerWritesTheStub(Language):
         # ので、そこから決め打ちされるものも無い。ランナーが名前を取り、番兵の値で
         # 埋める。
         self.speak("typescript")
-        stub = loop.generate_stub(
+        stub = swa.generate_stub(
             {"files_write": ["src/idlegame/catalog.ts"],
              "contracts": {"provides": ["src/idlegame/catalog.ts: const CATALOG: Catalog"]},
              "acceptance": [{"given": "CATALOG.cursor.rate",
@@ -641,7 +641,7 @@ class TheRunnerWritesTheStub(Language):
         # 合わないものがある。まとめて読むと、その1行で Catalog の中身が消え、
         # 番兵の値はキャストに落ちる。
         self.speak("typescript")
-        stub = loop.generate_stub(
+        stub = swa.generate_stub(
             {"files_write": ["src/idlegame/catalog.ts"],
              "contracts": {"provides": ["src/idlegame/catalog.ts: const CATALOG: Catalog"]}},
             ["src/legacy/engine.ts: class Engine { tick(dt: number): void }",
@@ -655,7 +655,7 @@ class TheRunnerWritesTheStub(Language):
         # None は恥ずべき失敗ではない。コンパイルできない生成スタブは、置き換える
         # 問題より悪い。
         self.speak("typescript")
-        self.assertIsNone(loop.generate_stub(
+        self.assertIsNone(swa.generate_stub(
             {"files_write": ["src/a.ts"],
              "contracts": {"provides": ["src/a.ts: something in prose"]}}, []))
 
@@ -664,7 +664,7 @@ class TheRunnerWritesTheStub(Language):
         # 取り違え、`): () => void` を型の位置に残した。スタブがコンパイルせず、
         # ソルバーはテストしか書き直せないので、6回続けて落ちた。
         self.speak("typescript")
-        stub = loop.generate_stub(
+        stub = swa.generate_stub(
             {"files_write": ["src/idle/store.ts"],
              "contracts": {"provides": [
                  "src/idle/store.ts: interface Store { getState(): GameState; "
@@ -680,13 +680,13 @@ class TheRunnerWritesTheStub(Language):
         self.assertIn("setState: ((..._args: unknown[]) => (undefined))", text)
 
     def test_a_function_type_is_split_at_its_own_parenthesis(self):
-        self.assertEqual(loop.split_function_type("(l: (s: S) => void) => () => void"),
+        self.assertEqual(swa.split_function_type("(l: (s: S) => void) => () => void"),
                          ("l: (s: S) => void", "() => void"))
-        self.assertIsNone(loop.split_function_type("(A | B)[]"))
+        self.assertIsNone(swa.split_function_type("(A | B)[]"))
 
     def test_python_is_left_alone(self):
         self.speak("python")
-        self.assertIsNone(loop.generate_stub(
+        self.assertIsNone(swa.generate_stub(
             {"files_write": ["src/pkg/a.py"],
              "contracts": {"provides": ["src/pkg/a.py: def f() -> int"]}}, []))
 
@@ -720,7 +720,7 @@ class TheStubKeepsTheExistingCode(Language):
 
     def build(self, original=EXISTING_TS):
         self.speak("typescript")
-        return loop.generate_stub(
+        return swa.generate_stub(
             self.STEP, ["src/game/board.ts: interface Board { cells: number[] }"],
             {"src/game/rules.ts": original})["src/game/rules.ts"]
 
@@ -751,8 +751,8 @@ class TheStubKeepsTheExistingCode(Language):
             path = Path(temp) / "src/game/rules.ts"
             path.parent.mkdir(parents=True)
             path.write_text(self.build(), encoding="utf-8")
-            with patch.object(loop, "PROJECT", Path(temp)):
-                self.assertEqual(loop.stub_kept_the_rest(
+            with patch.object(swa, "PROJECT", Path(temp)):
+                self.assertEqual(swa.stub_kept_the_rest(
                     self.STEP, {"src/game/rules.ts": EXISTING_TS}), [])
 
     def test_one_statement_declaring_two_names_goes_back_to_the_solver(self):
@@ -760,12 +760,12 @@ class TheStubKeepsTheExistingCode(Language):
         step = {"files_write": ["src/m.ts"],
                 "contracts": {"provides": ["src/m.ts: const A: number",
                                            "src/m.ts: const B: number"]}}
-        self.assertIsNone(loop.generate_stub(
+        self.assertIsNone(swa.generate_stub(
             step, [], {"src/m.ts": "export const A = 1, B = 2;\n"}))
 
     def test_a_new_file_is_written_whole_as_before(self):
         self.speak("typescript")
-        text = loop.generate_stub(
+        text = swa.generate_stub(
             {"files_write": ["src/m.ts"],
              "contracts": {"provides": ["src/m.ts: function f(): number"]}},
             [], {})["src/m.ts"]
@@ -773,7 +773,7 @@ class TheStubKeepsTheExistingCode(Language):
 
     def test_the_spans_point_at_the_statements(self):
         text = "// head\nexport const A = 1;\n\nexport function f() {\n  return 1;\n}\n"
-        spans = loop.ts_statement_spans(text)
+        spans = swa.ts_statement_spans(text)
         self.assertEqual([text[a:b] for a, b, _ in spans],
                          ["export const A = 1;", "export function f() {\n  return 1;\n}"])
 
@@ -807,8 +807,8 @@ class TheRunnerChecksWhatTheStubLeftAlone(unittest.TestCase):
             target = Path(temp) / path
             target.parent.mkdir(parents=True)
             target.write_text(after, encoding="utf-8")
-            with patch.object(loop, "PROJECT", Path(temp)):
-                return loop.stub_kept_the_rest(step or self.STEP, {path: before})
+            with patch.object(swa, "PROJECT", Path(temp)):
+                return swa.stub_kept_the_rest(step or self.STEP, {path: before})
 
     def test_replacing_only_the_provided_body_passes(self):
         after = PYTHON_BEFORE.replace("return len(board.cells)", "return -999999")
@@ -854,13 +854,13 @@ class TheSolverIsToldTheFileExists(unittest.TestCase):
             "contracts": {"provides": ["def score(board: Board) -> int -- defined in game.rules"]}}
 
     def test_an_existing_file_is_named_with_what_to_leave_alone(self):
-        brief = loop.brief_stub(self.STEP, ["src/game/rules.py"])
+        brief = swa.brief_stub(self.STEP, ["src/game/rules.py"])
         self.assertIn("# These files already exist\nsrc/game/rules.py", brief)
         self.assertIn("Leave every other line exactly", brief)
         self.assertIn("stops the step", brief)
 
     def test_a_step_with_only_new_files_is_not_told(self):
-        self.assertNotIn("already exist", loop.brief_stub(self.STEP))
+        self.assertNotIn("already exist", swa.brief_stub(self.STEP))
 
 
 class TheExistingCodeReachesTheSolver(unittest.TestCase):
@@ -884,13 +884,13 @@ class TheExistingCodeReachesTheSolver(unittest.TestCase):
             (state / "contracts" / "S1.json").write_text(
                 '{"provides": ["def new_game() -> Game -- defined in pkg.game"]}',
                 encoding="utf-8")
-            with patch.object(loop, "STATE", state), \
-                 patch("loop.existing_contracts", return_value=self.EXISTING) as found:
+            with patch.object(swa, "STATE", state), \
+                 patch("swa.existing_contracts", return_value=self.EXISTING) as found:
                 return call(self.step(requires)), found
 
     def test_the_brief_names_the_existing_declaration_it_requires(self):
         text, _ = self.run_with(["def new_game() -> Game", "def score(board: Board) -> int"],
-                                loop.dep_contracts)
+                                swa.dep_contracts)
         self.assertIn("From S1:", text)
         self.assertIn("From the code already in the repository:\n"
                       "def score(board: Board) -> int -- defined in legacy.rules", text)
@@ -898,12 +898,12 @@ class TheExistingCodeReachesTheSolver(unittest.TestCase):
         self.assertNotIn("unused", text)
 
     def test_the_stub_gets_the_same_lines(self):
-        lines, _ = self.run_with(["def score(board: Board) -> int"], loop.dep_contract_lines)
+        lines, _ = self.run_with(["def score(board: Board) -> int"], swa.dep_contract_lines)
         self.assertEqual(lines, ["def new_game() -> Game -- defined in pkg.game",
                                  "def score(board: Board) -> int -- defined in legacy.rules"])
 
     def test_git_is_not_asked_when_the_dependencies_suffice(self):
-        text, found = self.run_with(["def new_game() -> Game"], loop.dep_contracts)
+        text, found = self.run_with(["def new_game() -> Game"], swa.dep_contracts)
         self.assertNotIn("already in the repository", text)
         found.assert_not_called()
 
@@ -919,29 +919,29 @@ class APhaseHasToProduceWhatItWasAskedFor(unittest.TestCase):
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
-        self.saved = loop.PROJECT
-        loop.PROJECT = Path(self.temp.name)
+        self.saved = swa.PROJECT
+        swa.PROJECT = Path(self.temp.name)
 
     def tearDown(self) -> None:
-        loop.PROJECT = self.saved
+        swa.PROJECT = self.saved
         self.temp.cleanup()
 
     def test_a_missing_file_halts(self):
-        with self.assertRaises(loop.Halt):
-            loop.assert_written("TEST_WRITE", ["tests/catalog.test.ts"])
+        with self.assertRaises(swa.Halt):
+            swa.assert_written("TEST_WRITE", ["tests/catalog.test.ts"])
 
     def test_an_empty_file_halts(self):
-        path = loop.PROJECT / "tests" / "catalog.test.ts"
+        path = swa.PROJECT / "tests" / "catalog.test.ts"
         path.parent.mkdir(parents=True)
         path.write_text("", encoding="utf-8")
-        with self.assertRaises(loop.Halt):
-            loop.assert_written("TEST_WRITE", ["tests/catalog.test.ts"])
+        with self.assertRaises(swa.Halt):
+            swa.assert_written("TEST_WRITE", ["tests/catalog.test.ts"])
 
     def test_a_written_file_passes(self):
-        path = loop.PROJECT / "tests" / "catalog.test.ts"
+        path = swa.PROJECT / "tests" / "catalog.test.ts"
         path.parent.mkdir(parents=True)
         path.write_text("it(\"x\", () => {});", encoding="utf-8")
-        loop.assert_written("TEST_WRITE", ["tests/catalog.test.ts"])
+        swa.assert_written("TEST_WRITE", ["tests/catalog.test.ts"])
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """箱の「いまの作業」を SSH で引く。
 
 ミラーの台帳が進むのは、ランナーが push する GREEN と段のコマンドのときだけで、
-写しは loop-pull しないと進まない。いま誰がどのモジュールの何をしているかと、せきで
+写しは swa-pull しないと進まない。いま誰がどのモジュールの何をしているかと、せきで
 読む設計は、箱に訊く。
 
 コマンドは固定で、HTTP の値は1つも入らない。`shell=False` で引数配列のまま
@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-DEFAULT_HOST = "loop-dev"
+DEFAULT_HOST = "swa-dev"
 CACHE_SECONDS = 3.0
 TIMEOUT_SECONDS = 15
 
@@ -76,12 +76,12 @@ class Live:
         return proc.stdout.strip()
 
     def _dash(self, request: dict[str, Any]) -> str:
-        """`loop dash` に要求を1つ渡す。sudoers が保守ユーザーにこれだけをパスワード無しで許す。
+        """`swa dash` に要求を1つ渡す。sudoers が保守ユーザーにこれだけをパスワード無しで許す。
 
         要求は標準入力の JSON で渡し、コマンドラインは固定のまま。何を受け付けるかは箱の
-        loop_dash.py が決める。
+        swa_dash.py が決める。
         """
-        return self._act(["sudo", "-n", "/usr/local/bin/loop", "dash"],
+        return self._act(["sudo", "-n", "/usr/local/bin/swa", "dash"],
                          json.dumps(request, ensure_ascii=False))
 
     def continue_loop(self) -> str:
@@ -91,37 +91,37 @@ class Live:
         return self._dash({"action": "stop"})
 
     def reset_module(self, module: str) -> str:
-        """`loop raw reset <モジュール>`。止まったモジュールの作業ツリーを最後のコミットに戻す。"""
+        """`swa raw reset <モジュール>`。止まったモジュールの作業ツリーを最後のコミットに戻す。"""
         return self._dash({"action": "reset", "module": module})
 
     def approve(self) -> str:
-        """`loop approve`。今の段の設計を承認し、次の段へ流す。"""
+        """`swa approve`。今の段の設計を承認し、次の段へ流す。"""
         return self._dash({"action": "approve"})
 
     def reject(self, comment: str) -> str:
-        """`loop reject`。コメントを付けて、今の段の設計をプランナーに書き直させる。"""
+        """`swa reject`。コメントを付けて、今の段の設計をプランナーに書き直させる。"""
         return self._dash({"action": "reject", "text": comment})
 
     def reopen(self, modules: list[str]) -> str:
-        """`loop reopen`。詳細設計を直すモジュールを選び、中段に戻す。"""
+        """`swa reopen`。詳細設計を直すモジュールを選び、中段に戻す。"""
         return self._dash({"action": "reopen", "modules": modules})
 
     def start_loop(self, spec: str, language: str, framework: str = "") -> str:
-        """`loop go`。仕様書の本文は箱の一時ディレクトリに書かれ、そこから置かれる。
+        """`swa go`。仕様書の本文は箱の一時ディレクトリに書かれ、そこから置かれる。
         持ち込む先が空なら、箱が言語の既定を選ぶ。"""
         return self._dash({"action": "go", "spec": spec, "language": language,
                            "framework": framework})
 
     def use_project(self, name: str) -> str:
-        """`loop project use` を箱の一時ユニットで裏に回す。進みは `loop now` の switch に出る。"""
+        """`swa project use` を箱の一時ユニットで裏に回す。進みは `swa now` の switch に出る。"""
         return self._dash({"action": "use", "project": name})
 
     def remove_project(self, name: str) -> str:
-        """`loop project remove`。箱のプロジェクトをディレクトリと走行ログごと消す。"""
+        """`swa project remove`。箱のプロジェクトをディレクトリと走行ログごと消す。"""
         return self._dash({"action": "remove", "project": name})
 
     def init_project(self, name: str, branch: str, src: str = "", tests: str = "") -> str:
-        """`loop project init <名前> --branch <ブランチ>`。取り込むブランチの push を待つ空の bare を作る。"""
+        """`swa project init <名前> --branch <ブランチ>`。取り込むブランチの push を待つ空の bare を作る。"""
         return self._dash({"action": "init", "project": name, "branch": branch,
                            "src": src, "tests": tests})
 
@@ -136,7 +136,7 @@ class Live:
         return value
 
     def settings(self) -> dict[str, Any]:
-        """役ごとの LOOP_MODEL と LOOP_EFFORT、選べる effort と言語。資格情報は返らない。"""
+        """役ごとの SWA_MODEL と SWA_EFFORT、選べる effort と言語。資格情報は返らない。"""
         return self._read("settings")
 
     def design(self) -> dict[str, Any]:
@@ -144,12 +144,12 @@ class Live:
         return self._read("design")
 
     def set_model(self, role: str, model: str, effort: str) -> str:
-        """/etc/loop/<役>.env の LOOP_MODEL と LOOP_EFFORT を書き換える。"""
+        """/etc/swa/<役>.env の SWA_MODEL と SWA_EFFORT を書き換える。"""
         return self._dash({"action": "model", "role": role, "model": model, "effort": effort})
 
     def _ask(self) -> dict[str, Any]:
         try:
-            proc = self._run(["loop", "now"])
+            proc = self._run(["swa", "now"])
         except ValueError as error:
             return {"error": str(error)}
         if proc.returncode != 0:

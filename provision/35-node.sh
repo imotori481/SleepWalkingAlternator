@@ -21,8 +21,8 @@
 # その帰結は2つあり、どちらも下で扱う。
 set -euo pipefail
 
-TOOLS=/srv/loop/node
-P=/srv/loop/project
+TOOLS=/srv/swa/node
+P=/srv/swa/project
 . "$(dirname "$0")/layout.sh"
 
 # 版を固定する。範囲で書くと、数か月後の `npm install` が、誰も選ばない
@@ -33,9 +33,9 @@ HAPPY_DOM_VERSION="20.13.1"
 command -v node >/dev/null || { echo "35-node: node is not installed" >&2; exit 1; }
 cd "$(dirname "$0")"
 
-install -d -o root -g root -m 755 /srv/loop/bin
-install -o root -g root -m 755 bin/smoke-dom /srv/loop/bin/smoke-dom
-install -o root -g root -m 755 bin/smoke-page /srv/loop/bin/smoke-page
+install -d -o root -g root -m 755 /srv/swa/bin
+install -o root -g root -m 755 bin/smoke-dom /srv/swa/bin/smoke-dom
+install -o root -g root -m 755 bin/smoke-page /srv/swa/bin/smoke-page
 
 # ---- ツールチェーンはプロジェクトの外に置く ----------------------------
 #
@@ -49,7 +49,7 @@ install -d -o runner -g runner -m 755 "$TOOLS"
 
 sudo -u runner tee "$TOOLS/package.json" >/dev/null <<EOF
 {
-  "name": "loop-toolchain",
+  "name": "swa-toolchain",
   "private": true,
   "type": "module",
   "devDependencies": {
@@ -113,8 +113,9 @@ grep -qx '/node_modules' "$IGNORE" 2>/dev/null || \
 #
 # 取り込んだリポジトリが同じ名前のファイルを持っていれば、上書きせずに止まる。
 # runner 以外がコミットしたことのあるファイルは、そのリポジトリの持ち物だ。
+# loop runner は、名前が loop だったころの runner。
 for f in vitest.config.mjs index.html; do
-  if sudo -u runner git -C "$P" log --format=%an -- "$f" 2>/dev/null | grep -qvx 'loop runner'; then
+  if sudo -u runner git -C "$P" log --format=%an -- "$f" 2>/dev/null | grep -qvxE 'swa runner|loop runner'; then
     echo "35-node: リポジトリが自分の $f を持っている。上書きしない" >&2
     exit 1
   fi
@@ -148,7 +149,7 @@ chmod 644 "$P/vitest.config.mjs"
 sudo -u runner tee "$P/index.html" >/dev/null <<EOF
 <!doctype html>
 <meta charset="utf-8">
-<title>loop artifact</title>
+<title>swa artifact</title>
 <div id="app"></div>
 <script type="module">
   // The whole of the shell. Everything else is under $LAYOUT_SRC/, where the runner
@@ -194,9 +195,9 @@ chk_cannot rm -f "$P/node_modules"
 "$TOOLS/node_modules/.bin/vitest" --version
 
 # 開発サーバで開いたページが start まで届くこと。計画には開発サーバの応答を
-# 確かめる条件を書かせないので（loop.py の environment_facts）、要件の「開発
+# 確かめる条件を書かせないので（swa.py の environment_facts）、要件の「開発
 # サーバで開ける」はここで確かめる。
-if ! sudo -u runner /srv/loop/bin/smoke-page; then
+if ! sudo -u runner /srv/swa/bin/smoke-page; then
   echo "FAIL: 開発サーバで開いたページが $LAYOUT_SRC/main.ts の start に届かない"; fail=1
 fi
 

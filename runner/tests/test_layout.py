@@ -1,8 +1,8 @@
 """書き込みの柵の場所をプロジェクトごとに決める。
 
 Unity のプロジェクトはコードを Assets/ の下に置く。柵が src/ と tests/ 固定だと、
-どのモジュールも Unity の外に書かれる。場所は /srv/loop/layout.json（root 所有）から読み、
-規則は layout_problems にしか書かない。loop-project.sh とプロビジョニングも、
+どのモジュールも Unity の外に書かれる。場所は /srv/swa/layout.json（root 所有）から読み、
+規則は layout_problems にしか書かない。swa-project.sh とプロビジョニングも、
 これを import して同じ規則で確かめる。
 
     python3 -m unittest discover -s runner/tests
@@ -17,46 +17,46 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
+import swa  # noqa: E402
 
-UNITY = {"src": "Assets/Source", "tests": "Assets/Tests/Editor/Loop"}
+UNITY = {"src": "Assets/Source", "tests": "Assets/Tests/Editor/Swa"}
 
 
 class WhatALayoutMayBe(unittest.TestCase):
     def test_the_default_and_a_unity_layout_are_accepted(self):
-        self.assertEqual(loop.layout_problems(loop.LAYOUT_DEFAULT), [])
-        self.assertEqual(loop.layout_problems(UNITY), [])
+        self.assertEqual(swa.layout_problems(swa.LAYOUT_DEFAULT), [])
+        self.assertEqual(swa.layout_problems(UNITY), [])
 
     def test_a_path_that_leaves_the_project_is_refused(self):
-        for bad in ("/srv/loop", "../elsewhere", "Assets/../plan", "Assets//Source",
+        for bad in ("/srv/swa", "../elsewhere", "Assets/../plan", "Assets//Source",
                     "Assets/", "./src"):
             with self.subTest(src=bad):
-                self.assertNotEqual(loop.layout_problems({"src": bad, "tests": "tests"}), [])
+                self.assertNotEqual(swa.layout_problems({"src": bad, "tests": "tests"}), [])
 
     def test_a_place_the_runner_owns_is_refused(self):
         for bad in ("plan", ".git/x", ".runner", ".venv/lib", "node_modules/x", "docs/src", "ac"):
             with self.subTest(src=bad):
-                self.assertNotEqual(loop.layout_problems({"src": bad, "tests": "tests"}), [])
+                self.assertNotEqual(swa.layout_problems({"src": bad, "tests": "tests"}), [])
 
     def test_characters_bash_could_misquote_are_refused(self):
         for bad in ("TextMesh Pro", "src;rm", "src$x", "ソース"):
             with self.subTest(src=bad):
-                self.assertNotEqual(loop.layout_problems({"src": bad, "tests": "tests"}), [])
+                self.assertNotEqual(swa.layout_problems({"src": bad, "tests": "tests"}), [])
 
     def test_one_directory_inside_the_other_is_refused(self):
         # テストを凍結すると、それを含むコードの柵まで閉じる。逆なら、コードを
         # 開けたときに凍結したテストまで開く。
         self.assertNotEqual(
-            loop.layout_problems({"src": "Assets", "tests": "Assets/Tests"}), [])
+            swa.layout_problems({"src": "Assets", "tests": "Assets/Tests"}), [])
         self.assertNotEqual(
-            loop.layout_problems({"src": "Assets/Source/Logic", "tests": "Assets/Source"}), [])
+            swa.layout_problems({"src": "Assets/Source/Logic", "tests": "Assets/Source"}), [])
         self.assertEqual(
-            loop.layout_problems({"src": "Assets/Source", "tests": "Assets/SourceTests"}), [])
+            swa.layout_problems({"src": "Assets/Source", "tests": "Assets/SourceTests"}), [])
 
     def test_the_shape_is_exactly_two_keys(self):
-        self.assertNotEqual(loop.layout_problems({"src": "src"}), [])
-        self.assertNotEqual(loop.layout_problems({"src": "a", "tests": "b", "x": "c"}), [])
-        self.assertNotEqual(loop.layout_problems(["src", "tests"]), [])
+        self.assertNotEqual(swa.layout_problems({"src": "src"}), [])
+        self.assertNotEqual(swa.layout_problems({"src": "a", "tests": "b", "x": "c"}), [])
+        self.assertNotEqual(swa.layout_problems(["src", "tests"]), [])
 
 
 class ReadingTheLayout(unittest.TestCase):
@@ -65,8 +65,8 @@ class ReadingTheLayout(unittest.TestCase):
             path = Path(temp) / "layout.json"
             if text is not None:
                 path.write_text(text, encoding="utf-8")
-            with mock.patch.object(loop, "LAYOUT_FILE", path):
-                return loop.read_layout()
+            with mock.patch.object(swa, "LAYOUT_FILE", path):
+                return swa.read_layout()
 
     def test_no_file_means_src_and_tests(self):
         self.assertEqual(self.read(None), {"src": "src", "tests": "tests"})
@@ -84,32 +84,32 @@ class ReadingTheLayout(unittest.TestCase):
 
 class TheRulesFollowTheLayout(unittest.TestCase):
     def setUp(self):
-        p = mock.patch.dict(loop.LAYOUT, UNITY)
+        p = mock.patch.dict(swa.LAYOUT, UNITY)
         p.start()
         self.addCleanup(p.stop)
 
     def test_in_layout_is_by_whole_directory_names(self):
-        self.assertTrue(loop.in_layout("Assets/Source/Gameplay/Board.cs", "src"))
-        self.assertFalse(loop.in_layout("Assets/SourceX/Board.cs", "src"))
-        self.assertFalse(loop.in_layout("Assets/Source", "src"))
-        self.assertFalse(loop.in_layout("Assets/Source/../Plugins/x.cs", "src"))
-        self.assertFalse(loop.in_layout("src/a.py", "src"))
+        self.assertTrue(swa.in_layout("Assets/Source/Gameplay/Board.cs", "src"))
+        self.assertFalse(swa.in_layout("Assets/SourceX/Board.cs", "src"))
+        self.assertFalse(swa.in_layout("Assets/Source", "src"))
+        self.assertFalse(swa.in_layout("Assets/Source/../Plugins/x.cs", "src"))
+        self.assertFalse(swa.in_layout("src/a.py", "src"))
 
     def test_a_module_s_files_are_inside_the_layout(self):
-        with mock.patch.dict(loop.LANGUAGE, loop.LANGUAGES["python"], clear=True):
-            self.assertEqual(loop.module_files("game/board"), ["Assets/Source/game/board.py"])
-            self.assertEqual(loop.module_test_files("game/board", True), [
-                "Assets/Tests/Editor/Loop/test_game_board.py",
-                "Assets/Tests/Editor/Loop/test_game_board_integration.py"])
+        with mock.patch.dict(swa.LANGUAGE, swa.LANGUAGES["python"], clear=True):
+            self.assertEqual(swa.module_files("game/board"), ["Assets/Source/game/board.py"])
+            self.assertEqual(swa.module_test_files("game/board", True), [
+                "Assets/Tests/Editor/Swa/test_game_board.py",
+                "Assets/Tests/Editor/Swa/test_game_board_integration.py"])
 
     def test_modules_are_named_from_inside_the_source_directory(self):
-        with mock.patch.dict(loop.LANGUAGE, loop.LANGUAGES["python"], clear=True):
-            self.assertEqual(loop.modules_of(["Assets/Source/game/board.py"]), ["game.board"])
+        with mock.patch.dict(swa.LANGUAGE, swa.LANGUAGES["python"], clear=True):
+            self.assertEqual(swa.modules_of(["Assets/Source/game/board.py"]), ["game.board"])
 
     def brief(self) -> str:
-        with mock.patch.dict(loop.LANGUAGE, loop.LANGUAGES["typescript"], clear=True), \
-             mock.patch.object(loop, "environment_facts", return_value=""):
-            return loop.brief_modules("仕様", "基本", None, "")
+        with mock.patch.dict(swa.LANGUAGE, swa.LANGUAGES["typescript"], clear=True), \
+             mock.patch.object(swa, "environment_facts", return_value=""):
+            return swa.brief_modules("仕様", "基本", None, "")
 
     def test_the_planner_is_told_where_the_code_goes(self):
         brief = self.brief()
@@ -121,7 +121,7 @@ class TheRulesFollowTheLayout(unittest.TestCase):
         self.assertNotIn("{TESTS}", brief)
 
     def test_the_default_brief_reads_as_it_did(self):
-        with mock.patch.dict(loop.LAYOUT, loop.LAYOUT_DEFAULT):
+        with mock.patch.dict(swa.LAYOUT, swa.LAYOUT_DEFAULT):
             brief = self.brief()
         self.assertIn('from "../src/idlegame/models.ts"', brief)
         self.assertIn("`src/logic/board.ts`", brief)

@@ -2,12 +2,12 @@
 # Unity の参照アセンブリで、箱に何ができるかを測る。関門ではなく測定なので、
 # 結果が悪くても落ちない。落ちるのは、測る道具がそろっていないときだけ。
 #
-#     sudo -u runner -H /srv/loop/bin/probe-unity
+#     sudo -u runner -H /srv/swa/bin/probe-unity
 #
 # 測るのは2つ。
 #
 #   1. 今のプロジェクトの柵の中のコード（thm なら Assets/Source）が、ホストの
-#      loop-unity-refs が送った参照と定義シンボルで、そのままコンパイルできるか。
+#      swa-unity-refs が送った参照と定義シンボルで、そのままコンパイルできるか。
 #      できなければ、どのエラーが何件かを出す
 #   2. エンジン本体の無い .NET 8 の上で、Unity の API のどれが動くか。Vector3 の
 #      ような計算は C# だけで書かれているはずで、Debug.Log のようにエンジンの
@@ -15,18 +15,18 @@
 #      既存のクラスをテストで作れるかが決まる
 #
 # 結果はブリーフに書く（テストで確かめられない振る舞いの条件を書かせない）。
-# 全文は /srv/loop/logs/probe-unity-<日時>.log に残す。
+# 全文は /srv/swa/logs/probe-unity-<日時>.log に残す。
 set -euo pipefail
 
-TOOLS="${LOOP_DOTNET_TOOLS:-/srv/loop/dotnet}"
-REFS="${LOOP_UNITY_REFS:-/srv/loop/unity-refs}"
-PROJECT="${LOOP_PROJECT:-/srv/loop/project}"
+TOOLS="${SWA_DOTNET_TOOLS:-/srv/swa/dotnet}"
+REFS="${SWA_UNITY_REFS:-/srv/swa/unity-refs}"
+PROJECT="${SWA_PROJECT:-/srv/swa/project}"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
 [ -r "$TOOLS/nuget.config" ] || { echo "probe-unity: no $TOOLS/nuget.config; run 36-dotnet.sh" >&2; exit 2; }
-[ -d "$REFS/refs" ] || { echo "probe-unity: no $REFS; send them with loop-unity-refs from the host" >&2; exit 2; }
-# 柵の場所。規則は loop.py の LAYOUT にしか書かないので、そこから読む。
-SRC="${LOOP_SRC:-$(python3 -B -c "import sys; sys.path.insert(0, '/srv/loop/runner'); import loop; print(loop.LAYOUT['src'])")}"
+[ -d "$REFS/refs" ] || { echo "probe-unity: no $REFS; send them with swa-unity-refs from the host" >&2; exit 2; }
+# 柵の場所。規則は swa.py の LAYOUT にしか書かないので、そこから読む。
+SRC="${SWA_SRC:-$(python3 -B -c "import sys; sys.path.insert(0, '/srv/swa/runner'); import swa; print(swa.LAYOUT['src'])")}"
 
 versions="$(cat "$TOOLS/feed/.versions")"
 version_of() { tr ' ' '\n' <<<"$versions" | sed -n "s/^$1=//p"; }
@@ -35,7 +35,7 @@ langversion="$(head -n1 "$REFS/langversion.txt")"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-LOG="/srv/loop/logs/probe-unity-$(date +%Y%m%d-%H%M%S).log"
+LOG="/srv/swa/logs/probe-unity-$(date +%Y%m%d-%H%M%S).log"
 : > "$LOG" 2>/dev/null || LOG="$WORK/probe.log"
 # ランナーと同じく SDK 8 で測る。dotnet は $WORK で呼び、この global.json を読ませる。
 cat > "$WORK/global.json" <<'EOF'

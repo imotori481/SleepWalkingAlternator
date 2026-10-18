@@ -11,7 +11,7 @@
     }
   },
   "live": {
-    "ssh_host": "loop-dev"
+    "ssh_host": "swa-dev"
   },
   "remote": {
     "host": "<machine>.<tailnet>.ts.net:8443",

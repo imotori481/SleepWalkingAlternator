@@ -2,7 +2,7 @@
 # ソルバーのエージェントを、1つのブリーフに対して非対話で起動する。
 #
 # ランナーはこう呼ぶ:
-#     sudo -u solver /srv/loop/bin/solver-run <brief-file> <seconds> [backend]
+#     sudo -u solver /srv/swa/bin/solver-run <brief-file> <seconds> [backend]
 #
 # ランナーは sudo を持たない（10-users.sh が確かめる）。
 # /etc/sudoers.d/91-runner-to-solver の唯一の例外はこのスクリプトだけを名指しし、
@@ -38,7 +38,7 @@ esac
 # 渡し忘れうる sudo のフラグに頼らず、ここで明示する。
 export HOME=/home/solver
 
-# codex 以外のバックエンドは、このスクリプトの隣に /srv/loop/bin/solver-<name>
+# codex 以外のバックエンドは、このスクリプトの隣に /srv/swa/bin/solver-<name>
 # として置く。root 所有の 0755 で、同じ <brief> <seconds> の引数を取り、自分で
 # `timeout` を掛ける。ソルバーを足すための接点はそれだけで（claude やローカル
 # モデルなど）、あえてここで止めてある。書き込みの柵、ブリーフ1つだけの経路、
@@ -49,7 +49,7 @@ export HOME=/home/solver
 # 差し戻しで、それは人の手を1回使う。次の段のソルバーは、次に起こりうる
 # 2つのうち安いほうだ。
 if [ "$BACKEND" != codex ]; then
-  helper="/srv/loop/bin/solver-$BACKEND"
+  helper="/srv/swa/bin/solver-$BACKEND"
   [ -x "$helper" ] || {
     echo "solver-run: バックエンド '$BACKEND' が無い（$helper を実行できない）" >&2
     exit 4
@@ -57,7 +57,7 @@ if [ "$BACKEND" != codex ]; then
   # 先に作業ツリーへ移る。理由は下の `cd` に書いたとおり。sudo はランナーの
   # cwd をそのまま渡し、そのホームは 0700 だ。自分の作業ディレクトリをたどれない
   # プロセスは、見当のつかない場所で失敗する。
-  cd /srv/loop/project
+  cd /srv/swa/project
   exec "$helper" "$BRIEF" "$LIMIT"
 fi
 
@@ -79,7 +79,7 @@ fi
 # 変えない。cwd は sudo が呼び出し元から渡し、呼び出し元はホームが 0700 の
 # ランナーだ。ソルバーはそこをたどることすらできず、サンドボックスが準備の途中で
 # 失敗し、エラーを `src/` に対して報告する。本当の原因から遠い。
-cd /srv/loop/project
+cd /srv/swa/project
 
 # --ignore-user-config  認証には CODEX_HOME を使うが、config.toml は読まない。
 #                       これでブリーフがソルバーの唯一の入力になる
@@ -99,7 +99,7 @@ cd /srv/loop/project
 #
 # 上限時間はランナーではなくここで掛ける。先頭の LIMIT を参照。
 exec timeout --kill-after=30 "$LIMIT" codex exec \
-  --cd /srv/loop/project \
+  --cd /srv/swa/project \
   --sandbox workspace-write \
   --skip-git-repo-check \
   --ignore-user-config \

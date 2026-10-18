@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ループのランナー。v1 で、捨てる前提で書いてある。
 
-    sudo -u runner python3 /srv/loop/runner/loop.py run --all
+    sudo -u runner python3 /srv/swa/runner/swa.py run --all
 
 RUNNER_SPEC が述べる、関門を強制する層。エージェントではなく普通の
 プログラムで、そこが要点だ。関門に価値があるのは、判断をしないからだ。
@@ -41,22 +41,22 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
-LOOP = Path("/srv/loop")
-PROJECT = LOOP / "project"
+SWA = Path("/srv/swa")
+PROJECT = SWA / "project"
 PLAN = PROJECT / "plan"
 
 # 書き込みの柵の場所。プロジェクトごとに決まる（Unity はコードを Assets/ の下に
-# 置く）。loop-project.sh が /srv/loop/layout.json を今のプロジェクトのものへの
+# 置く）。swa-project.sh が /srv/swa/layout.json を今のプロジェクトのものへの
 # リンクにする。root の所有なので、ランナーもソルバーも書き換えられない。無ければ
 # src/ と tests/。
-LAYOUT_FILE = LOOP / "layout.json"
+LAYOUT_FILE = SWA / "layout.json"
 LAYOUT_DEFAULT = {"src": "src", "tests": "tests"}
 # 柵にしてはならない場所。ランナーの持ち物か、凍結したツールチェーンだ。
 LAYOUT_RESERVED = {".git", "plan", ".runner", ".venv", "node_modules", "docs", "ac"}
 
 
 def layout_problems(layout: object) -> list[str]:
-    """柵の場所として使えない理由。使えるなら空。loop-project.sh と同じ規則。"""
+    """柵の場所として使えない理由。使えるなら空。swa-project.sh と同じ規則。"""
     if not isinstance(layout, dict) or set(layout) != {"src", "tests"}:
         return ['layout must be {"src": <dir>, "tests": <dir>}']
     problems = []
@@ -118,32 +118,32 @@ LAYOUT = read_layout()
 TESTS = PROJECT / LAYOUT["tests"]
 SRC = PROJECT / LAYOUT["src"]
 STATE = PROJECT / ".runner"
-BRIEF_DIR = LOOP / "brief"
+BRIEF_DIR = SWA / "brief"
 PYTEST = PROJECT / ".venv" / "bin" / "pytest"
 # 同じ考え方の TypeScript 側。ツールチェーンは凍結してプロジェクトの外に置き
 # （provision/35-node.sh）、solver がたどれるが差し替えられないシンボリック
 # リンクで届かせる。
 VITEST = PROJECT / "node_modules" / ".bin" / "vitest"
-SOLVER_RUN = LOOP / "bin" / "solver-run"
-PLANNER_RUN = LOOP / "bin" / "planner-run"
-PLANNER_BRIEF = LOOP / "planner" / "brief"
-PLANNER_OUT = LOOP / "planner" / "out"
-CRITIC_RUN = LOOP / "bin" / "critic-run"
-CRITIC_BRIEF = LOOP / "critic" / "brief"
-CRITIC_OUT = LOOP / "critic" / "out"
+SOLVER_RUN = SWA / "bin" / "solver-run"
+PLANNER_RUN = SWA / "bin" / "planner-run"
+PLANNER_BRIEF = SWA / "planner" / "brief"
+PLANNER_OUT = SWA / "planner" / "out"
+CRITIC_RUN = SWA / "bin" / "critic-run"
+CRITIC_BRIEF = SWA / "critic" / "brief"
+CRITIC_OUT = SWA / "critic" / "out"
 # クリティックが書いてよいファイル名は1つだけ。プランナーが3つなのと同じ理由で、
 # 与えられていない名前は、ランナーが読むのを拒む名前だ。
 FINDINGS_NAME = "FINDINGS.json"
 
 # 人間の経路で、プランナーには書けない。仕様書と、せきで人が書いた意見がここに
-# 届く。どちらも人だけが言ってよいことだ。/srv/loop/planner/out と対になって
+# 届く。どちらも人だけが言ってよいことだ。/srv/swa/planner/out と対になって
 # いて、形は同じ、向きは逆、グループは別。
-HUMAN_IN = LOOP / "human" / "in"
-# 人が書いた仕様書。`loop go` が置き、spec import が docs/spec/ に取り込む。
+HUMAN_IN = SWA / "human" / "in"
+# 人が書いた仕様書。`swa go` が置き、spec import が docs/spec/ に取り込む。
 HUMAN_SPEC = HUMAN_IN / "spec"
 # せきで人が書いた意見。次のプランナーの呼び出しに渡し、受け入れたら消す。
 HUMAN_COMMENT = HUMAN_IN / "COMMENT.md"
-# クリティックの指摘の、人が読む写し。ダッシュボードと `loop findings` が読む。
+# クリティックの指摘の、人が読む写し。ダッシュボードと `swa findings` が読む。
 CRITIQUE_FOR_HUMAN = HUMAN_IN / "CRITIQUE.json"
 
 # 設計仕様書。編集対象のリポジトリの docs/ に段ごとに置き、コミットする。
@@ -178,7 +178,7 @@ PYTEST_ARGS = ["-q", "-p", "no:cacheprovider", "--strict-markers"]
 # 走行の設定。下流の計画（TASKS）はランナーが設計から作るので、人が上限や
 # ソルバーの段を書く場所はこちらにする。root の持ち物で、ランナーは読むだけだ。
 # 無ければ下の既定で走る。
-SETTINGS_FILE = LOOP / "settings.json"
+SETTINGS_FILE = SWA / "settings.json"
 SETTINGS_KEYS = {"timeouts", "limits", "policy", "solver_tiers"}
 
 # RUNNER_SPEC 10 章が未決にしている値。出発点としての固定値で、どれも
@@ -238,7 +238,7 @@ class QuotaExhausted(Exception):
 # 箱が書き込みを拒んだ跡。ソルバーにもプランナーにも直せないので、中段に
 # 戻さずに止める。柵の下のディレクトリが 2755 で作られ、ソルバーの Write がすべて
 # EACCES で落ちたとき、試行をすべてそれで使い切った。
-# 誤りと取り違えないよう、箱のパス（/srv/loop の下）と同じ行に出たものだけを見る。
+# 誤りと取り違えないよう、箱のパス（/srv/swa の下）と同じ行に出たものだけを見る。
 # Node は `EACCES: permission denied, open '<path>'`、Python は
 # `[Errno 13] Permission denied: '<path>'` の形で出す。
 INFRA_ERROR = re.compile(r"\b(?:EACCES|EPERM|EROFS|ENOSPC)\b|\[Errno (?:1|13|28|30)\]"
@@ -376,13 +376,13 @@ def ledger(event: str, *, echo: str | None = None, **fields) -> None:
 #
 # 台帳は起きたことの記録で、ホストに届くのはコミットのときだけだ。
 # 人が知りたい「いま誰がどのステップの何をしているか」は、そこからは読めない。
-# だから、変わるたびに1つのファイルを丸ごと書き直す。箱の `loop now` がこれを
+# だから、変わるたびに1つのファイルを丸ごと書き直す。箱の `swa now` がこれを
 # 読み、ホストのダッシュボードが SSH で引く。
 #
-# /srv/loop/logs は runner と保守ユーザー（humanw）だけが読める。ステップの goal を
+# /srv/swa/logs は runner と保守ユーザー（humanw）だけが読める。ステップの goal を
 # 載せても、それを読むべきでない役には届かない。
 
-NOW_FILE = LOOP / "logs" / "now.json"
+NOW_FILE = SWA / "logs" / "now.json"
 # 誰が何をしているかの文脈。コマンドとステップは呼び出し元が設定する。
 NOW: dict = {"command": None, "step": None, "attempt": None, "key": None, "since": None}
 
@@ -823,7 +823,7 @@ The names are `canPlace`, `Board`, `Stone` and `START`; requires and provides
 match on those names.""",
     },
     # テストは net8.0 の NUnit 3 で、36-dotnet.sh が凍結したフィードだけから restore
-    # する。csproj はランナーが /srv/loop/dotnet/build に書く（dotnet_projects）。
+    # する。csproj はランナーが /srv/swa/dotnet/build に書く（dotnet_projects）。
     # 取り込んだ Unity のプロジェクトの根に置くと、IDE が Unity の csproj と一緒に
     # 拾ってしまう。コードの側の対象とC#の版は FRAMEWORKS が決める。
     #
@@ -905,7 +905,7 @@ provides match on those names.""",
     # C++ は、箱では標準の C++17 のロジックだけを g++ と GoogleTest で確かめる。
     # DXライブラリや Windows の API は Linux に無い。それを include するファイルは
     # ビルドから外し（cpp_sources）、人が Visual Studio でビルドする。CMakeLists.txt は
-    # ランナーが /srv/loop/cpp/build に書く。プロジェクトの根には置かない。
+    # ランナーが /srv/swa/cpp/build に書く。プロジェクトの根には置かない。
     #
     # 契約の名前は、型（`Board`）、メンバー関数（`Board::score`）、自由関数
     # （`countLines`）の3つの単位を持つ。provides_pattern の3つの組がそれだ。
@@ -999,7 +999,7 @@ match on those names.""",
 
 # C# のコードは OutputType の無いライブラリとして組む（dotnet_projects）。入口は
 # どの持ち込む先でもテストで確かめられない。
-CSHARP_LIBRARY_NOTE = """The code is built as a class library named LoopCode, with no OutputType.
+CSHARP_LIBRARY_NOTE = """The code is built as a class library named SwaCode, with no OutputType.
 There is no `Main` here and `Assembly.EntryPoint` is always null. A file of
 top-level statements (the usual `Program.cs`) is left out of the build, so
 nothing in it compiles or runs here. So no criterion can check how the program
@@ -1042,7 +1042,7 @@ clicked.
     },
     "csharp": {
         # Unity に持ち込むコード。コードは netstandard2.1 で C# 9 まで、テストは
-        # Unity の Test Framework と同じ系統の NUnit 3。loop-unity-refs が参照を
+        # Unity の Test Framework と同じ系統の NUnit 3。swa-unity-refs が参照を
         # 送っていれば、それでコンパイルする（unity_refs）。送っていなくても、
         # Unity に置ける形で書く。
         "unity": {
@@ -1286,9 +1286,9 @@ def csharp_failure_kind(failure: ET.Element) -> str:
 
 
 # 持ち込む先のライブラリの参照。Promete は 36-dotnet.sh が、DXライブラリは
-# `loop refs dxlib` が root で置き、誰でも読めて誰も書けない。MEMBERS.txt を1行1件で
-# 持ち、型のあるライブラリは TYPES.txt も持つ（provision/loop_refs.py）。
-REFS = LOOP / "refs"
+# `swa refs dxlib` が root で置き、誰でも読めて誰も書けない。MEMBERS.txt を1行1件で
+# 持ち、型のあるライブラリは TYPES.txt も持つ（provision/swa_refs.py）。
+REFS = SWA / "refs"
 
 
 def library_refs() -> Path | None:
@@ -1356,13 +1356,13 @@ then look in the other file there, or in how the project uses it.
 """
 
 
-DOTNET_TOOLS = LOOP / "dotnet"
+DOTNET_TOOLS = SWA / "dotnet"
 DOTNET_BUILD = DOTNET_TOOLS / "build"
-UNITY_REFS = LOOP / "unity-refs"
+UNITY_REFS = SWA / "unity-refs"
 # dotnet の出力を英語に固定する。ビルドエラーは行の形で読むからだ。HOME に頼らず、
 # NuGet のキャッシュと CLI の状態は runner だけが入れる build の下に置く。
 # ノードとコンパイラのサーバを残さない。走行の後に runner のプロセスが残ると、
-# loop-project.sh の busy() が切り替えを拒む。
+# swa-project.sh の busy() が切り替えを拒む。
 DOTNET_ENV = {
     "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1",
     "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1", "DOTNET_CLI_UI_LANGUAGE": "en",
@@ -1374,7 +1374,7 @@ DOTNET_ENV = {
 
 def unity_refs() -> bool:
     """Unity の参照アセンブリでコンパイルするか。Unity に持ち込む計画で、
-    loop-unity-refs が参照を送ったときだけそうする。"""
+    swa-unity-refs が参照を送ったときだけそうする。"""
     return bool(LANGUAGE.get("unity_refs")) and (UNITY_REFS / "refs").is_dir()
 
 
@@ -1462,7 +1462,7 @@ def dotnet_projects() -> dict[Path, str]:
     code = f"""<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>{LANGUAGE["dotnet_target"]}</TargetFramework>
-    <AssemblyName>LoopCode</AssemblyName>
+    <AssemblyName>SwaCode</AssemblyName>
 {common}
   </PropertyGroup>
   <ItemGroup>
@@ -1475,7 +1475,7 @@ def dotnet_projects() -> dict[Path, str]:
     tests = f"""<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>{LANGUAGE["dotnet_test_target"]}</TargetFramework>
-    <AssemblyName>LoopTests</AssemblyName>
+    <AssemblyName>SwaTests</AssemblyName>
     <IsPackable>false</IsPackable>
 {common}
   </PropertyGroup>
@@ -1585,7 +1585,7 @@ def test_owner(name: str) -> str:
 # ビルドは CMake で、CMakeLists.txt はランナーが柵の場所と外したファイルから書く。
 # 置き場は C# の csproj と同じ理由でプロジェクトの外にする。
 
-CPP_BUILD = LOOP / "cpp" / "build"
+CPP_BUILD = SWA / "cpp" / "build"
 CMAKE = Path("/usr/bin/cmake")
 # コンパイラの出力を英語の ASCII に固定する。UTF-8 のロケールでは、g++ はエラーの
 # 名前を ‘ ’ で囲み、行の形で読めなくなる。
@@ -1695,20 +1695,20 @@ def cpp_cmake_lists() -> str:
 
     include = f'"{SRC.as_posix()}" "{PROJECT.as_posix()}"'
     if code:
-        library = (f"add_library(loop_code STATIC{files(code)})\n"
-                   f"target_include_directories(loop_code PUBLIC {include})")
+        library = (f"add_library(swa_code STATIC{files(code)})\n"
+                   f"target_include_directories(swa_code PUBLIC {include})")
     else:
-        library = ("add_library(loop_code INTERFACE)\n"
-                   f"target_include_directories(loop_code INTERFACE {include})")
+        library = ("add_library(swa_code INTERFACE)\n"
+                   f"target_include_directories(swa_code INTERFACE {include})")
     return f"""cmake_minimum_required(VERSION 3.16)
-project(LoopCpp CXX)
+project(SwaCpp CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(GTest REQUIRED)
 {library}
-add_executable(loop_tests{files(cpp_test_sources())})
-target_link_libraries(loop_tests PRIVATE loop_code GTest::gtest_main)
+add_executable(swa_tests{files(cpp_test_sources())})
+target_link_libraries(swa_tests PRIVATE swa_code GTest::gtest_main)
 """
 
 
@@ -1835,7 +1835,7 @@ def test_argv(files_test: list[str], xml_path: Path) -> tuple[list[str], dict[st
         # テストのプログラムは柵のテストの場所を全部持つ。ステップのテストだけを
         # 走らせるのは、スイートの名前での絞り込みだ。DISABLED_ のテストも走らせる。
         # 走らせなければ、何も判定しないテストが通ったものとして数えられる。
-        argv = [str(CPP_BUILD / "out" / "loop_tests"), f"--gtest_output=xml:{xml_path}",
+        argv = [str(CPP_BUILD / "out" / "swa_tests"), f"--gtest_output=xml:{xml_path}",
                 "--gtest_also_run_disabled_tests"]
         suites = cpp_test_suites(files_test)
         if suites:
@@ -2071,7 +2071,7 @@ def record_usage(who: str, phase: str, data: dict) -> None:
     台帳には usage を丸ごと書く。画面には1行に要るものだけを出す。usage の
     中身は、キャッシュの内訳や iterations まで入っていて、1回の呼び出しで
     画面を数行占めていた。入力は、キャッシュから読んだ分と書いた分を足す。
-    read と write はそのうちのキャッシュの読み取りと書き込みで、`loop now` が
+    read と write はそのうちのキャッシュの読み取りと書き込みで、`swa now` が
     種類別の消費を数えるのに使う。
 
     modelUsage がモデルごとのトークンの内訳を持つときは、そちらを足す。
@@ -2152,7 +2152,7 @@ def infra_evidence(phase: str, text: str) -> str | None:
     for line in text.splitlines():
         if not INFRA_ERROR.search(line):
             continue
-        for raw in re.findall(rf"{re.escape(str(LOOP))}/[^\s'\"`,:;)]+", line):
+        for raw in re.findall(rf"{re.escape(str(SWA))}/[^\s'\"`,:;)]+", line):
             path = Path(raw)
             if any(path == root or root in path.parents for root in writable):
                 return line.strip()
@@ -2172,7 +2172,7 @@ def check_infra(phase: str, text: str) -> None:
 def call_solver(phase: str, brief: str, backend: str | None = None) -> str:
     """ソルバーにブリーフを1つだけ渡し、ほかには何も渡さない。
 
-    ブリーフは /srv/loop/brief（runner:solverw 0750）に書く。ソルバーは読めるが
+    ブリーフは /srv/swa/brief（runner:solverw 0750）に書く。ソルバーは読めるが
     書けず、存在する経路はそれだけだ。ここから 0700 runner の plan/ への道は
     無い。docs/ と ac/ も同じだ。だから「ソルバーは設計の全体を読んではならない」は、
     誰かが守る必要のある規則ではない。
@@ -4062,7 +4062,7 @@ def cmd_spec_import() -> int:
                     found[path.relative_to(HUMAN_SPEC).as_posix()] = path.read_bytes()
     if not found:
         return refuse(f"no specification at {HUMAN_SPEC}; put the files there "
-                      f"(`loop go <file>` does)")
+                      f"(`swa go <file>` does)")
     if DOCS_SPEC.is_dir():
         shutil.rmtree(DOCS_SPEC)
     for rel, data in found.items():
@@ -4661,7 +4661,7 @@ def cmd_modules_critique() -> int:
     write_stage(critiqued=digest)
     commit_paths([CRITIQUE, STAGE_FILE, LEDGER], "plan: critique the module design",
                  "the critique")
-    # 行頭の `=== critique ` は、loop_now.py が走行ログから指摘を探す目印。
+    # 行頭の `=== critique ` は、swa_now.py が走行ログから指摘を探す目印。
     print("=== critique of the module design ===")
     print(render_findings(findings))
     print("next: modules approve, or write a comment and run modules draft again")
@@ -4823,7 +4823,7 @@ def fail_module(step: dict, halt: Halt, attempt: int, run_: TestRun | None) -> N
 
 ## 次にすること
 
-詳細設計を直すモジュールを `loop reopen <モジュール>...` で選ぶ。複数選べる。
+詳細設計を直すモジュールを `swa reopen <モジュール>...` で選ぶ。複数選べる。
 """, encoding="utf-8")
     FAILURE.chmod(0o644)
     write_stage(stage="midstream", open=[])
@@ -6337,7 +6337,7 @@ every attempt on it.
 def unity_facts() -> tuple[str, str]:
     """Unity に持ち込む計画に伝える、UI とエンジンについての事実。(1行の要約, 段落)。
 
-    Unity の参照があるとき（loop-unity-refs）の中身は、thm で probe-unity が測った
+    Unity の参照があるとき（swa-unity-refs）の中身は、thm で probe-unity が測った
     結果だ。エンジン本体の無い .NET 8 では、C# だけで書かれた計算は動き、エンジンの
     ネイティブに降りるものは SecurityException で落ちる。MonoBehaviour を new する
     ことすらできない。そのテストは赤ではなく壊れた呼び出しになり、R5 が拒む。
@@ -6435,7 +6435,7 @@ goal may name a type here without spelling out its members.
 
 
 # DXライブラリの主な関数。画面、入力、音を扱う薄いファイルを書くのに足りるところまでに
-# 絞る。プランナーが詳細設計に写してソルバーに渡す。人が `loop refs dxlib` で
+# 絞る。プランナーが詳細設計に写してソルバーに渡す。人が `swa refs dxlib` で
 # DxLib.h を送っていれば、ソルバーはほかの関数をそこから引く（library_refs_section）。
 DXLIB_SHEET = """DXLib (DX Library) in brief. Every call returns -1 on failure unless noted.
 TRUE and FALSE are ints.
@@ -6535,7 +6535,7 @@ hand. Name every new module in the basic design so the person can.
                  "there, so a goal may name one that the summary above leaves out.\n"
                  if refs else
                  "\nDxLib.h itself is not here. Use only the functions above; the person "
-                 "can send the header with `loop refs dxlib <DxLib.h>`.\n")
+                 "can send the header with `swa refs dxlib <DxLib.h>`.\n")
     return summary, text
 
 
@@ -7495,7 +7495,7 @@ def main() -> int:
     # 走行の systemd-run も dash の sudo も umask を 022 にし、git が作り直した
     # src/Managers が 2755 になって、ソルバーの Write がすべて EACCES で落ちた。
     os.umask(0o002)
-    parser = argparse.ArgumentParser(description="loop runner v1")
+    parser = argparse.ArgumentParser(description="swa runner v1")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # 上流。仕様書を取り込み、基本設計を書かせ、人が承認する。

@@ -1,4 +1,4 @@
-"""取り込みは、確かめた値だけを git の引数にし、loop-import.cmd と同じ順に5つの手順を流す。
+"""取り込みは、確かめた値だけを git の引数にし、swa-import.cmd と同じ順に5つの手順を流す。
 
 git は本物を使い、箱だけを差し替える。クローン元と箱の bare は一時ディレクトリに置く。
 """
@@ -29,8 +29,8 @@ class FakeLive:
     def init_project(self, name, branch, src="", tests=""):
         self.calls.append(("init", name, branch, src, tests))
         if self.refuse_init:
-            raise ValueError("loop-project: /srv/loop/projects/game がもうある")
-        return "/srv/loop/projects/game/repo.git を作った"
+            raise ValueError("swa-project: /srv/swa/projects/game がもうある")
+        return "/srv/swa/projects/game/repo.git を作った"
 
     def use_project(self, name):
         self.calls.append(("use", name))
@@ -43,7 +43,7 @@ class FakeLive:
 
 
 class LocalImporter(Importer):
-    """push の宛先を、loop-runner の代わりに手元の bare にする。"""
+    """push の宛先を、swa-runner の代わりに手元の bare にする。"""
 
     def __init__(self, live, workroot, bare):
         super().__init__(live, workroot, sleep=lambda seconds: None)
@@ -55,11 +55,11 @@ class LocalImporter(Importer):
 
 class Checks(unittest.TestCase):
     def ok(self, **fields):
-        return check({"project": "game", "url": "https://github.com/o/r.git", "branch": "loop/x",
+        return check({"project": "game", "url": "https://github.com/o/r.git", "branch": "swa/x",
                       **fields})
 
     def test_the_usual_forms_pass(self):
-        self.assertEqual(self.ok(), Request("game", "https://github.com/o/r.git", "loop/x"))
+        self.assertEqual(self.ok(), Request("game", "https://github.com/o/r.git", "swa/x"))
         self.assertEqual(self.ok(url="git@github.com:o/r.git").url, "git@github.com:o/r.git")
         self.assertEqual(self.ok(url="ssh://git@host:22/o/r.git", base="main",
                                  src="Assets/Source", tests="Assets/Tests").tests, "Assets/Tests")
@@ -103,7 +103,7 @@ class Run(unittest.TestCase):
         self.lines = []
 
     def run_import(self, live, **fields):
-        request = Request(**{"project": "game", "url": str(self.origin), "branch": "loop/x",
+        request = Request(**{"project": "game", "url": str(self.origin), "branch": "swa/x",
                              **fields})
         LocalImporter(live, self.workroot, self.bare).run(request, self.lines.append)
 
@@ -115,22 +115,22 @@ class Run(unittest.TestCase):
     def test_a_new_branch_is_made_from_the_default_branch_pushed_and_switched_to(self):
         live = FakeLive()
         self.run_import(live)
-        self.assertEqual(live.calls, [("init", "game", "loop/x", "", ""), ("use", "game")])
-        self.assertTrue(git("--git-dir", str(self.bare), "rev-parse", "refs/heads/loop/x"))
-        self.assertEqual(self.config("branch.loop/x.loopBase"), "main")
+        self.assertEqual(live.calls, [("init", "game", "swa/x", "", ""), ("use", "game")])
+        self.assertTrue(git("--git-dir", str(self.bare), "rev-parse", "refs/heads/swa/x"))
+        self.assertEqual(self.config("branch.swa/x.swaBase"), "main")
         self.assertEqual(self.lines[-1].split(".")[0], "OK")
 
     def test_the_base_and_the_fences_are_passed_on(self):
         live = FakeLive()
         self.run_import(live, base="develop", src="code", tests="spec")
-        self.assertEqual(live.calls[0], ("init", "game", "loop/x", "code", "spec"))
-        self.assertEqual(self.config("branch.loop/x.loopBase"), "develop")
+        self.assertEqual(live.calls[0], ("init", "game", "swa/x", "code", "spec"))
+        self.assertEqual(self.config("branch.swa/x.swaBase"), "develop")
 
     def test_an_existing_branch_is_used_and_no_parent_is_guessed(self):
         live = FakeLive()
         self.run_import(live, branch="develop")
-        self.assertEqual(self.config("branch.develop.loopBase"), "")
-        self.assertTrue(any("loopBase <base-branch>" in line for line in self.lines))
+        self.assertEqual(self.config("branch.develop.swaBase"), "")
+        self.assertTrue(any("swaBase <base-branch>" in line for line in self.lines))
 
     def test_a_clone_of_another_repository_is_not_reused(self):
         (self.workroot / "game").mkdir(parents=True)
@@ -174,7 +174,7 @@ class FakeImporter:
 
 
 class Job(unittest.TestCase):
-    BODY = {"project": "game", "url": "https://github.com/o/r.git", "branch": "loop/x"}
+    BODY = {"project": "game", "url": "https://github.com/o/r.git", "branch": "swa/x"}
 
     def test_a_bad_request_is_refused_before_anything_runs(self):
         job = ImportJob(FakeImporter())

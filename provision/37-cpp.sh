@@ -7,20 +7,20 @@
 #
 # 箱で確かめるのは標準の C++17 のロジックだけ。DXライブラリや Windows の API は
 # Linux に無いので入れない。それを include するファイルは、ランナーがビルドから
-# 外す（runner/loop.py の cpp_sources）。
+# 外す（runner/swa.py の cpp_sources）。
 #
-# CMakeLists.txt はプロジェクトの外（/srv/loop/cpp/build）に置き、ランナーが柵の
+# CMakeLists.txt はプロジェクトの外（/srv/swa/cpp/build）に置き、ランナーが柵の
 # 場所から書く。取り込んだプロジェクトの根に置くと、そのプロジェクトのビルドの
 # 設定とぶつかる。
 set -euo pipefail
 cd "$(dirname "$0")"
 
-TOOLS=/srv/loop/cpp
+TOOLS=/srv/swa/cpp
 BUILD="$TOOLS/build"
 PACKAGES=(g++ make cmake libgtest-dev)
 
-install -d -o root -g root -m 755 /srv/loop/bin
-install -o root -g root -m 755 bin/smoke-cpp /srv/loop/bin/smoke-cpp
+install -d -o root -g root -m 755 /srv/swa/bin
+install -o root -g root -m 755 bin/smoke-cpp /srv/swa/bin/smoke-cpp
 
 # ---- パッケージ ------------------------------------------------------------
 # libgtest-dev は、ビルド済みの libgtest.a と libgtest_main.a と、CMake の
@@ -44,7 +44,7 @@ install -d -o runner -g runner -m 700 "$BUILD"
 
 # ---- 検査 ------------------------------------------------------------------
 fail=0
-if ! sudo -u runner -H /srv/loop/bin/smoke-cpp; then
+if ! sudo -u runner -H /srv/swa/bin/smoke-cpp; then
   echo "FAIL: C++ のテストをビルドして走らせられない"; fail=1
 fi
 for who in solver planner critic; do

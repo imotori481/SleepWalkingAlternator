@@ -15,15 +15,15 @@
 
 | 役 | 起動 | ブリーフの置き場 | 書く場所 | ツール |
 |---|---|---|---|---|
-| planner | `planner-run` | `/srv/loop/planner/brief/plan.md` | `/srv/loop/planner/out/` | Read Write Edit Grep Glob |
-| critic | `critic-run` | `/srv/loop/critic/brief/modules.md` | `/srv/loop/critic/out/` | Read Write |
-| solver | `solver-run` → `solver-claude` | `/srv/loop/brief/<phase>.md` | `src/` と `tests/`（柵の場所） | Read Write Edit Grep Glob。Bash は禁止 |
+| planner | `planner-run` | `/srv/swa/planner/brief/plan.md` | `/srv/swa/planner/out/` | Read Write Edit Grep Glob |
+| critic | `critic-run` | `/srv/swa/critic/brief/modules.md` | `/srv/swa/critic/out/` | Read Write |
+| solver | `solver-run` → `solver-claude` | `/srv/swa/brief/<phase>.md` | `src/` と `tests/`（柵の場所） | Read Write Edit Grep Glob。Bash は禁止 |
 
 ブリーフは呼び出しのたびに上書きする。置き場に残るのは、役と位相ごとの最後の1回分になる。
 
 ### サブエージェント
 
-`/etc/loop/<役>.env` の `LOOP_SUBAGENT_MODEL` にモデルを書くと、そのモデルで動く助手を `--agents` で渡し、`Agent` ツールを足す。空なら渡さない。
+`/etc/swa/<役>.env` の `SWA_SUBAGENT_MODEL` にモデルを書くと、そのモデルで動く助手を `--agents` で渡し、`Agent` ツールを足す。空なら渡さない。
 
 | 助手 | 渡す役 | ツール | 任せる仕事 |
 |---|---|---|---|
@@ -72,7 +72,7 @@ flowchart LR
 
 出力は `FINDINGS.json` の1つ。ファイルが無いか読めなければ、ランナーは批評が起きなかったものとして止まる。指摘の `title` と `evidence` は日本語で書かせる。人が読むからだ。設計の名前は、元の言語のまま引かせる。
 
-指摘はプランナーに戻さない。ランナーは `plan/CRITIQUE.json` に設計のハッシュと一緒に書き、写しを `human/in/CRITIQUE.json` に置く。人は写しを `loop findings` で読む。書き直させたいことは、`loop reject` のコメントでプランナーに伝える。
+指摘はプランナーに戻さない。ランナーは `plan/CRITIQUE.json` に設計のハッシュと一緒に書き、写しを `human/in/CRITIQUE.json` に置く。人は写しを `swa findings` で読む。書き直させたいことは、`swa reject` のコメントでプランナーに伝える。
 
 ### environment_facts()
 
@@ -183,3 +183,4 @@ C# で10ステップを全部緑にした回の、台帳とブリーフの実測
 - 2026/09/30: solver のツールに Grep と Glob を追加
 - 2026/10/14: planner、critic、solver の受け渡しを3段（上流、中段、下流）の設計に変更
 - 2026/10/17: サブエージェントと、消費の記録のモデルごとの内訳を追加
+- 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更

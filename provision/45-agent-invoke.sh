@@ -15,19 +15,19 @@ set -euo pipefail
 cd "$(dirname "$0")"
 . ./layout.sh
 
-install -d -o root -g root -m 755 /srv/loop/bin
-install -o root -g root -m 755 bin/solver-run   /srv/loop/bin/solver-run
-install -o root -g root -m 755 bin/planner-run  /srv/loop/bin/planner-run
-install -o root -g root -m 755 bin/critic-run   /srv/loop/bin/critic-run
+install -d -o root -g root -m 755 /srv/swa/bin
+install -o root -g root -m 755 bin/solver-run   /srv/swa/bin/solver-run
+install -o root -g root -m 755 bin/planner-run  /srv/swa/bin/planner-run
+install -o root -g root -m 755 bin/critic-run   /srv/swa/bin/critic-run
 # solver-run が名前 `claude` で呼ぶ実体。ランナーは名前しか渡せないので、
 # バックエンドを増やせるのは root がここで置いたときだけ。
-install -o root -g root -m 755 bin/solver-claude /srv/loop/bin/solver-claude
-install -o root -g root -m 755 bin/smoke-solver /srv/loop/bin/smoke-solver
-install -o root -g root -m 755 bin/smoke-pytest /srv/loop/bin/smoke-pytest
-install -o root -g root -m 755 bin/smoke-planner /srv/loop/bin/smoke-planner
+install -o root -g root -m 755 bin/solver-claude /srv/swa/bin/solver-claude
+install -o root -g root -m 755 bin/smoke-solver /srv/swa/bin/smoke-solver
+install -o root -g root -m 755 bin/smoke-pytest /srv/swa/bin/smoke-pytest
+install -o root -g root -m 755 bin/smoke-planner /srv/swa/bin/smoke-planner
 # 旧い計画の流れを試していたもの。置いてある箱から外す。
-rm -f /srv/loop/bin/smoke-plan
-install -o root -g root -m 755 bin/smoke-critic  /srv/loop/bin/smoke-critic
+rm -f /srv/swa/bin/smoke-plan
+install -o root -g root -m 755 bin/smoke-critic  /srv/swa/bin/smoke-critic
 
 # planner の経路。solver の経路とはあえて分ける。
 #
@@ -37,16 +37,16 @@ install -o root -g root -m 755 bin/smoke-critic  /srv/loop/bin/smoke-critic
 #           通したものだけを docs/ と ac/ に戻す。ワークスペースの根と同じ理由で
 #           スティッキーにする。グループの書き込みだけだと、planner が runner の
 #           置いた部分のディレクトリを消せてしまう。
-install -d -o root  -g root     -m 755  /srv/loop/planner
-install -d -o runner -g plannerw -m 2750 /srv/loop/planner/brief
-install -d -o runner -g plannerw -m 3770 /srv/loop/planner/out
+install -d -o root  -g root     -m 755  /srv/swa/planner
+install -d -o runner -g plannerw -m 2750 /srv/swa/planner/brief
+install -d -o runner -g plannerw -m 3770 /srv/swa/planner/out
 
 # critic の経路。同じ2つのディレクトリ、同じモードで、グループははっきり別に
 # する。criticw は plannerw ではないので、critic は planner が書いている提案を
 # 読めず、planner は自分について書かれた指摘を読めない。
-install -d -o root   -g root    -m 755  /srv/loop/critic
-install -d -o runner -g criticw -m 2750 /srv/loop/critic/brief
-install -d -o runner -g criticw -m 3770 /srv/loop/critic/out
+install -d -o root   -g root    -m 755  /srv/swa/critic
+install -d -o runner -g criticw -m 2750 /srv/swa/critic/brief
+install -d -o runner -g criticw -m 3770 /srv/swa/critic/out
 
 # 人間の受け渡し口。planner の out/ と対になる形で、誰かが書き、runner が読んで
 # 決める。スティッキーにする理由も同じ。runner がディレクトリを所有するので、
@@ -55,10 +55,10 @@ install -d -o runner -g criticw -m 3770 /srv/loop/critic/out
 # solver と planner からは読めない。仕様書はシステム全体を述べており、それを
 # solver に渡すとブリーフの横に2つ目の入力経路ができる（設計が docs/ の下に
 # あるのと同じ理由）。planner には、ランナーがブリーフに載せて渡す。
-install -d -o root   -g root   -m 755  /srv/loop/human
-install -d -o runner -g humanw -m 3770 /srv/loop/human/in
+install -d -o root   -g root   -m 755  /srv/swa/human
+install -d -o runner -g humanw -m 3770 /srv/swa/human/in
 
-install -d -o root -g root -m 755 /etc/loop
+install -d -o root -g root -m 755 /etc/swa
 
 # ソルバーの資格情報。planner.env や critic.env とは別のファイルにし、
 # solver だけが読めるようにする。ある役の資格情報が漏れても、他の役の資格情報は
@@ -68,8 +68,8 @@ install -d -o root -g root -m 755 /etc/loop
 # /home/solver/.codex（0700）に入る:
 #
 #     sudo -u solver -H codex login --device-auth
-if [ ! -f /etc/loop/solver.env ]; then
-  cat > /etc/loop/solver.env <<'EOF'
+if [ ! -f /etc/swa/solver.env ]; then
+  cat > /etc/swa/solver.env <<'EOF'
 # `solver` アカウントの非対話用資格情報。手で埋める。
 #
 # 推奨: サブスクリプションのトークン。
@@ -82,15 +82,15 @@ CLAUDE_CODE_OAUTH_TOKEN=
 ANTHROPIC_API_KEY_CONSOLE=
 EOF
 fi
-chown root:solver /etc/loop/solver.env
-chmod 640 /etc/loop/solver.env
+chown root:solver /etc/swa/solver.env
+chmod 640 /etc/swa/solver.env
 
 # planner の資格情報は、別のキーを持つ別のファイルで、別の uid が読む。理由は
 # 2つあり、どちらも整理のためではなく仕組みのためだ。利用枠を使い切った solver
 # が planner の実行を止められてはならない。サンドボックスが破られても、受け入れ
 # 条件を決める側を動かす資格情報まで渡ってはならない。
-if [ ! -f /etc/loop/planner.env ]; then
-  cat > /etc/loop/planner.env <<'EOF'
+if [ ! -f /etc/swa/planner.env ]; then
+  cat > /etc/swa/planner.env <<'EOF'
 # `planner` アカウントの非対話用資格情報。手で埋める。
 #
 # 推奨: サブスクリプションのトークン。計画づくりに呼び出しごとの費用がかからない。
@@ -104,11 +104,11 @@ CLAUDE_CODE_OAUTH_TOKEN=
 ANTHROPIC_API_KEY_CONSOLE=
 EOF
 fi
-chown root:planner /etc/loop/planner.env
-chmod 640 /etc/loop/planner.env
+chown root:planner /etc/swa/planner.env
+chmod 640 /etc/swa/planner.env
 
-if [ ! -f /etc/loop/critic.env ]; then
-  cat > /etc/loop/critic.env <<'EOF'
+if [ ! -f /etc/swa/critic.env ]; then
+  cat > /etc/swa/critic.env <<'EOF'
 # `critic` アカウントの非対話用資格情報。手で埋める。
 #
 #     sudo -u critic -H claude setup-token
@@ -122,39 +122,39 @@ CLAUDE_CODE_OAUTH_TOKEN=
 ANTHROPIC_API_KEY_CONSOLE=
 EOF
 fi
-chown root:critic /etc/loop/critic.env
-chmod 640 /etc/loop/critic.env
+chown root:critic /etc/swa/critic.env
+chmod 640 /etc/swa/critic.env
 
-# 役ごとのモデル。起動スクリプトが LOOP_MODEL を --model で渡す。
+# 役ごとのモデル。起動スクリプトが SWA_MODEL を --model で渡す。
 # 新しく作ったファイルにも、前からあるファイルにも、行が無いときだけ足す。
 # 値は手で埋めたものを上書きしない。
 for who in solver planner critic; do
-  if ! grep -q '^LOOP_MODEL=' "/etc/loop/$who.env"; then
-    cat >> "/etc/loop/$who.env" <<'EOF'
+  if ! grep -q '^SWA_MODEL=' "/etc/swa/$who.env"; then
+    cat >> "/etc/swa/$who.env" <<'EOF'
 
 # モデル。空ならアカウントの既定のモデルを使う。
-# 例: LOOP_MODEL=claude-sonnet-5
-LOOP_MODEL=
+# 例: SWA_MODEL=claude-sonnet-5
+SWA_MODEL=
 EOF
   fi
-  if ! grep -q '^LOOP_EFFORT=' "/etc/loop/$who.env"; then
-    cat >> "/etc/loop/$who.env" <<'EOF'
+  if ! grep -q '^SWA_EFFORT=' "/etc/swa/$who.env"; then
+    cat >> "/etc/swa/$who.env" <<'EOF'
 
 # effort。low / medium / high / xhigh / max のどれか。空なら既定。
-LOOP_EFFORT=
+SWA_EFFORT=
 EOF
   fi
 done
 
 # サブエージェントのモデル。critic はツールが Read と Write だけなので持たない。
 for who in solver planner; do
-  if ! grep -q '^LOOP_SUBAGENT_MODEL=' "/etc/loop/$who.env"; then
-    cat >> "/etc/loop/$who.env" <<'EOF'
+  if ! grep -q '^SWA_SUBAGENT_MODEL=' "/etc/swa/$who.env"; then
+    cat >> "/etc/swa/$who.env" <<'EOF'
 
 # サブエージェントのモデル。探索と機械的な書き換えをこのモデルの助手に回す。
 # 空ならサブエージェントを使わない。
-# 例: LOOP_SUBAGENT_MODEL=claude-haiku-5-5
-LOOP_SUBAGENT_MODEL=
+# 例: SWA_SUBAGENT_MODEL=claude-haiku-5-5
+SWA_SUBAGENT_MODEL=
 EOF
   fi
 done
@@ -165,7 +165,7 @@ for spec in "solver:91-runner-to-solver" "planner:92-runner-to-planner" \
            "critic:93-runner-to-critic"; do
   who="${spec%%:*}"; file="${spec##*:}"
   tmp="$(mktemp)"
-  printf 'runner ALL=(%s) NOPASSWD: /srv/loop/bin/%s-run\n' "$who" "$who" > "$tmp"
+  printf 'runner ALL=(%s) NOPASSWD: /srv/swa/bin/%s-run\n' "$who" "$who" > "$tmp"
   visudo -c -f "$tmp" >/dev/null
   install -o root -g root -m 440 "$tmp" "/etc/sudoers.d/$file"
   rm -f "$tmp"
@@ -175,7 +175,7 @@ done
 granted="$(sudo -l -U runner 2>/dev/null || true)"
 for who in solver planner critic; do
   case "$granted" in
-    *"($who) NOPASSWD: /srv/loop/bin/$who-run"*)
+    *"($who) NOPASSWD: /srv/swa/bin/$who-run"*)
       : ;;
     *)
       echo "FATAL: runner に ($who) として起動する許可が付いていない" >&2
@@ -203,26 +203,26 @@ fail=0
 c_can()    { if sudo -u critic "$@" >/dev/null 2>&1; then :; else echo "FAIL: critic should be able to: $*"; fail=1; fi; }
 c_cannot() { if sudo -u critic "$@" >/dev/null 2>&1; then echo "FAIL: critic should NOT be able to: $*"; fail=1; fi; }
 
-c_can    test -r /srv/loop/critic/brief
-c_can    test -w /srv/loop/critic/out
+c_can    test -r /srv/swa/critic/brief
+c_can    test -w /srv/swa/critic/out
 
 # 判定する対象の作業。
-c_cannot ls /srv/loop/project/plan          # 見れば判定の拠り所にしてしまう基準
-c_cannot ls "/srv/loop/project/$LAYOUT_TESTS"   # すでに通ったテスト
-c_cannot ls /srv/loop/project/.git          # 両方を含む履歴
-c_cannot ls /srv/loop/planner/out           # 書かれている最中の提案
-c_cannot ls /srv/loop/brief                 # solver に伝えた内容
-c_cannot ls /srv/loop/logs                  # 失敗したテストの中身を含む走行ログ
+c_cannot ls /srv/swa/project/plan          # 見れば判定の拠り所にしてしまう基準
+c_cannot ls "/srv/swa/project/$LAYOUT_TESTS"   # すでに通ったテスト
+c_cannot ls /srv/swa/project/.git          # 両方を含む履歴
+c_cannot ls /srv/swa/planner/out           # 書かれている最中の提案
+c_cannot ls /srv/swa/brief                 # solver に伝えた内容
+c_cannot ls /srv/swa/logs                  # 失敗したテストの中身を含む走行ログ
 # 要件は、runner が組み立てたブリーフを通してだけ届く。受け渡し口を直接読めると、
 # 誰も渡していない入力に対して批評が走りうる。
-c_cannot ls /srv/loop/human/in
+c_cannot ls /srv/swa/human/in
 # ほかのアカウントの資格情報とホーム。
-c_cannot test -r /etc/loop/planner.env
+c_cannot test -r /etc/swa/planner.env
 c_cannot ls /home/runner
 c_cannot ls /home/planner
 c_cannot ls /home/solver
 # ブリーフは読むもので、自分で書くものではない。
-c_cannot test -w /srv/loop/critic/brief
+c_cannot test -w /srv/swa/critic/brief
 
 if [ "$fail" -ne 0 ]; then
   echo "45-agent-invoke: CRITIC FENCE BROKEN" >&2
@@ -239,15 +239,15 @@ fi
 # 「読めない」の検査が何も確かめずに通ってしまう。
 fail=0
 for who in solver planner critic; do
-  [ -f "/etc/loop/$who.env" ] || { echo "FAIL: /etc/loop/$who.env does not exist"; fail=1; continue; }
-  if ! sudo -u "$who" test -r "/etc/loop/$who.env" 2>/dev/null; then
-    echo "FAIL: $who should be able to: test -r /etc/loop/$who.env"
+  [ -f "/etc/swa/$who.env" ] || { echo "FAIL: /etc/swa/$who.env does not exist"; fail=1; continue; }
+  if ! sudo -u "$who" test -r "/etc/swa/$who.env" 2>/dev/null; then
+    echo "FAIL: $who should be able to: test -r /etc/swa/$who.env"
     fail=1
   fi
   for other in solver planner critic; do
     [ "$other" = "$who" ] && continue
-    if sudo -u "$other" test -r "/etc/loop/$who.env" 2>/dev/null; then
-      echo "FAIL: $other should NOT be able to: test -r /etc/loop/$who.env"
+    if sudo -u "$other" test -r "/etc/swa/$who.env" 2>/dev/null; then
+      echo "FAIL: $other should NOT be able to: test -r /etc/swa/$who.env"
       fail=1
     fi
   done
@@ -262,7 +262,7 @@ fi
 pending=""
 for who in solver planner critic; do
   if ! grep -qE '^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY_CONSOLE)=.+' \
-        "/etc/loop/$who.env" 2>/dev/null; then
+        "/etc/swa/$who.env" 2>/dev/null; then
     pending="$pending $who(token)"
   fi
 done

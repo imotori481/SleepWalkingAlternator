@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # 開発サーバで開いたページが、柵の中の main.ts の start まで届くか。
 #
-#     sudo -u runner /srv/loop/bin/smoke-page
+#     sudo -u runner /srv/swa/bin/smoke-page
 #
-# 計画には、開発サーバの応答を確かめる条件を書かせない（loop.py の
+# 計画には、開発サーバの応答を確かめる条件を書かせない（swa.py の
 # environment_facts）。応答はサーバが決め、どの実装でも変えられないからだ。run 8 の
 # S10 は、Vite が index.html を変換した結果に /src/main.ts が含まれることを確かめる
 # 条件で時間切れまで考えた。その代わり、要件の「開発サーバで開ける」は環境の性質
@@ -18,11 +18,11 @@
 # 使う。プロジェクトの src/ は計画のもので、ここでは触らない。
 set -euo pipefail
 
-TOOLS="${LOOP_NODE_TOOLS:-/srv/loop/node}"
-PAGE="${LOOP_PAGE:-/srv/loop/project/index.html}"
-# 柵の場所。index.html はそこの main.ts を読む（35-node.sh）。規則は loop.py の
+TOOLS="${SWA_NODE_TOOLS:-/srv/swa/node}"
+PAGE="${SWA_PAGE:-/srv/swa/project/index.html}"
+# 柵の場所。index.html はそこの main.ts を読む（35-node.sh）。規則は swa.py の
 # LAYOUT にしか書かないので、そこから読む。
-SRC="${LOOP_SRC:-$(python3 -B -c "import sys; sys.path.insert(0, '/srv/loop/runner'); import loop; print(loop.LAYOUT['src'])")}"
+SRC="${SWA_SRC:-$(python3 -B -c "import sys; sys.path.insert(0, '/srv/swa/runner'); import swa; print(swa.LAYOUT['src'])")}"
 export MAIN="/$SRC/main.ts"
 
 [ -d "$TOOLS/node_modules/vite" ] || { echo "smoke-page: no vite under $TOOLS; run 35-node.sh" >&2; exit 2; }

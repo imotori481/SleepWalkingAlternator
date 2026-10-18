@@ -9,11 +9,11 @@ Promete のプロジェクトで、ソルバーはマウスのボタンの名前
     TYPES.txt    型を1行ずつ。`Promete.Input.Mouse  <要約>`。型の無いライブラリには無い
     MEMBERS.txt  メンバーと関数を1行ずつ。`P:Promete.Input.MouseButton.IsButtonDown  <要約>`
 
-    python3 loop_refs.py xml <nupkg> <XML の名前> <出力ディレクトリ>
+    python3 swa_refs.py xml <nupkg> <XML の名前> <出力ディレクトリ>
         パッケージに入っている XML ドキュメントから。36-dotnet.sh が Promete に使う。
         XML 自体も写す
-    python3 loop_refs.py header <ヘッダ> <出力ディレクトリ>
-        C のヘッダの関数の宣言と #define から。`loop refs dxlib` が DxLib.h に使う。
+    python3 swa_refs.py header <ヘッダ> <出力ディレクトリ>
+        C のヘッダの関数の宣言と #define から。`swa refs dxlib` が DxLib.h に使う。
         ヘッダ自体も UTF-8 にして写す
 """
 
@@ -62,7 +62,7 @@ def from_xml(package: str, name: str, out: str) -> int:
         found = sorted(entry for entry in archive.namelist()
                        if entry.startswith("lib/") and entry.endswith("/" + name))
         if not found:
-            print(f"loop_refs: {name} が {package} に無い", file=sys.stderr)
+            print(f"swa_refs: {name} が {package} に無い", file=sys.stderr)
             return 1
         xml = archive.read(found[-1])
     entries = members(xml)
@@ -72,7 +72,7 @@ def from_xml(package: str, name: str, out: str) -> int:
     write_lines(os.path.join(out, "MEMBERS.txt"), sorted(entries))
     with open(os.path.join(out, name), "wb") as handle:
         handle.write(xml)
-    print(f"loop_refs: {sum(n.startswith('T:') for n, _ in entries)} 個の型を {out} に書いた"
+    print(f"swa_refs: {sum(n.startswith('T:') for n, _ in entries)} 個の型を {out} に書いた"
           f"（{found[-1]}）")
     return 0
 
@@ -113,13 +113,13 @@ def from_header(header: str, out: str) -> int:
     text = read_header(header)
     entries = header_entries(text)
     if not entries:
-        print(f"loop_refs: {header} に関数の宣言が無い", file=sys.stderr)
+        print(f"swa_refs: {header} に関数の宣言が無い", file=sys.stderr)
         return 1
     os.makedirs(out, exist_ok=True)
     write_lines(os.path.join(out, "MEMBERS.txt"), entries)
     with open(os.path.join(out, os.path.basename(header)), "w", encoding="utf-8") as handle:
         handle.write(text)
-    print(f"loop_refs: {len(entries)} 行を {out} に書いた")
+    print(f"swa_refs: {len(entries)} 行を {out} に書いた")
     return 0
 
 
@@ -128,7 +128,7 @@ def main(argv: list[str]) -> int:
         return from_xml(*argv[2:])
     if len(argv) == 4 and argv[1] == "header":
         return from_header(*argv[2:])
-    print("使い方: loop_refs.py xml <nupkg> <XML の名前> <出力> | header <ヘッダ> <出力>",
+    print("使い方: swa_refs.py xml <nupkg> <XML の名前> <出力> | header <ヘッダ> <出力>",
           file=sys.stderr)
     return 2
 

@@ -22,8 +22,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
-from loop import (  # noqa: E402
+import swa  # noqa: E402
+from swa import (  # noqa: E402
     LIMITS, POLICY, SOLVER_TIERS, TIMEOUTS, agent_command, attempt_schedule,
     attempts_for, load_settings,
 )
@@ -89,13 +89,13 @@ class WhichSolverRunsWhichAttempt(Settings):
         # 渡し忘れた上限と同じ形のバグ。ここで選んだバックエンドを渡さないと、
         # solver-run が自分の既定を使い、台帳は走っていないバックエンドの名前を
         # 書くことになる。
-        argv = agent_command("solver", loop.SOLVER_RUN, Path("/srv/loop/brief/impl.md"),
+        argv = agent_command("solver", swa.SOLVER_RUN, Path("/srv/swa/brief/impl.md"),
                              TIMEOUTS["solver"], "local")
         self.assertEqual(argv[-1], "local")
         self.assertEqual(argv[-2], str(TIMEOUTS["solver"]))
 
     def test_no_backend_means_no_extra_argument(self) -> None:
-        argv = agent_command("planner", loop.PLANNER_RUN, Path("/brief.md"), 60)
+        argv = agent_command("planner", swa.PLANNER_RUN, Path("/brief.md"), 60)
         self.assertEqual(argv[-1], "60")
 
 
@@ -105,12 +105,12 @@ class SettingsThatWouldBeWrongAreRefused(Settings):
             load_settings({"policy": {"retry": "resmaple"}})
 
     def test_both_retry_modes_are_accepted(self) -> None:
-        for mode in loop.RETRY_MODES:
+        for mode in swa.RETRY_MODES:
             load_settings({"policy": {"retry": mode}})
             self.assertEqual(POLICY["retry"], mode)
 
     def test_a_backend_name_that_could_be_a_path_is_refused(self) -> None:
-        # 名前は /srv/loop/bin/solver-<name> に埋め込まれる。
+        # 名前は /srv/swa/bin/solver-<name> に埋め込まれる。
         for bad in (["../../bin/sh"], ["Codex"], [""], [2]):
             with self.subTest(bad=bad), self.assertRaises(SystemExit):
                 load_settings({"solver_tiers": bad})

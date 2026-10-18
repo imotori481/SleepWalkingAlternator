@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ソルバーが pytest を実行できないことを確かめる。
 #
-#     sudo -u runner /srv/loop/bin/smoke-pytest
+#     sudo -u runner /srv/swa/bin/smoke-pytest
 #
 # 既定のソルバー（solver-claude）には Bash を許していない。テストを走らせる
 # 許可は、ソルバーが書いたコードを動かす許可と同じだからだ。合否はランナーの
@@ -18,10 +18,10 @@ set -euo pipefail
 
 [ "$(id -un)" = "runner" ] || { echo "run as runner: sudo -u runner $0" >&2; exit 1; }
 
-P=/srv/loop/project
-# 柵の場所。規則は loop.py の LAYOUT にしか書かないので、そこから読む。
-read -r LAYOUT_SRC LAYOUT_TESTS <<<"$(python3 -B -c "import sys; sys.path.insert(0, '/srv/loop/runner'); import loop; print(loop.LAYOUT['src'], loop.LAYOUT['tests'])")"
-BRIEF=/srv/loop/brief/smoke-pytest.md
+P=/srv/swa/project
+# 柵の場所。規則は swa.py の LAYOUT にしか書かないので、そこから読む。
+read -r LAYOUT_SRC LAYOUT_TESTS <<<"$(python3 -B -c "import sys; sys.path.insert(0, '/srv/swa/runner'); import swa; print(swa.LAYOUT['src'], swa.LAYOUT['tests'])")"
+BRIEF=/srv/swa/brief/smoke-pytest.md
 TEST="$P/$LAYOUT_TESTS/test_smoke_pytest.py"
 REPORT="$P/$LAYOUT_SRC/smoke-report.xml"
 TRACES=("$P/$LAYOUT_TESTS/__pycache__" "$P/.pytest_cache")
@@ -69,7 +69,7 @@ EOF
 
 echo "--- invoking solver ---"
 rc=0
-sudo -u solver /srv/loop/bin/solver-run "$BRIEF" || rc=$?
+sudo -u solver /srv/swa/bin/solver-run "$BRIEF" || rc=$?
 echo "--- solver exited rc=$rc ---"
 
 fail=0

@@ -1,7 +1,7 @@
 """最終確認を承認したら、承認した状態を親ブランチへの PR として出す。
 
 GitHub とやり取りするのはホストだけだ。箱には GitHub の資格情報を置かない。
-ここで使うのは、`loop-import` が作ったクローン（`<mirrors>\\projects\\<name>`）と、
+ここで使うのは、`swa-import` が作ったクローン（`<mirrors>\\projects\\<name>`）と、
 その中の `origin`、それにホストの `gh` の認証だ。
 
 作業ツリーには一切触れない。クローンには、Unity が開いて書き換えた未コミットの
@@ -9,13 +9,13 @@ GitHub とやり取りするのはホストだけだ。箱には GitHub の資�
 断られる。PR のコミットは一時的な index の上で組み立てる。
 
 PR に出すのは、写し `project` の HEAD と同じコミットだけだ。承認はその HEAD の
-ALL_GREEN に対してなされた。クローンの `loop/<branch>` がそれと違えば、承認して
+ALL_GREEN に対してなされた。クローンの `swa/<branch>` がそれと違えば、承認して
 いないものを出すことになるので断る。
 
 コマンドは引数配列のまま shell=False で流す。HTTP の値はブランチ名にも引数にも
 入らない。入るのは、人が書いた承認のメモを PR の本文にするところだけだ。
 
-全モジュールが緑になる前の状態は、下書きの PR として出せる（`loop-pr`）。緑の判定には
+全モジュールが緑になる前の状態は、下書きの PR として出せる（`swa-pr`）。緑の判定には
 触れない。出すのは写しの HEAD、つまり最後に緑になったモジュールのコミットで、本文に
 残りのモジュールを並べる。箱の作業ブランチが写しの HEAD より先にあれば、本文に印を付ける。
 
@@ -45,10 +45,10 @@ REMOVED = ("plan", "docs/spec", "docs/basic", "docs/modules",
            "conftest.py", "index.html", "vitest.config.mjs")
 # .gitignore は箱が行を足している。親ブランチの版に戻し、無ければ消す。
 GITIGNORE = ".gitignore"
-BASE_KEY = "branch.{}.loopBase"
+BASE_KEY = "branch.{}.swaBase"
 PR_SUFFIX = "-pr"
 DRAFT_SUFFIX = "-draft"
-# loop-pull のライブの写し。loop-dashboard.cmd の PROJECT と同じ。
+# swa-pull のライブの写し。swa-dashboard.cmd の PROJECT と同じ。
 MIRROR = Path(r"C:\dev\roop-engin\project")
 TIMEOUT_SECONDS = 120
 # 箱の作業ブランチの先を読むときの ssh。箱が止まっていても待ち続けない。
@@ -142,22 +142,22 @@ class PullRequests:
         return self._cmd(["git", "-C", str(clone), *args], clone, env, check)
 
     def locate(self) -> tuple[Path, str, str]:
-        """写しの HEAD を loop/<branch> に持つクローンと、そのブランチと、コミット。"""
+        """写しの HEAD を swa/<branch> に持つクローンと、そのブランチと、コミット。"""
         head = self._git(self.mirror, "rev-parse", "HEAD")
         if not self.clones.is_dir():
             raise PullRequestError(f"no imported projects in {self.clones}")
         for clone in sorted(self.clones.iterdir()):
             if not (clone / ".git").exists():
                 continue
-            refs = self._git(clone, "for-each-ref", "refs/remotes/loop",
+            refs = self._git(clone, "for-each-ref", "refs/remotes/swa",
                              "--format=%(objectname) %(refname)", check=False)
             for line in refs.splitlines():
                 sha, _, ref = line.partition(" ")
-                if sha == head and ref != "refs/remotes/loop/HEAD":
-                    return clone, ref.removeprefix("refs/remotes/loop/"), head
+                if sha == head and ref != "refs/remotes/swa/HEAD":
+                    return clone, ref.removeprefix("refs/remotes/swa/"), head
         raise PullRequestError(
-            "the approved commit is in no imported project's loop/<branch>. "
-            "Run loop-pull, or the project was not made with loop-import")
+            "the approved commit is in no imported project's swa/<branch>. "
+            "Run swa-pull, or the project was not made with swa-import")
 
     def open(self, modules: list[str], note: str) -> dict[str, Any]:
         """承認した ALL_GREEN を PR にする。下書きが開いていれば、それを正式にする。"""
@@ -184,7 +184,7 @@ class PullRequests:
     def _behind(self, clone: Path, branch: str, head: str) -> bool | None:
         """箱の作業ブランチが写しの HEAD より先にあるか。箱に届かなければ None。"""
         try:
-            line = self._git(clone, "-c", f"core.sshCommand={BOX_SSH}", "ls-remote", "loop",
+            line = self._git(clone, "-c", f"core.sshCommand={BOX_SSH}", "ls-remote", "swa",
                              f"refs/heads/{branch}", check=False)
         except PullRequestError:
             return None
@@ -264,10 +264,10 @@ class PullRequests:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="loop-pr",
+        prog="swa-pr",
         description="send the modules that are green so far as a draft pull request")
     parser.add_argument("--project", type=Path, default=MIRROR,
-                        help=f"the live mirror loop-pull writes (default: {MIRROR})")
+                        help=f"the live mirror swa-pull writes (default: {MIRROR})")
     args = parser.parse_args(argv)
     mirror = args.project.resolve()
     try:
@@ -281,7 +281,7 @@ def main(argv: list[str]) -> int:
           f"({'opened' if result['created'] else 'updated'})")
     print(result["url"])
     if result["behind"]:
-        print("NOTE: the box is ahead of the mirror. Run loop-pull, then loop-pr again")
+        print("NOTE: the box is ahead of the mirror. Run swa-pull, then swa-pr again")
     elif result["behind"] is None:
         print("NOTE: could not reach the box to see whether the mirror is behind it")
     return 0

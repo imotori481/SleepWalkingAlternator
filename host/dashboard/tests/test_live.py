@@ -30,7 +30,7 @@ class LiveView(unittest.TestCase):
         self.assertEqual(self.live.fetch(), {"running": True})
         argv = run.call_args.args[0]
         self.assertEqual(argv[0], "ssh")
-        self.assertEqual(argv[-3:], ["loop-dev", "loop", "now"])
+        self.assertEqual(argv[-3:], ["swa-dev", "swa", "now"])
         self.assertIs(run.call_args.kwargs["shell"], False)
 
     @patch("host.dashboard.live.subprocess.run")
@@ -64,7 +64,7 @@ class LiveView(unittest.TestCase):
 
     @patch("host.dashboard.live.subprocess.run")
     def test_an_answer_that_is_not_json_is_an_error(self, run):
-        run.return_value = answered("bash: loop: command not found")
+        run.return_value = answered("bash: swa: command not found")
         self.assertIn("not JSON", self.live.fetch()["error"])
 
     @patch("host.dashboard.live.subprocess.run")
@@ -78,13 +78,13 @@ class LiveView(unittest.TestCase):
 class ActOnTheSandbox(LiveView):
     @patch("host.dashboard.live.subprocess.run")
     def test_a_refusal_carries_the_sandbox_reason(self, run):
-        run.return_value = answered(returncode=1, stderr="loop: 承認するせきに来ていない")
+        run.return_value = answered(returncode=1, stderr="swa: 承認するせきに来ていない")
         with self.assertRaisesRegex(ValueError, "承認するせきに来ていない"):
             self.live.approve()
 
     def dash_request(self, run):
-        """`loop dash` に渡った要求。コマンドは sudoers が許すものから動かない。"""
-        self.assertEqual(run.call_args.args[0][-4:], ["sudo", "-n", "/usr/local/bin/loop", "dash"])
+        """`swa dash` に渡った要求。コマンドは sudoers が許すものから動かない。"""
+        self.assertEqual(run.call_args.args[0][-4:], ["sudo", "-n", "/usr/local/bin/swa", "dash"])
         self.assertIs(run.call_args.kwargs["shell"], False)
         return json.loads(run.call_args.kwargs["input"])
 

@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "provision"))
 
-import loop_refs  # noqa: E402
+import swa_refs  # noqa: E402
 
 XML = """<?xml version="1.0"?>
 <doc>
@@ -44,7 +44,7 @@ class TheIndex(unittest.TestCase):
 
     def test_types_and_members_are_one_line_each(self):
         out = self.root / "promete"
-        self.assertEqual(loop_refs.main(["loop_refs.py", "xml", str(self.package), "Promete.xml",
+        self.assertEqual(swa_refs.main(["swa_refs.py", "xml", str(self.package), "Promete.xml",
                                          str(out)]), 0)
         self.assertEqual((out / "TYPES.txt").read_text(encoding="utf-8"),
                          "Promete.Input.MouseButton  マウスのボタン入力を表します。\n")
@@ -57,7 +57,7 @@ class TheIndex(unittest.TestCase):
         self.assertTrue((out / "Promete.xml").is_file())
 
     def test_a_package_without_the_xml_is_refused(self):
-        self.assertEqual(loop_refs.main(["loop_refs.py", "xml", str(self.package), "Other.xml",
+        self.assertEqual(swa_refs.main(["swa_refs.py", "xml", str(self.package), "Other.xml",
                                          str(self.root / "out")]), 1)
 
 
@@ -79,7 +79,7 @@ class TheHeader(unittest.TestCase):
             root = Path(temp)
             (root / "DxLib.h").write_bytes(HEADER.encode("cp932"))
             out = root / "dxlib"
-            self.assertEqual(loop_refs.main(["loop_refs.py", "header", str(root / "DxLib.h"),
+            self.assertEqual(swa_refs.main(["swa_refs.py", "header", str(root / "DxLib.h"),
                                              str(out)]), 0)
             members = (out / "MEMBERS.txt").read_text(encoding="utf-8").splitlines()
             self.assertEqual(members, [

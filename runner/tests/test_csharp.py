@@ -1,7 +1,7 @@
 """C# を計画の言語にする。
 
 コードは netstandard2.1、テストは net8.0 の NUnit 3。csproj はランナーが
-/srv/loop/dotnet/build に書く。取り込んだ Unity のプロジェクトでは、Unity の
+/srv/swa/dotnet/build に書く。取り込んだ Unity のプロジェクトでは、Unity の
 参照アセンブリでコンパイルし、エンジン本体の無い .NET でテストを走らせる。
 ここの失敗の形とエンジンの制約は、箱の smoke-dotnet と probe-unity の実測に
 合わせてある。
@@ -21,7 +21,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
+import swa  # noqa: E402
 
 FEED_VERSIONS = ("NUnit=3.14.0 NUnit3TestAdapter=4.6.0 Microsoft.NET.Test.Sdk=17.11.1 "
                  "JunitXml.TestLogger=4.1.0")
@@ -40,7 +40,7 @@ def module_doc(*lines: dict) -> str:
 
 class CSharp(unittest.TestCase):
     def setUp(self):
-        p = mock.patch.dict(loop.LANGUAGE, loop.LANGUAGES["csharp"], clear=True)
+        p = mock.patch.dict(swa.LANGUAGE, swa.LANGUAGES["csharp"], clear=True)
         p.start()
         self.addCleanup(p.stop)
 
@@ -51,51 +51,51 @@ class CSharp(unittest.TestCase):
 class HowAFailureIsRead(CSharp):
     def test_an_assertion_is_named_from_expected_and_but_was(self):
         # smoke-dotnet の実測: type は常に "failure" で、型を持たない。
-        kind = loop.failure_kind(self.failure("  Expected: 6&#10;  But was:  5&#10;"))
+        kind = swa.failure_kind(self.failure("  Expected: 6&#10;  But was:  5&#10;"))
         self.assertEqual(kind, "AssertionException")
-        self.assertTrue(loop.LANGUAGE["red_kinds"].match(kind))
+        self.assertTrue(swa.LANGUAGE["red_kinds"].match(kind))
 
     def test_an_exception_is_named_from_the_front_of_the_message(self):
         # probe-unity の実測。エンジンに降りる呼び出しは、こう落ちる。
-        kind = loop.failure_kind(self.failure(
+        kind = swa.failure_kind(self.failure(
             "System.Security.SecurityException : ECall methods must be packaged "
             "into a system module."))
         self.assertEqual(kind, "System.Security.SecurityException")
-        self.assertFalse(loop.LANGUAGE["red_kinds"].match(kind))
+        self.assertFalse(swa.LANGUAGE["red_kinds"].match(kind))
 
     def test_a_wrong_exception_under_assert_throws_is_an_assertion(self):
-        kind = loop.failure_kind(self.failure(
+        kind = swa.failure_kind(self.failure(
             "  Expected: &lt;System.ArgumentException&gt;&#10;  But was:  "
             "&lt;System.NotImplementedException: __stub__&gt;"))
         self.assertEqual(kind, "AssertionException")
 
     def test_anything_else_is_not_guessed(self):
-        kind = loop.failure_kind(self.failure("the board was wrong"))
+        kind = swa.failure_kind(self.failure("the board was wrong"))
         self.assertEqual(kind, "the board was wrong")
-        self.assertFalse(loop.LANGUAGE["red_kinds"].match(kind))
+        self.assertFalse(swa.LANGUAGE["red_kinds"].match(kind))
 
 
 class TheCommand(CSharp):
     def test_a_step_s_tests_are_selected_by_class_name(self):
-        argv, env = loop.test_argv(["tests/BoardTests.cs", "tests/Rules/ScoreTests.cs"],
-                                   Path("/srv/loop/project/.runner/pytest-red-1.xml"))
+        argv, env = swa.test_argv(["tests/BoardTests.cs", "tests/Rules/ScoreTests.cs"],
+                                   Path("/srv/swa/project/.runner/pytest-red-1.xml"))
         self.assertEqual(argv[:2], ["/usr/bin/dotnet", "test"])
         self.assertIn("--no-restore", argv)
         filter_ = argv[argv.index("--filter") + 1]
         self.assertEqual(filter_, "FullyQualifiedName~.BoardTests.|FullyQualifiedName~.ScoreTests.")
-        self.assertIn("junit;LogFilePath=/srv/loop/project/.runner/pytest-red-1.xml", argv)
+        self.assertIn("junit;LogFilePath=/srv/swa/project/.runner/pytest-red-1.xml", argv)
         self.assertEqual(env["DOTNET_CLI_UI_LANGUAGE"], "en")
 
     def test_the_whole_suite_has_no_filter(self):
-        argv, _ = loop.test_argv(["tests"], Path("/tmp/r.xml"))
+        argv, _ = swa.test_argv(["tests"], Path("/tmp/r.xml"))
         self.assertNotIn("--filter", argv)
 
     def test_results_are_not_written_into_the_working_tree(self):
         # 既定の TestResults/ は作業ツリーにでき、assert_touched に引っかかる。
-        argv, _ = loop.test_argv(["tests/BoardTests.cs"],
-                                 Path("/srv/loop/project/.runner/pytest-verify-1.xml"))
+        argv, _ = swa.test_argv(["tests/BoardTests.cs"],
+                                 Path("/srv/swa/project/.runner/pytest-verify-1.xml"))
         where = argv[argv.index("--results-directory") + 1].replace("\\", "/")
-        self.assertTrue(where.startswith("/srv/loop/project/.runner/"), where)
+        self.assertTrue(where.startswith("/srv/swa/project/.runner/"), where)
 
 
 class TheProjectsTheRunnerWrites(CSharp):
@@ -110,11 +110,11 @@ class TheProjectsTheRunnerWrites(CSharp):
             (refs / "defines.txt").write_text("UNITY_6000_3_OR_NEWER\nENABLE_INPUT_SYSTEM\n",
                                               encoding="utf-8")
             (refs / "version.txt").write_text("6000.3.10f1\n", encoding="utf-8")
-        return [mock.patch.object(loop, "DOTNET_TOOLS", temp / "dotnet"),
-                mock.patch.object(loop, "DOTNET_BUILD", temp / "dotnet" / "build"),
-                mock.patch.object(loop, "UNITY_REFS", refs),
-                mock.patch.object(loop, "SRC", Path("/srv/loop/project/Assets/Source")),
-                mock.patch.object(loop, "TESTS", Path("/srv/loop/project/Assets/Tests/Editor/Loop"))]
+        return [mock.patch.object(swa, "DOTNET_TOOLS", temp / "dotnet"),
+                mock.patch.object(swa, "DOTNET_BUILD", temp / "dotnet" / "build"),
+                mock.patch.object(swa, "UNITY_REFS", refs),
+                mock.patch.object(swa, "SRC", Path("/srv/swa/project/Assets/Source")),
+                mock.patch.object(swa, "TESTS", Path("/srv/swa/project/Assets/Tests/Editor/Swa"))]
 
     def projects(self, unity: bool):
         with tempfile.TemporaryDirectory() as t:
@@ -124,7 +124,7 @@ class TheProjectsTheRunnerWrites(CSharp):
                 p.start()
             try:
                 return {path.relative_to(temp).as_posix(): text
-                        for path, text in loop.dotnet_projects().items()}
+                        for path, text in swa.dotnet_projects().items()}
             finally:
                 for p in patches:
                     p.stop()
@@ -134,7 +134,7 @@ class TheProjectsTheRunnerWrites(CSharp):
         code = projects["dotnet/build/code/Code.csproj"]
         tests = projects["dotnet/build/tests/Tests.csproj"]
         self.assertIn("<TargetFramework>netstandard2.1</TargetFramework>", code)
-        self.assertIn('<Compile Include="/srv/loop/project/Assets/Source/**/*.cs" />',
+        self.assertIn('<Compile Include="/srv/swa/project/Assets/Source/**/*.cs" />',
                       code.replace("\\", "/"))
         self.assertIn(";UNITY_6000_3_OR_NEWER;ENABLE_INPUT_SYSTEM</DefineConstants>", code)
         # コンパイルにだけ使う。テストは実行のために出力へ写す。
@@ -142,7 +142,7 @@ class TheProjectsTheRunnerWrites(CSharp):
         self.assertIn("<Private>true</Private>", tests)
         self.assertIn('<PackageReference Include="NUnit" Version="3.14.0" />', tests)
         self.assertIn('<ProjectReference Include="../code/Code.csproj" />', tests)
-        self.assertIn('<Compile Include="/srv/loop/project/Assets/Tests/Editor/Loop/**/*.cs" />',
+        self.assertIn('<Compile Include="/srv/swa/project/Assets/Tests/Editor/Swa/**/*.cs" />',
                       tests.replace("\\", "/"))
 
     def test_without_unity_there_are_no_references(self):
@@ -164,9 +164,9 @@ class TheProjectsTheRunnerWrites(CSharp):
                 assets.write_text("{}", encoding="utf-8")
                 return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-            with mock.patch("loop.run", side_effect=restored) as run:
-                self.assertIsNone(loop.prepare_dotnet())
-                self.assertIsNone(loop.prepare_dotnet())
+            with mock.patch("swa.run", side_effect=restored) as run:
+                self.assertIsNone(swa.prepare_dotnet())
+                self.assertIsNone(swa.prepare_dotnet())
             self.assertEqual(run.call_count, 1)
             self.assertIn("--configfile", run.call_args.args[0])
 
@@ -176,9 +176,9 @@ class TheProjectsTheRunnerWrites(CSharp):
             for p in patches:
                 p.start()
             self.addCleanup(lambda: [p.stop() for p in patches])
-            with mock.patch("loop.run", return_value=SimpleNamespace(
+            with mock.patch("swa.run", return_value=SimpleNamespace(
                     returncode=1, stdout="error NU1101: Unable to find package NUnit", stderr="")):
-                self.assertIn("NU1101", loop.prepare_dotnet())
+                self.assertIn("NU1101", swa.prepare_dotnet())
 
 
 class WhenTheBuildFails(CSharp):
@@ -186,20 +186,20 @@ class WhenTheBuildFails(CSharp):
 
     def setUp(self):
         super().setUp()
-        for name, value in {"PROJECT": Path("/srv/loop/project")}.items():
-            p = mock.patch.object(loop, name, value)
+        for name, value in {"PROJECT": Path("/srv/swa/project")}.items():
+            p = mock.patch.object(swa, name, value)
             p.start()
             self.addCleanup(p.stop)
 
     OUTPUT = """  Determining projects to restore...
-/srv/loop/project/tests/BoardTests.cs(12,9): error CS0103: The name 'Boad' does not exist in the current context [/srv/loop/dotnet/build/tests/Tests.csproj]
-/srv/loop/project/tests/BoardTests.cs(12,9): error CS0103: The name 'Boad' does not exist in the current context [/srv/loop/dotnet/build/tests/Tests.csproj]
-/srv/loop/project/src/Logic/Board.cs(3,5): error CS1002: ; expected [/srv/loop/dotnet/build/code/Code.csproj]
+/srv/swa/project/tests/BoardTests.cs(12,9): error CS0103: The name 'Boad' does not exist in the current context [/srv/swa/dotnet/build/tests/Tests.csproj]
+/srv/swa/project/tests/BoardTests.cs(12,9): error CS0103: The name 'Boad' does not exist in the current context [/srv/swa/dotnet/build/tests/Tests.csproj]
+/srv/swa/project/src/Logic/Board.cs(3,5): error CS1002: ; expected [/srv/swa/dotnet/build/code/Code.csproj]
 """
 
     def test_a_test_file_that_does_not_compile_is_named_as_such(self):
         # TEST_WRITE はこれを見て、コンパイラの言葉をソルバーに渡して書き直させる。
-        run_ = loop.dotnet_build_failure(self.OUTPUT)
+        run_ = swa.dotnet_build_failure(self.OUTPUT)
         self.assertIn("<did not compile: tests/BoardTests.cs>", run_.failure_kinds)
         self.assertIn("<build failed: src/Logic/Board.cs>", run_.failure_kinds)
         self.assertEqual(run_.errors, 2)
@@ -209,36 +209,36 @@ class WhenTheBuildFails(CSharp):
         self.assertEqual(run_.output.count("CS0103"), 1)
 
     def test_an_output_without_errors_is_left_to_the_report(self):
-        self.assertIsNone(loop.dotnet_build_failure("Build succeeded."))
+        self.assertIsNone(swa.dotnet_build_failure("Build succeeded."))
 
 
 class TheStepsOwnTests(CSharp):
     def test_the_class_is_matched_against_the_file_name(self):
         # NUnit の classname は「名前空間.クラス」で、ファイルのパスを持たない。
-        self.assertEqual(loop.test_owner("Logic.Tests.BoardTests"), "BoardTests")
-        self.assertEqual(loop.csharp_test_classes(["tests/BoardTests.cs", "tests"]),
+        self.assertEqual(swa.test_owner("Logic.Tests.BoardTests"), "BoardTests")
+        self.assertEqual(swa.csharp_test_classes(["tests/BoardTests.cs", "tests"]),
                          ["BoardTests"])
 
     def test_other_languages_keep_the_name(self):
-        with mock.patch.dict(loop.LANGUAGE, loop.LANGUAGES["python"], clear=True):
-            self.assertEqual(loop.test_owner("tests.test_models"), "tests.test_models")
+        with mock.patch.dict(swa.LANGUAGE, swa.LANGUAGES["python"], clear=True):
+            self.assertEqual(swa.test_owner("tests.test_models"), "tests.test_models")
 
 
 class TheContracts(CSharp):
     def test_a_type_and_a_member_have_their_own_names(self):
-        self.assertEqual(loop.declared_name(
+        self.assertEqual(swa.declared_name(
             "src/Logic/Board.cs: class Board { public int Width; }"), "Board")
-        self.assertEqual(loop.declared_name(
+        self.assertEqual(swa.declared_name(
             "src/Logic/Board.cs: static int Board.Score(Board board)"), "Board.Score")
-        self.assertEqual(loop.declared_name(
+        self.assertEqual(swa.declared_name(
             "src/Logic/Board.cs: Board.Board(int width, int height)"), "Board.Board")
 
     def test_modules_are_paths_under_the_source_directory(self):
-        self.assertEqual(loop.modules_of(["src/Logic/Board.cs"]), ["Logic/Board"])
+        self.assertEqual(swa.modules_of(["src/Logic/Board.cs"]), ["Logic/Board"])
 
     def design(self, sig: str, mid: str = "Logic/Board") -> list[str]:
-        with mock.patch.dict(loop.LAYOUT, loop.LAYOUT_DEFAULT):
-            _, problems = loop.design_problems(
+        with mock.patch.dict(swa.LAYOUT, swa.LAYOUT_DEFAULT):
+            _, problems = swa.design_problems(
                 {mid: module_doc({"provides": sig, "entry": True})}, {mid: AC})
         return problems
 
@@ -253,10 +253,10 @@ class TheContracts(CSharp):
         self.assertFalse(any(p.startswith("形") for p in problems), problems)
 
     def test_the_solver_is_told_which_file_the_line_lives_in(self):
-        with mock.patch.dict(loop.LAYOUT, loop.LAYOUT_DEFAULT):
+        with mock.patch.dict(swa.LAYOUT, swa.LAYOUT_DEFAULT):
             self.assertEqual(
-                loop.legacy_line("static int Board.Score(Board board)",
-                                 loop.module_files("Logic/Board")),
+                swa.legacy_line("static int Board.Score(Board board)",
+                                 swa.module_files("Logic/Board")),
                 "src/Logic/Board.cs: static int Board.Score(Board board)")
 
 
@@ -278,13 +278,13 @@ class TheRunnerWritesTheStub(CSharp):
 
     def setUp(self):
         super().setUp()
-        for p in (mock.patch.dict(loop.LAYOUT, loop.LAYOUT_DEFAULT),
-                  mock.patch.object(loop, "UNITY_REFS", Path("/nonexistent/unity-refs"))):
+        for p in (mock.patch.dict(swa.LAYOUT, swa.LAYOUT_DEFAULT),
+                  mock.patch.object(swa, "UNITY_REFS", Path("/nonexistent/unity-refs"))):
             p.start()
             self.addCleanup(p.stop)
 
     def test_a_class_is_written_whole(self):
-        files = loop.generate_stub(self.STEP, [], {})
+        files = swa.generate_stub(self.STEP, [], {})
         self.assertEqual(files["src/Logic/Board.cs"], """using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -309,7 +309,7 @@ namespace Logic
                     "src/Logic/Board.cs: struct Board.Cell { public int X; }",
                     "src/Logic/Board.cs: Board.Cell.Cell(int x)",
                 ]}}
-        text = loop.generate_stub(step, [], {})["src/Logic/Board.cs"]
+        text = swa.generate_stub(step, [], {})["src/Logic/Board.cs"]
         self.assertIn("""    public class Board
     {
         public struct Cell
@@ -321,14 +321,14 @@ namespace Logic
 """, text)
 
     def test_an_enum_keeps_its_members(self):
-        files = loop.generate_stub(self.STEP, [], {})
+        files = swa.generate_stub(self.STEP, [], {})
         self.assertIn("    public enum Cell\n    {\n        Empty, Wall\n    }",
                       files["src/Logic/Cell.cs"])
 
     def test_a_type_from_another_folder_is_brought_in_by_its_namespace(self):
         step = {"files_write": ["src/Rules/Scorer.cs"],
                 "contracts": {"provides": ["src/Rules/Scorer.cs: static int Scorer.Total(Board board)"]}}
-        text = loop.generate_stub(step, ["src/Logic/Board.cs: class Board { }"], {})["src/Rules/Scorer.cs"]
+        text = swa.generate_stub(step, ["src/Logic/Board.cs: class Board { }"], {})["src/Rules/Scorer.cs"]
         self.assertIn("using Logic;\n", text)
         self.assertIn("namespace Rules\n", text)
         self.assertIn("    public class Scorer\n", text)
@@ -336,11 +336,11 @@ namespace Logic
     def test_unity_is_used_only_when_a_signature_names_it(self):
         with tempfile.TemporaryDirectory() as t:
             (Path(t) / "refs").mkdir()
-            with mock.patch.object(loop, "UNITY_REFS", Path(t)):
-                plain = loop.generate_stub(self.STEP, [], {})["src/Logic/Board.cs"]
+            with mock.patch.object(swa, "UNITY_REFS", Path(t)):
+                plain = swa.generate_stub(self.STEP, [], {})["src/Logic/Board.cs"]
                 step = {"files_write": ["src/Logic/Mover.cs"], "contracts": {"provides": [
                     "src/Logic/Mover.cs: static Vector2Int Mover.Step(Vector2Int from)"]}}
-                unity = loop.generate_stub(step, [], {})["src/Logic/Mover.cs"]
+                unity = swa.generate_stub(step, [], {})["src/Logic/Mover.cs"]
         self.assertNotIn("UnityEngine", plain)
         self.assertIn("using UnityEngine;\n", unity)
 
@@ -353,9 +353,9 @@ namespace Logic
                 "Promete.Scene  シーン\nPromete.Input.Mouse  マウス\n"
                 "Promete.Nodes.Container`1  入れ物\nPromete.Input.Mouse.Button  入れ子\n"
                 "Promete.Board  同じ名前\n", encoding="utf-8")
-            with mock.patch.object(loop, "REFS", Path(t)), \
-                    mock.patch.dict(loop.LANGUAGE, {"refs": "promete"}):
-                return loop.generate_stub(step, list(requires), originals or {})
+            with mock.patch.object(swa, "REFS", Path(t)), \
+                    mock.patch.dict(swa.LANGUAGE, {"refs": "promete"}):
+                return swa.generate_stub(step, list(requires), originals or {})
 
     def test_a_library_type_a_signature_names_is_brought_in_by_its_namespace(self):
         # Promete の Scene と Mouse を口にする MenuScene が、using 無しで書かれ、
@@ -391,46 +391,46 @@ namespace Logic
             (Path(t) / "promete" / "TYPES.txt").write_text(
                 "Promete.Input.Mouse  マウス\nPromete.Input.Mouse.Button  入れ子\n"
                 "Promete.Nodes.Container`1  入れ物\n", encoding="utf-8")
-            with mock.patch.object(loop, "REFS", Path(t)), \
-                    mock.patch.dict(loop.LANGUAGE, {"refs": "promete"}):
-                self.assertEqual(loop.library_namespaces(),
+            with mock.patch.object(swa, "REFS", Path(t)), \
+                    mock.patch.dict(swa.LANGUAGE, {"refs": "promete"}):
+                self.assertEqual(swa.library_namespaces(),
                                  {"Mouse": "Promete.Input", "Container": "Promete.Nodes"})
 
     def test_what_it_cannot_read_goes_back_to_the_solver(self):
         for provides in (["src/Logic/Board.cs: something in prose"],
                          ["Board.Score(Board board)"]):
             with self.subTest(provides=provides):
-                self.assertIsNone(loop.generate_stub(
+                self.assertIsNone(swa.generate_stub(
                     {"files_write": ["src/Logic/Board.cs"],
                      "contracts": {"provides": provides}}, [], {}))
 
     def test_an_existing_file_without_the_type_goes_back_to_the_solver(self):
-        self.assertIsNone(loop.generate_stub(
+        self.assertIsNone(swa.generate_stub(
             self.STEP, [], {"src/Logic/Board.cs": "namespace Logic { }"}))
 
     def test_a_namespace_stated_on_a_required_line_is_used(self):
         # 既存のファイルは、フォルダと違う名前空間を持ちうる。
         step = {"files_write": ["src/Rules/Scorer.cs"],
                 "contracts": {"provides": ["src/Rules/Scorer.cs: static int Scorer.Total(Board board)"]}}
-        text = loop.generate_stub(
+        text = swa.generate_stub(
             step, ["src/Logic/Board.cs: class Board -- namespace Game.Core"], {})["src/Rules/Scorer.cs"]
         self.assertIn("using Game.Core;\n", text)
         self.assertNotIn("using Logic;", text)
 
     def test_a_folder_that_is_not_a_namespace_goes_back_to_the_solver(self):
-        self.assertIsNone(loop.generate_stub(
+        self.assertIsNone(swa.generate_stub(
             {"files_write": ["src/Game-Logic/Board.cs"],
              "contracts": {"provides": ["src/Game-Logic/Board.cs: class Board { }"]}}, [], {}))
 
     def test_the_marked_exception_is_red_and_an_unmarked_one_is_not(self):
-        marked = loop.failure_kind(self.failure("System.NotImplementedException : __stub__"))
+        marked = swa.failure_kind(self.failure("System.NotImplementedException : __stub__"))
         self.assertEqual(marked, "StubNotImplemented")
-        self.assertTrue(loop.LANGUAGE["red_kinds"].match(marked))
-        unmarked = loop.failure_kind(self.failure("System.NotImplementedException : later"))
-        self.assertFalse(loop.LANGUAGE["red_kinds"].match(unmarked))
+        self.assertTrue(swa.LANGUAGE["red_kinds"].match(marked))
+        unmarked = swa.failure_kind(self.failure("System.NotImplementedException : later"))
+        self.assertFalse(swa.LANGUAGE["red_kinds"].match(unmarked))
 
     def test_the_solver_s_brief_asks_for_the_same_body(self):
-        brief = loop.brief_stub(self.STEP)
+        brief = swa.brief_stub(self.STEP)
         self.assertIn('throw new System.NotImplementedException("__stub__");', brief)
         self.assertIn("Do not return values", brief)
         self.assertNotIn("THERE IS NO WRONG BOOLEAN", brief)
@@ -492,13 +492,13 @@ class WhatTheCodeAlreadyDeclares(CSharp):
 
     def setUp(self):
         super().setUp()
-        p = mock.patch.object(loop, "UNITY_REFS", Path("/nonexistent/unity-refs"))
+        p = mock.patch.object(swa, "UNITY_REFS", Path("/nonexistent/unity-refs"))
         p.start()
         self.addCleanup(p.stop)
 
     def test_public_types_and_members_are_listed_with_their_namespace(self):
         at, where = "src/Logic/Board.cs: ", " -- namespace Game.Logic"
-        self.assertEqual(loop.csharp_declarations(EXISTING_CS, "src/Logic/Board.cs"), [
+        self.assertEqual(swa.csharp_declarations(EXISTING_CS, "src/Logic/Board.cs"), [
             at + "class Board" + where,
             at + "int Board.Width { get; }" + where,
             at + "int Board.Height { get; }" + where,
@@ -515,7 +515,7 @@ class WhatTheCodeAlreadyDeclares(CSharp):
 
     def test_code_the_build_leaves_out_is_not_listed(self):
         # Unity の参照は UNITY_EDITOR を定義しない。テストからは呼べない。
-        lines = loop.csharp_declarations(EXISTING_CS, "src/Logic/Board.cs")
+        lines = swa.csharp_declarations(EXISTING_CS, "src/Logic/Board.cs")
         self.assertFalse(any("Gizmo" in line for line in lines))
         self.assertFalse(any("Hidden" in line for line in lines))
 
@@ -525,27 +525,27 @@ class WhatTheCodeAlreadyDeclares(CSharp):
                            ("src/B.cs: T Board.Get<T>() -- namespace Game.Logic", "Board.Get"),
                            ("src/B.cs: class Board -- namespace Game.Logic", "Board")):
             with self.subTest(line=line):
-                self.assertEqual(loop.declared_name(line), name)
+                self.assertEqual(swa.declared_name(line), name)
 
     def test_the_condition_follows_the_symbols_of_the_build(self):
         text = "#if !UNITY_EDITOR && (DEBUG || FOO)\npublic class A { }\n#elif true\npublic class B { }\n#endif\n"
-        self.assertEqual(loop.csharp_declarations(text, "src/A.cs"), ["src/A.cs: class A"])
+        self.assertEqual(swa.csharp_declarations(text, "src/A.cs"), ["src/A.cs: class A"])
 
     def test_an_empty_line_in_code_the_build_leaves_out_is_passed(self):
         # 空の行では行の終わりが始まりと同じ位置になり、走査が進まなくなっていた。
         text = "#if UNITY_EDITOR\n\npublic class A { }\n\n#endif\n\npublic class B { }\n"
-        self.assertEqual(loop.csharp_declarations(text, "src/A.cs"), ["src/A.cs: class B"])
+        self.assertEqual(swa.csharp_declarations(text, "src/A.cs"), ["src/A.cs: class B"])
 
     def test_a_verbatim_type_name_is_read_without_its_at(self):
         # Input System が生成するクラスは `@GameInputs` と書かれる。
-        self.assertEqual(loop.csharp_declarations(
+        self.assertEqual(swa.csharp_declarations(
             "public partial class @Inputs: IDisposable { public void Enable() { } }", "src/I.cs"),
             ["src/I.cs: class Inputs: IDisposable", "src/I.cs: void Inputs.Enable()"])
 
     def test_a_file_that_cannot_be_read_gives_nothing(self):
         for text in ("#if DEBUG\npublic class A { }\n", "public class A { /* }\n"):
             with self.subTest(text=text):
-                self.assertEqual(loop.csharp_declarations(text, "src/A.cs"), [])
+                self.assertEqual(swa.csharp_declarations(text, "src/A.cs"), [])
 
     def test_existing_contracts_reads_the_c_sharp_files(self):
         files = {"src/Logic/Cell.cs": "namespace Logic { public enum Cell { Empty } }\n",
@@ -556,9 +556,9 @@ class WhatTheCodeAlreadyDeclares(CSharp):
                 return SimpleNamespace(returncode=0, stderr="", stdout="\0".join(files) + "\0")
             return SimpleNamespace(returncode=0, stderr="", stdout=files[cmd[2].split(":", 1)[1]])
 
-        with mock.patch("loop.run", side_effect=run), \
-             mock.patch.dict(loop.LAYOUT, loop.LAYOUT_DEFAULT):
-            self.assertEqual(loop.existing_contracts(),
+        with mock.patch("swa.run", side_effect=run), \
+             mock.patch.dict(swa.LAYOUT, swa.LAYOUT_DEFAULT):
+            self.assertEqual(swa.existing_contracts(),
                              ["src/Logic/Cell.cs: enum Cell { Empty } -- namespace Logic"])
 
 
@@ -574,14 +574,14 @@ class ThePlannerIsGivenShortLines(CSharp):
 
     def setUp(self):
         super().setUp()
-        p = mock.patch.object(loop, "UNITY_REFS", Path("/nonexistent/unity-refs"))
+        p = mock.patch.object(swa, "UNITY_REFS", Path("/nonexistent/unity-refs"))
         p.start()
         self.addCleanup(p.stop)
-        self.full = loop.csharp_declarations(EXISTING_CS, self.PATH)
+        self.full = swa.csharp_declarations(EXISTING_CS, self.PATH)
 
     def test_members_lose_their_types_and_the_rest_is_kept(self):
         at, where = f"{self.PATH}: ", " -- namespace Game.Logic"
-        self.assertEqual([loop.csharp_short_declaration(line) for line in self.full], [
+        self.assertEqual([swa.csharp_short_declaration(line) for line in self.full], [
             at + "class Board" + where,
             at + "Board.Width { get; }" + where,
             at + "Board.Height { get; }" + where,
@@ -608,26 +608,26 @@ class ThePlannerIsGivenShortLines(CSharp):
         )
         for full, short in cases:
             with self.subTest(full=full):
-                self.assertEqual(loop.csharp_short_declaration(full), short)
+                self.assertEqual(swa.csharp_short_declaration(full), short)
 
     def test_a_short_line_declares_the_same_name(self):
         for line in self.full:
             with self.subTest(line=line):
-                self.assertEqual(loop.declared_name(loop.csharp_short_declaration(line)),
-                                 loop.declared_name(line))
+                self.assertEqual(swa.declared_name(swa.csharp_short_declaration(line)),
+                                 swa.declared_name(line))
 
     def design(self, requires: list[str]) -> tuple[dict, list[str]]:
         """既存の Board を使う Deck の設計。(下流のステップ, 問題) を返す。"""
         doc = module_doc({"provides": "static int Deck.Total(Board board)", "entry": True},
                          *({"requires": r, "from": "Logic/Board"} for r in requires))
-        with mock.patch.dict(loop.LAYOUT, loop.LAYOUT_DEFAULT), \
-             mock.patch.object(loop, "head_files", return_value={self.PATH}), \
-             mock.patch.object(loop, "existing_declarations",
+        with mock.patch.dict(swa.LAYOUT, swa.LAYOUT_DEFAULT), \
+             mock.patch.object(swa, "head_files", return_value={self.PATH}), \
+             mock.patch.object(swa, "existing_declarations",
                                return_value={self.PATH: self.full}), \
-             mock.patch.object(loop, "basic_overview", return_value=""):
-            modules, problems = loop.design_problems({"Logic/Deck": doc}, {"Logic/Deck": AC})
-            problems += loop.interface_problems(modules)
-            tasks = loop.build_tasks(modules, {"language": "csharp"})
+             mock.patch.object(swa, "basic_overview", return_value=""):
+            modules, problems = swa.design_problems({"Logic/Deck": doc}, {"Logic/Deck": AC})
+            problems += swa.interface_problems(modules)
+            tasks = swa.build_tasks(modules, {"language": "csharp"})
         return tasks["steps"][0], problems
 
     def test_a_short_line_copied_into_requires_is_found(self):
@@ -641,18 +641,18 @@ class ThePlannerIsGivenShortLines(CSharp):
 
     def test_the_solver_still_gets_the_signature_from_head(self):
         step, _ = self.design(["static Board.Score(board)"])
-        with mock.patch.object(loop, "existing_contracts", return_value=self.full):
-            self.assertEqual(loop.existing_requirements(step, set()),
+        with mock.patch.object(swa, "existing_contracts", return_value=self.full):
+            self.assertEqual(swa.existing_requirements(step, set()),
                              [f"{self.PATH}: static int Board.Score(Board board) -- namespace Game.Logic"])
 
     def facts(self, **kwargs) -> str:
-        with mock.patch.object(loop, "existing_declarations",
+        with mock.patch.object(swa, "existing_declarations",
                                return_value={self.PATH: self.full}), \
-             mock.patch.object(loop, "dotnet_projects", side_effect=OSError("no feed")), \
+             mock.patch.object(swa, "dotnet_projects", side_effect=OSError("no feed")), \
              mock.patch.dict(os.environ, {"DISPLAY": ""}), \
-             mock.patch("loop.run", return_value=SimpleNamespace(
+             mock.patch("swa.run", return_value=SimpleNamespace(
                  returncode=0, stdout="8.0.131", stderr="")):
-            return loop.environment_facts(**kwargs)
+            return swa.environment_facts(**kwargs)
 
     def test_only_the_planner_s_briefs_are_short(self):
         short = self.facts(short=True)
@@ -661,9 +661,9 @@ class ThePlannerIsGivenShortLines(CSharp):
         full = self.facts()
         self.assertIn("static int Board.Score(Board board)", full)
         self.assertNotIn("without their parameter and return types", full)
-        for brief in (lambda: loop.brief_basic("仕様", ""),
-                      lambda: loop.brief_modules("仕様", "基本", None, "")):
-            with mock.patch.object(loop, "environment_facts", return_value="") as facts:
+        for brief in (lambda: swa.brief_basic("仕様", ""),
+                      lambda: swa.brief_modules("仕様", "基本", None, "")):
+            with mock.patch.object(swa, "environment_facts", return_value="") as facts:
                 brief()
             facts.assert_called_once_with(short=True)
 
@@ -675,15 +675,15 @@ class TheStubKeepsTheExistingCSharp(CSharp):
 
     def setUp(self):
         super().setUp()
-        for p in (mock.patch.dict(loop.LAYOUT, loop.LAYOUT_DEFAULT),
-                  mock.patch.object(loop, "UNITY_REFS", Path("/nonexistent/unity-refs"))):
+        for p in (mock.patch.dict(swa.LAYOUT, swa.LAYOUT_DEFAULT),
+                  mock.patch.object(swa, "UNITY_REFS", Path("/nonexistent/unity-refs"))):
             p.start()
             self.addCleanup(p.stop)
 
     def build(self, *provides, requires=(), original=EXISTING_CS):
         step = {"files_write": [self.PATH],
                 "contracts": {"provides": [f"{self.PATH}: {p}" for p in provides]}}
-        files = loop.generate_stub(step, list(requires), {self.PATH: original})
+        files = swa.generate_stub(step, list(requires), {self.PATH: original})
         return step, files and files[self.PATH]
 
     def test_only_the_body_of_the_provided_method_is_replaced(self):
@@ -767,12 +767,12 @@ class TheStubKeepsTheExistingCSharp(CSharp):
 def kept_the_rest(after: str, step: dict) -> list[str]:
     """EXISTING_CS を after に書き換えたときの stub_kept_the_rest。"""
     with tempfile.TemporaryDirectory() as temp, \
-         mock.patch.object(loop, "UNITY_REFS", Path("/nonexistent/unity-refs")):
+         mock.patch.object(swa, "UNITY_REFS", Path("/nonexistent/unity-refs")):
         target = Path(temp) / "src/Logic/Board.cs"
         target.parent.mkdir(parents=True)
         target.write_text(after, encoding="utf-8")
-        with mock.patch.object(loop, "PROJECT", Path(temp)):
-            return loop.stub_kept_the_rest(step, {"src/Logic/Board.cs": EXISTING_CS})
+        with mock.patch.object(swa, "PROJECT", Path(temp)):
+            return swa.stub_kept_the_rest(step, {"src/Logic/Board.cs": EXISTING_CS})
 
 
 class TheRunnerChecksEachMember(CSharp):
@@ -821,17 +821,17 @@ class WhatThePlannerIsTold(CSharp):
         if unity:
             (refs / "refs").mkdir(parents=True)
             (refs / "version.txt").write_text("6000.3.10f1\n", encoding="utf-8")
-        with mock.patch.object(loop, "UNITY_REFS", refs), \
-             mock.patch.object(loop, "PROJECT", project), \
-             mock.patch.object(loop, "SRC", project / "Assets" / "Source"), \
-             mock.patch.object(loop, "TESTS", project / "Assets" / "Tests"), \
-             mock.patch.dict(loop.LAYOUT, {"src": "Assets/Source", "tests": "Assets/Tests"}), \
-             mock.patch.object(loop, "existing_declarations", return_value={}), \
-             mock.patch.object(loop, "dotnet_projects", side_effect=OSError("no feed")), \
+        with mock.patch.object(swa, "UNITY_REFS", refs), \
+             mock.patch.object(swa, "PROJECT", project), \
+             mock.patch.object(swa, "SRC", project / "Assets" / "Source"), \
+             mock.patch.object(swa, "TESTS", project / "Assets" / "Tests"), \
+             mock.patch.dict(swa.LAYOUT, {"src": "Assets/Source", "tests": "Assets/Tests"}), \
+             mock.patch.object(swa, "existing_declarations", return_value={}), \
+             mock.patch.object(swa, "dotnet_projects", side_effect=OSError("no feed")), \
              mock.patch.dict(os.environ, {"DISPLAY": ""}), \
-             mock.patch("loop.run", return_value=SimpleNamespace(
+             mock.patch("swa.run", return_value=SimpleNamespace(
                  returncode=0, stdout="8.0.131", stderr="")):
-            return loop.environment_facts()
+            return swa.environment_facts()
 
     def unity_project(self, temp: Path) -> Path:
         project = temp / "project"
@@ -870,9 +870,9 @@ class WhatThePlannerIsTold(CSharp):
         self.assertNotIn("ProjectVersion.txt", facts)
 
     def test_the_layout_note_is_c_sharp_s(self):
-        with mock.patch.dict(loop.LAYOUT, {"src": "Assets/Source", "tests": "Assets/Tests"}), \
-             mock.patch.object(loop, "environment_facts", return_value=""):
-            brief = loop.brief_modules("仕様", "基本", None, "")
+        with mock.patch.dict(swa.LAYOUT, {"src": "Assets/Source", "tests": "Assets/Tests"}), \
+             mock.patch.object(swa, "environment_facts", return_value=""):
+            brief = swa.brief_modules("仕様", "基本", None, "")
         self.assertIn("C# 9 is the ceiling", brief)
         self.assertIn("`Assets/Source/Logic/Board.cs`", brief)
         self.assertIn('{"provides": "static int Board.Score(Board board)"}', brief)

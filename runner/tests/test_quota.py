@@ -19,7 +19,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
+import swa  # noqa: E402
 
 
 def proc(returncode: int, stdout: str = "") -> subprocess.CompletedProcess:
@@ -38,42 +38,42 @@ class WhatCountsAsQuota(unittest.TestCase):
         }
         for out, kind in cases.items():
             with self.subTest(out=out):
-                self.assertEqual(loop.quota_problem(out), kind)
+                self.assertEqual(swa.quota_problem(out), kind)
 
     def test_an_ordinary_failure_is_not_quota(self):
         for out in ("Traceback (most recent call last):", "Not logged in", ""):
             with self.subTest(out=out):
-                self.assertIsNone(loop.quota_problem(out))
+                self.assertIsNone(swa.quota_problem(out))
 
 
 class WaitingForQuota(unittest.TestCase):
     def setUp(self) -> None:
         self.events: list[str] = []
-        for p in (mock.patch.object(loop, "ledger",
+        for p in (mock.patch.object(swa, "ledger",
                                     lambda event, **k: self.events.append(event)),
-                  mock.patch.object(loop.time, "sleep", lambda s: None),
-                  mock.patch.dict(loop.QUOTA, {"wait_seconds": 1, "waits": 2})):
+                  mock.patch.object(swa.time, "sleep", lambda s: None),
+                  mock.patch.dict(swa.QUOTA, {"wait_seconds": 1, "waits": 2})):
             p.start()
             self.addCleanup(p.stop)
 
     def test_a_call_that_recovers_is_returned_as_if_nothing_happened(self):
         calls = iter([proc(1, "You've hit your session limit"), proc(0, "done")])
-        result = loop.run_agent("solver", "IMPL", lambda: next(calls))
+        result = swa.run_agent("solver", "IMPL", lambda: next(calls))
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self.events, ["QUOTA_WAIT"])
 
     def test_waiting_runs_out_without_becoming_a_halt(self):
         # Halt ではないこと自体が要点。Halt はモジュールを中段に差し戻す。
         invoke = mock.Mock(return_value=proc(1, "Request rejected (429)"))
-        with self.assertRaises(loop.QuotaExhausted) as raised:
-            loop.run_agent("planner", "PLAN_PROPOSE", invoke)
-        self.assertNotIsInstance(raised.exception, loop.Halt)
+        with self.assertRaises(swa.QuotaExhausted) as raised:
+            swa.run_agent("planner", "PLAN_PROPOSE", invoke)
+        self.assertNotIsInstance(raised.exception, swa.Halt)
         self.assertEqual(invoke.call_count, 3)   # 最初の1回 + 待ってから2回
         self.assertEqual(self.events, ["QUOTA_WAIT", "QUOTA_WAIT", "QUOTA_EXHAUSTED"])
 
     def test_any_other_failure_is_handed_back_untouched(self):
         invoke = mock.Mock(return_value=proc(1, "Traceback"))
-        self.assertEqual(loop.run_agent("critic", "CRITIQUE", invoke).returncode, 1)
+        self.assertEqual(swa.run_agent("critic", "CRITIQUE", invoke).returncode, 1)
         self.assertEqual(invoke.call_count, 1)
         self.assertEqual(self.events, [])
 
@@ -83,7 +83,7 @@ class UsageIsRecorded(unittest.TestCase):
 
     def setUp(self) -> None:
         self.events: list[tuple[str, dict]] = []
-        p = mock.patch.object(loop, "ledger",
+        p = mock.patch.object(swa, "ledger",
                               lambda event, **k: self.events.append((event, k)))
         p.start()
         self.addCleanup(p.stop)
@@ -98,7 +98,7 @@ class UsageIsRecorded(unittest.TestCase):
         return json.dumps(data)
 
     def test_the_caller_gets_the_result_text_and_the_ledger_gets_the_usage(self):
-        result = loop.run_agent("solver", "IMPL", lambda: proc(0, self.payload()))
+        result = swa.run_agent("solver", "IMPL", lambda: proc(0, self.payload()))
         self.assertEqual(result.stdout.strip(), "Created src/smoke.txt")
         (event, fields), = self.events
         self.assertEqual(event, "USAGE")
@@ -108,13 +108,13 @@ class UsageIsRecorded(unittest.TestCase):
         self.assertEqual(fields["turns"], 3)
 
     def test_a_quota_message_inside_the_json_is_still_recognised(self):
-        with mock.patch.object(loop.time, "sleep", lambda s: None), \
-             mock.patch.dict(loop.QUOTA, {"wait_seconds": 1, "waits": 1}):
+        with mock.patch.object(swa.time, "sleep", lambda s: None), \
+             mock.patch.dict(swa.QUOTA, {"wait_seconds": 1, "waits": 1}):
             calls = iter([
                 proc(1, self.payload(is_error=True, result="You've hit your session limit")),
                 proc(0, self.payload()),
             ])
-            result = loop.run_agent("planner", "PLAN_PROPOSE", lambda: next(calls))
+            result = swa.run_agent("planner", "PLAN_PROPOSE", lambda: next(calls))
         self.assertEqual(result.returncode, 0)
         self.assertEqual([e for e, _ in self.events], ["USAGE", "QUOTA_WAIT", "USAGE"])
 
@@ -122,14 +122,14 @@ class UsageIsRecorded(unittest.TestCase):
         # setUp の差し替えを外し、本物の ledger で台帳と画面を比べる。
         mock.patch.stopall()
         with tempfile.TemporaryDirectory() as temp, \
-             mock.patch.object(loop, "LEDGER", Path(temp) / "ledger.jsonl"):
+             mock.patch.object(swa, "LEDGER", Path(temp) / "ledger.jsonl"):
             screen = io.StringIO()
             with contextlib.redirect_stdout(screen):
-                loop.record_usage("solver", "IMPL", json.loads(self.payload(
+                swa.record_usage("solver", "IMPL", json.loads(self.payload(
                     usage={"input_tokens": 4, "cache_read_input_tokens": 100,
                            "cache_creation_input_tokens": 6, "output_tokens": 20,
                            "iterations": [{"input_tokens": 2}]})))
-            record = json.loads(loop.LEDGER.read_text(encoding="utf-8"))
+            record = json.loads(swa.LEDGER.read_text(encoding="utf-8"))
         line = screen.getvalue().strip()
         self.assertEqual(line, "[USAGE] who=solver phase=IMPL model=claude-sonnet-5 "
                                "in=110 out=20 read=100 write=6 sec=4 usd=0.01")
@@ -139,10 +139,10 @@ class UsageIsRecorded(unittest.TestCase):
     def test_a_subagent_on_another_model_is_counted_from_model_usage(self):
         mock.patch.stopall()
         with tempfile.TemporaryDirectory() as temp, \
-             mock.patch.object(loop, "LEDGER", Path(temp) / "ledger.jsonl"):
+             mock.patch.object(swa, "LEDGER", Path(temp) / "ledger.jsonl"):
             screen = io.StringIO()
             with contextlib.redirect_stdout(screen):
-                loop.record_usage("solver", "IMPL", json.loads(self.payload(
+                swa.record_usage("solver", "IMPL", json.loads(self.payload(
                     usage={"input_tokens": 4, "cache_read_input_tokens": 100,
                            "cache_creation_input_tokens": 6, "output_tokens": 20},
                     modelUsage={
@@ -152,14 +152,14 @@ class UsageIsRecorded(unittest.TestCase):
                         "claude-haiku-5-5": {"inputTokens": 1, "outputTokens": 5,
                                              "cacheReadInputTokens": 30,
                                              "cacheCreationInputTokens": 9}})))
-            record = json.loads(loop.LEDGER.read_text(encoding="utf-8"))
+            record = json.loads(swa.LEDGER.read_text(encoding="utf-8"))
         self.assertEqual(screen.getvalue().strip(),
                          "[USAGE] who=solver phase=IMPL model=claude-haiku-5-5,claude-opus-5-5 "
                          "in=150 out=25 read=130 write=15 sec=4 usd=0.01")
         self.assertEqual(record["model_usage"]["claude-haiku-5-5"]["outputTokens"], 5)
 
     def test_output_that_is_not_json_is_passed_through(self):
-        result = loop.run_agent("solver", "IMPL", lambda: proc(0, "plain text"))
+        result = swa.run_agent("solver", "IMPL", lambda: proc(0, "plain text"))
         self.assertEqual(result.stdout, "plain text")
         self.assertEqual(self.events, [])
 

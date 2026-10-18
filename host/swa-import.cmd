@@ -1,10 +1,10 @@
 @echo off
 setlocal
 REM ---------------------------------------------------------------
-REM  loop-import -- put a branch of an existing repository on the
+REM  swa-import -- put a branch of an existing repository on the
 REM  sandbox as a new project.
 REM
-REM    loop-import <project> <repo-url> <branch> [<base-branch>]
+REM    swa-import <project> <repo-url> <branch> [<base-branch>]
 REM                [--src <dir>] [--tests <dir>]
 REM
 REM  The steps live in host\dashboard\importer.py, which the
@@ -14,16 +14,16 @@ REM    1. clone <repo-url> into C:\dev\roop-engin\projects\<project>
 REM       (or reuse it)
 REM    2. switch to <branch>; create it from <base-branch> if it
 REM       exists nowhere yet (default: the remote's default branch)
-REM    3. loop project init <project> --branch <branch>   (sandbox)
-REM    4. push <branch> to the project's bare repo over loop-runner
-REM    5. loop project use <project>, and wait for it     (sandbox)
+REM    3. swa project init <project> --branch <branch>   (sandbox)
+REM    4. push <branch> to the project's bare repo over swa-runner
+REM    5. swa project use <project>, and wait for it     (sandbox)
 REM
-REM  Steps 3 and 5 go through `sudo -n loop dash`, so no password is
+REM  Steps 3 and 5 go through `sudo -n swa dash`, so no password is
 REM  asked. Only the host talks to GitHub. The sandbox gets the branch
-REM  by a push over loop-runner and never holds a GitHub credential.
+REM  by a push over swa-runner and never holds a GitHub credential.
 REM
 REM  This file starts the distro and waits for sshd first, the same
-REM  way loop.cmd does.
+REM  way swa.cmd does.
 REM ---------------------------------------------------------------
 
 set "DISTRO=Ubuntu-24.04"
@@ -47,5 +47,5 @@ exit /b %errorlevel%
 
 
 :usage
-echo usage: loop-import ^<project^> ^<repo-url^> ^<branch^> [^<base-branch^>] [--src ^<dir^>] [--tests ^<dir^>]
+echo usage: swa-import ^<project^> ^<repo-url^> ^<branch^> [^<base-branch^>] [--src ^<dir^>] [--tests ^<dir^>]
 exit /b 2

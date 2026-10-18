@@ -1,4 +1,4 @@
-"""写しの更新は、固定の loop-pull.cmd を裏で1つだけ流し、出力の末尾を返す。"""
+"""写しの更新は、固定の swa-pull.cmd を裏で1つだけ流し、出力の末尾を返す。"""
 
 import threading
 import unittest
@@ -23,7 +23,7 @@ def process(lines, returncode=0, gate=None):
 
 class Pull(unittest.TestCase):
     def setUp(self):
-        self.sync = MirrorSync(Path("C:/loop/host/loop-pull.cmd"))
+        self.sync = MirrorSync(Path("C:/swa/host/swa-pull.cmd"))
 
     def wait(self):
         self.sync.thread.join(5)
@@ -35,7 +35,7 @@ class Pull(unittest.TestCase):
         self.wait()
         argv = popen.call_args.args[0]
         self.assertEqual(argv[0], "cmd.exe")
-        self.assertEqual(argv[-1], str(Path("C:/loop/host/loop-pull.cmd")))
+        self.assertEqual(argv[-1], str(Path("C:/swa/host/swa-pull.cmd")))
         self.assertIs(popen.call_args.kwargs["shell"], False)
         status = self.sync.status()
         self.assertFalse(status["running"])

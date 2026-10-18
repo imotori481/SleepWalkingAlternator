@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import loop  # noqa: E402
+import swa  # noqa: E402
 
 STEP = {"id": "S10", "files_write": ["src/main.ts"], "files_test": ["tests/main.test.ts"]}
 
@@ -23,27 +23,27 @@ STEP = {"id": "S10", "files_write": ["src/main.ts"], "files_test": ["tests/main.
 class TheTimeoutIsNamed(unittest.TestCase):
     def test_it_is_still_a_halt_where_nobody_catches_it(self):
         # TEST_WRITE と STUB の時間切れは、今までどおりステップを止める。
-        self.assertTrue(issubclass(loop.SolverTimeout, loop.Halt))
+        self.assertTrue(issubclass(swa.SolverTimeout, swa.Halt))
 
     def test_exit_124_from_solver_run_raises_it(self):
         with tempfile.TemporaryDirectory() as temp, \
-             mock.patch.object(loop, "BRIEF_DIR", Path(temp)), \
-             mock.patch.object(loop.shutil, "chown"), \
-             mock.patch.object(loop, "run_agent", return_value=subprocess.CompletedProcess(
+             mock.patch.object(swa, "BRIEF_DIR", Path(temp)), \
+             mock.patch.object(swa.shutil, "chown"), \
+             mock.patch.object(swa, "run_agent", return_value=subprocess.CompletedProcess(
                  ["solver-run"], 124, "", "")):
-            with self.assertRaises(loop.SolverTimeout) as raised:
-                loop.call_solver("IMPL", "brief")
+            with self.assertRaises(swa.SolverTimeout) as raised:
+                swa.call_solver("IMPL", "brief")
         self.assertEqual(raised.exception.phase, "IMPL")
 
     def test_other_failures_are_not_timeouts(self):
         with tempfile.TemporaryDirectory() as temp, \
-             mock.patch.object(loop, "BRIEF_DIR", Path(temp)), \
-             mock.patch.object(loop.shutil, "chown"), \
-             mock.patch.object(loop, "run_agent", return_value=subprocess.CompletedProcess(
+             mock.patch.object(swa, "BRIEF_DIR", Path(temp)), \
+             mock.patch.object(swa.shutil, "chown"), \
+             mock.patch.object(swa, "run_agent", return_value=subprocess.CompletedProcess(
                  ["solver-run"], 3, "", "no credentials")):
-            with self.assertRaises(loop.Halt) as raised:
-                loop.call_solver("IMPL", "brief")
-        self.assertNotIsInstance(raised.exception, loop.SolverTimeout)
+            with self.assertRaises(swa.Halt) as raised:
+                swa.call_solver("IMPL", "brief")
+        self.assertNotIsInstance(raised.exception, swa.SolverTimeout)
 
 
 class AbsorbingTheTimeout(unittest.TestCase):
@@ -52,27 +52,27 @@ class AbsorbingTheTimeout(unittest.TestCase):
         self.project = Path(self.temp.name)
         self.events: list[tuple[str, dict]] = []
         self.discard = mock.Mock(return_value=["src/main.ts"])
-        for p in (mock.patch.object(loop, "PROJECT", self.project),
-                  mock.patch.object(loop, "adopt"),
-                  mock.patch.object(loop, "assert_touched"),
-                  mock.patch.object(loop, "discard_attempt", self.discard),
-                  mock.patch.object(loop, "ledger",
+        for p in (mock.patch.object(swa, "PROJECT", self.project),
+                  mock.patch.object(swa, "adopt"),
+                  mock.patch.object(swa, "assert_touched"),
+                  mock.patch.object(swa, "discard_attempt", self.discard),
+                  mock.patch.object(swa, "ledger",
                                     lambda event, **f: self.events.append((event, f)))):
             p.start()
             self.addCleanup(p.stop)
         self.addCleanup(self.temp.cleanup)
 
     def test_the_attempt_is_recorded_and_its_work_discarded(self):
-        loop.absorb_timeout(STEP, 2, "claude", {}, "expected 0 to be 1")
+        swa.absorb_timeout(STEP, 2, "claude", {}, "expected 0 to be 1")
         self.discard.assert_called_once_with(["src/main.ts"])
         self.assertEqual([e for e, _ in self.events], ["SOLVER_TIMEOUT"])
         fields = self.events[0][1]
         self.assertEqual((fields["step"], fields["attempt"], fields["backend"]),
                          ("S10", 2, "claude"))
-        self.assertEqual(fields["seconds"], loop.TIMEOUTS["solver"])
+        self.assertEqual(fields["seconds"], swa.TIMEOUTS["solver"])
 
     def test_the_next_brief_says_so_and_keeps_the_failures(self):
-        text = loop.absorb_timeout(STEP, 2, "claude", {}, "expected 0 to be 1")
+        text = swa.absorb_timeout(STEP, 2, "claude", {}, "expected 0 to be 1")
         self.assertIn("ran out of time", text)
         self.assertIn("Nothing it wrote was kept", text)
         self.assertIn("expected 0 to be 1", text)
@@ -82,16 +82,16 @@ class AbsorbingTheTimeout(unittest.TestCase):
         test_file = self.project / "tests" / "main.test.ts"
         test_file.parent.mkdir()
         test_file.write_text("changed", encoding="utf-8")
-        with self.assertRaises(loop.Halt) as raised:
-            loop.absorb_timeout(STEP, 2, "claude",
+        with self.assertRaises(swa.Halt) as raised:
+            swa.absorb_timeout(STEP, 2, "claude",
                                 {"tests/main.test.ts": "not the same digest"}, "")
-        self.assertNotIsInstance(raised.exception, loop.SolverTimeout)
+        self.assertNotIsInstance(raised.exception, swa.SolverTimeout)
         self.discard.assert_not_called()
 
     def test_a_write_outside_the_allowlist_still_halts(self):
-        loop.assert_touched.side_effect = loop.Halt("IMPL", "solver wrote outside its allowlist")
-        with self.assertRaises(loop.Halt):
-            loop.absorb_timeout(STEP, 2, "claude", {}, "")
+        swa.assert_touched.side_effect = swa.Halt("IMPL", "solver wrote outside its allowlist")
+        with self.assertRaises(swa.Halt):
+            swa.absorb_timeout(STEP, 2, "claude", {}, "")
         self.discard.assert_not_called()
 
 
@@ -112,11 +112,11 @@ class TheLoopMovesOn(unittest.TestCase):
         root = Path(self.temp.name)
         (root / ".runner").mkdir()
         (root / ".runner" / "tasks.json").write_text('{"steps": []}', encoding="utf-8")
-        self.failed: list[loop.Halt] = []
+        self.failed: list[swa.Halt] = []
         self.greens: list[int] = []
-        red = loop.TestRun(1, 1, 0, 0, ["AssertionError"], [], "")
-        self.green = loop.TestRun(1, 0, 0, 0, [], ["t"], "")
-        self.fail = loop.TestRun(1, 1, 0, 0, ["AssertionError"], [], "",
+        red = swa.TestRun(1, 1, 0, 0, ["AssertionError"], [], "")
+        self.green = swa.TestRun(1, 0, 0, 0, [], ["t"], "")
+        self.fail = swa.TestRun(1, 1, 0, 0, ["AssertionError"], [], "",
                                  failure_details=["t\n    expected 0 to be 1"])
         self.runs = [red]
         patches = {
@@ -139,7 +139,7 @@ class TheLoopMovesOn(unittest.TestCase):
             "fail_module": lambda step, halt, n, run: self.failed.append(halt),
         }
         for name, value in patches.items():
-            p = mock.patch.object(loop, name, value)
+            p = mock.patch.object(swa, name, value)
             p.start()
             self.addCleanup(p.stop)
         self.addCleanup(self.temp.cleanup)
@@ -153,21 +153,21 @@ class TheLoopMovesOn(unittest.TestCase):
                 return ""
             outcome = next(results)
             if outcome == "timeout":
-                raise loop.SolverTimeout("IMPL", "solver hit its own timeout in solver-run")
+                raise swa.SolverTimeout("IMPL", "solver hit its own timeout in solver-run")
             return ""
-        return mock.patch.object(loop, "call_solver", call)
+        return mock.patch.object(swa, "call_solver", call)
 
     def test_a_timeout_spends_one_attempt_and_the_next_one_runs(self):
         self.runs.append(self.green)
         with self.solver(["timeout", "ok"]):
-            self.assertEqual(loop.run_step("S10"), 0)
+            self.assertEqual(swa.run_step("S10"), 0)
         self.assertEqual(self.greens, [2])
         self.assertEqual(self.failed, [])
 
     def test_running_out_of_attempts_still_fails_and_says_why(self):
         self.runs.append(self.fail)
         with self.solver(["timeout", "ok", "timeout"]):
-            self.assertEqual(loop.run_step("S10"), 2)
+            self.assertEqual(swa.run_step("S10"), 2)
         self.assertEqual(len(self.failed), 1)
         self.assertIn("still failing after 3 attempts", self.failed[0].reason)
         self.assertIn("2 of them ran out of time", self.failed[0].reason)

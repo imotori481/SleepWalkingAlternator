@@ -1,4 +1,4 @@
-# loop サンドボックス（WSL2）のプロビジョニング
+# SWA サンドボックス（WSL2）のプロビジョニング
 
 RUNNER_SPEC.md の実行環境（§1）を再現するための手順とスクリプト。
 
@@ -47,8 +47,8 @@ RUNNER_SPEC.md の実行環境（§1）を再現するための手順とスク�
 
 | もの | 場所 | 役割 |
 |---|---|---|
-| `loop-dev` ランチャ | `C:\Users\<you>\bin\loop-dev.cmd`（原本は `host/loop-dev.cmd`） | ディストロ起動 → sshd 待機 → VS Code Remote-SSH 起動 |
-| SSH 設定 | `C:\Users\<you>\.ssh\config` の `Host loop-dev` / `Host loop-runner` | `127.0.0.1:2222` / 鍵のみ |
+| `swa-dev` ランチャ | `C:\Users\<you>\bin\swa-dev.cmd`（原本は `host/swa-dev.cmd`） | ディストロ起動 → sshd 待機 → VS Code Remote-SSH 起動 |
+| SSH 設定 | `C:\Users\<you>\.ssh\config` の `Host swa-dev` / `Host swa-runner` | `127.0.0.1:2222` / 鍵のみ |
 | keepalive タスク | タスクスケジューラ `WSL-keepalive-Ubuntu-24-04` | **これが無いと VM がアイドルで落ちる**（§3-1） |
 | リソース設定 | `C:\Users\<you>\.wslconfig` | メモリ/CPU/NAT/sparseVhd/WSLg |
 
@@ -73,14 +73,14 @@ RUNNER_SPEC.md の実行環境（§1）を再現するための手順とスク�
 PowerShell ではなく Git Bash で作る（理由は §3-5）。
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/loop-dev    -N '' -C loop-dev
-ssh-keygen -t ed25519 -f ~/.ssh/loop-runner -N '' -C loop-runner
+ssh-keygen -t ed25519 -f ~/.ssh/swa-dev    -N '' -C swa-dev
+ssh-keygen -t ed25519 -f ~/.ssh/swa-runner -N '' -C swa-runner
 # 必ず検証する。空パスフレーズで復号できなければ失敗している
-ssh-keygen -y -f ~/.ssh/loop-dev    -P ''
-ssh-keygen -y -f ~/.ssh/loop-runner -P ''
+ssh-keygen -y -f ~/.ssh/swa-dev    -P ''
+ssh-keygen -y -f ~/.ssh/swa-runner -P ''
 ```
 
-鍵の名前は `loop-dev` と `loop-runner` を使う。以降の手順と `host/README.md` の
+鍵の名前は `swa-dev` と `swa-runner` を使う。以降の手順と `host/README.md` の
 `~/.ssh/config` はこの名前を前提にしている。
 
 ### 2-2. ディストロを作る（PowerShell → 箱）
@@ -147,7 +147,7 @@ wsl -d Ubuntu-24.04 -- cat /etc/wsl.conf    # 起動し直し、中身を確か�
 
 ```bash
 sudo apt-get update && sudo apt-get install -y openssh-server
-sudo tee /etc/ssh/sshd_config.d/10-loop-dev.conf >/dev/null <<'EOF'
+sudo tee /etc/ssh/sshd_config.d/10-swa-dev.conf >/dev/null <<'EOF'
 Port 2222
 ListenAddress 0.0.0.0
 PermitRootLogin no
@@ -161,7 +161,7 @@ sudo systemctl enable --now ssh
 ```
 
 ここでは `AllowUsers` が保守ユーザーだけになる。`runner` は 50-lockdown.sh が
-`00-loop.conf` 側で足す（**足す順番に意味がある。§3-4**）。
+`00-swa.conf` 側で足す（**足す順番に意味がある。§3-4**）。
 
 22 ではなく 2222 を使うのは、Windows 側の 22 と衝突させないためと、
 `localhostForwarding` で `127.0.0.1:2222` にそのまま出るようにするため。
@@ -173,21 +173,21 @@ sudo systemctl enable --now ssh
 **PowerShell**:
 
 ```powershell
-Get-Content "$env:USERPROFILE\.ssh\loop-dev.pub" |
+Get-Content "$env:USERPROFILE\.ssh\swa-dev.pub" |
   wsl -d Ubuntu-24.04 -- sh -c 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
 ```
 
 **Git Bash**: `host/README.md` の `~/.ssh/config` を書き、入れるか確かめる。
 
 ```bash
-ssh loop-dev
+ssh swa-dev
 ```
 
 config を書く前に確かめるなら、鍵を明示する。鍵の名前が既定の `id_ed25519` では
 ないので、`-i` を付けないと `Permission denied (publickey)` になる。
 
 ```bash
-ssh -i ~/.ssh/loop-dev -p 2222 <保守ユーザー>@127.0.0.1
+ssh -i ~/.ssh/swa-dev -p 2222 <保守ユーザー>@127.0.0.1
 ```
 
 ### 2-5. Node と Claude Code（箱）
@@ -207,7 +207,7 @@ Claude Code は apt のパッケージではない。`apt install claude` は通
 interop を切ると Windows 側の `npm`/`node` が PATH から消えるので、
 ディストロ内にシステムワイドで入れる必要がある。
 
-Codex CLI（`@openai/codex`）は、`/srv/loop/settings.json` の `solver_tiers` に `codex` を挙げるときだけ入れる。
+Codex CLI（`@openai/codex`）は、`/srv/swa/settings.json` の `solver_tiers` に `codex` を挙げるときだけ入れる。
 
 ### 2-6. このリポジトリをクローンする（箱）
 
@@ -216,7 +216,7 @@ sudo git clone -b develop <このリポジトリの https URL> /opt/swa
 ```
 
 箱には GitHub の鍵を置かないので、https で取る。改行コードは `.gitattributes` で LF に
-なるので変換は要らない。スクリプトの更新は、最初のプロビジョニングの後は `loop update` で
+なるので変換は要らない。スクリプトの更新は、最初のプロビジョニングの後は `swa update` で
 取り込む（§2-10）。それより前は pull で取り込む:
 
 ```bash
@@ -226,13 +226,13 @@ sudo git -C /opt/swa pull
 ### 2-7. runner の公開鍵を流し込む（PowerShell）
 
 ```powershell
-Get-Content "$env:USERPROFILE\.ssh\loop-runner.pub" |
-  wsl -d Ubuntu-24.04 -- sh -c 'mkdir -p /tmp/loop-provision && cat > /tmp/loop-provision/loop-runner_ed25519.pub'
+Get-Content "$env:USERPROFILE\.ssh\swa-runner.pub" |
+  wsl -d Ubuntu-24.04 -- sh -c 'mkdir -p /tmp/swa-provision && cat > /tmp/swa-provision/swa-runner_ed25519.pub'
 ```
 
-**箱の中での名前は `loop-runner_ed25519.pub` で固定。** `15-authkeys.sh` がこの名前を
+**箱の中での名前は `swa-runner_ed25519.pub` で固定。** `15-authkeys.sh` がこの名前を
 決め打ちで読む。Windows 側の鍵の名前とは関係ない。無ければ
-`FATAL: /tmp/loop-provision/loop-runner_ed25519.pub が無く、runner にもまだ鍵が無い` で止まる。
+`FATAL: /tmp/swa-provision/swa-runner_ed25519.pub が無く、runner にもまだ鍵が無い` で止まる。
 
 `/tmp` は VM の再起動で消える。最初のプロビジョニングの直前に流し込む。2回目以降は、
 流し込んだ鍵が無くても、runner にすでに入っている鍵をそのまま使う。鍵を替えるときだけ
@@ -253,12 +253,30 @@ pull したあとも同じ行を流す。
 `05-` を最初に走らせるのは、隔離が効いていないディストロには
 **プロビジョニングする意味が無い**（以降の全ステップが成功しつつ何も意味しなくなる）ため。
 
-`35-node.sh` は vitest と happy-dom を `/srv/loop/node` に入れて凍結し、
+`08-rename.sh` は、名前が loop だったころに作った箱を swa の名前に移す。移すものが無い箱では何もしない。
+
+| 古い名前 | 新しい名前 | 扱い |
+|---|---|---|
+| `/srv/loop` | `/srv/swa` | 移す。中の絶対パスのリンクと、作業ツリーの `origin` も向け直す |
+| `/etc/loop` | `/etc/swa` | 移す。`<役>.env` の `LOOP_*` は `SWA_*` に書き換える |
+| `10-loop-dev.conf` | `10-swa-dev.conf` | 移す |
+| runner の `safe.directory` の `/srv/loop` | `/srv/swa` | 書き換える |
+| `/srv/loop` を埋め込んだ venv とビルドの置き場 | なし | 消す。後のステップが作り直す |
+| `loop-llm.service` | `swa-llm.service` | 消す。ローカルのソルバーを使うなら `70-local-solver.sh` を流し直す |
+| `/usr/local/bin/loop`、`/etc/sudoers.d/loop-*` | なし | `25-runner.sh` が消す |
+| `00-loop.conf`、`99-loop.conf` | `00-swa.conf` | `50-lockdown.sh` が消す |
+
+- 古い箱では、`loop update` を1回流せば移る。`loop update` は pull のあとこのスクリプトを流す
+- `/srv/loop` と `/srv/swa` が両方あれば、どちらも動かさずに止まる
+- `loop.py` が走っていれば止まる
+- 移したあとの走行ログの行頭は `=== swa `。移す前のログは `swa now` と `swa status` で読めない
+
+`35-node.sh` は vitest と happy-dom を `/srv/swa/node` に入れて凍結し、
 `project/node_modules` からシンボリックリンクで見えるようにする。**画面の無い機械で
 UI を検査するための土台**で、主張の検算は:
 
 ```bash
-sudo -u runner /srv/loop/bin/smoke-dom
+sudo -u runner /srv/swa/bin/smoke-dom
 ```
 
 生きた UI は3件通り、run 7 と同じ形の UI（ボタンが最初から全部無効）は2件落ちる ──
@@ -270,7 +288,7 @@ sudo -u runner /srv/loop/bin/smoke-dom
 条件を書かせないので、仕様書の「開発サーバで開ける」はここで確かめる。
 
 ```bash
-sudo -u runner /srv/loop/bin/smoke-page
+sudo -u runner /srv/swa/bin/smoke-page
 ```
 
 Vite はインラインのモジュールスクリプトを `/index.html?html-proxy&index=0.js` に切り出し、
@@ -282,9 +300,9 @@ Vite はインラインのモジュールスクリプトを `/index.html?html-pr
 | もの | 場所 | 持ち主 |
 |---|---|---|
 | .NET 8 SDK と .NET 10 SDK | Ubuntu の archive の `dotnet-sdk-8.0` と `dotnet-sdk-10.0` | apt |
-| NUnit 3、NUnit3TestAdapter、Microsoft.NET.Test.Sdk、JunitXml.TestLogger、Promete 2.1.0 と推移的な依存 | `/srv/loop/dotnet/feed`（`.nupkg` を並べたフォルダ） | root。誰も書けない |
-| ソースをフィードだけにする設定 | `/srv/loop/dotnet/nuget.config`（`<clear/>` のあとにフィードだけ） | root |
-| ランナーが書く csproj とビルドの出力 | `/srv/loop/dotnet/build` | runner、700 |
+| NUnit 3、NUnit3TestAdapter、Microsoft.NET.Test.Sdk、JunitXml.TestLogger、Promete 2.1.0 と推移的な依存 | `/srv/swa/dotnet/feed`（`.nupkg` を並べたフォルダ） | root。誰も書けない |
+| ソースをフィードだけにする設定 | `/srv/swa/dotnet/nuget.config`（`<clear/>` のあとにフィードだけ） | root |
+| ランナーが書く csproj とビルドの出力 | `/srv/swa/dotnet/build` | runner、700 |
 
 - 版はスクリプトの冒頭で固定する。フィードに出るのは版を変えたときだけなので、egress を閉じた後に流し直してもネットワークは要らない
 - NUnit は 3 系にする。Unity の Test Framework の NUnit は 3 系で、4 系は `Assert.AreEqual` を `ClassicAssert` に移した
@@ -301,7 +319,7 @@ Vite はインラインのモジュールスクリプトを `/index.html?html-pr
 ランナーは例外の型をそこから読むので、ロガーの版を変えたら形を見る。
 
 ```bash
-sudo -u runner -H /srv/loop/bin/smoke-dotnet
+sudo -u runner -H /srv/swa/bin/smoke-dotnet
 ```
 
 `37-cpp.sh` は C++ のプロジェクトのための g++、make、CMake、GoogleTest を用意する。
@@ -309,7 +327,7 @@ sudo -u runner -H /srv/loop/bin/smoke-dotnet
 | もの | 場所 | 持ち主 |
 |---|---|---|
 | g++、make、CMake、GoogleTest（`libgtest-dev`） | Ubuntu の archive | apt |
-| ランナーが書く CMakeLists.txt とビルドの出力 | `/srv/loop/cpp/build` | runner、700 |
+| ランナーが書く CMakeLists.txt とビルドの出力 | `/srv/swa/cpp/build` | runner、700 |
 
 - 箱でビルドするのは標準の C++17 だけ。DXライブラリや Windows の API は入れない
 - 標準でもリポジトリのものでもないヘッダ（`DxLib.h`、`windows.h` など）を include するファイルは、ランナーがビルドから外す。外したファイルはプランナーのブリーフに並ぶ
@@ -321,32 +339,32 @@ junit のレポートから読む。1件はアサーション、1件はスタブ
 ランナーは失敗の種類を `message` から読むので、GoogleTest の版が変わったら形を見る。
 
 ```bash
-sudo -u runner -H /srv/loop/bin/smoke-cpp
+sudo -u runner -H /srv/swa/bin/smoke-cpp
 ```
 
-Unity の参照アセンブリを置いたプロジェクト（ホストの `loop-unity-refs`）では、`probe-unity` で
+Unity の参照アセンブリを置いたプロジェクト（ホストの `swa-unity-refs`）では、`probe-unity` で
 箱に何ができるかを測る。関門ではなく測定なので、結果が悪くても落ちない。
 
 ```bash
-sudo -u runner -H /srv/loop/bin/probe-unity
+sudo -u runner -H /srv/swa/bin/probe-unity
 ```
 
 1. 柵の中のコードが、送った参照と定義シンボルでそのままコンパイルできるか。できなければエラーの種類と件数
 2. エンジン本体の無い .NET 8 の上で、`Vector3` や `Mathf` の計算、`Debug.Log` のようなネイティブ呼び出し、`GameObject` と MonoBehaviour と ScriptableObject の生成が動くか
 
-全文は `/srv/loop/logs/probe-unity-<日時>.log` に残る。
+全文は `/srv/swa/logs/probe-unity-<日時>.log` に残る。
 
 Promete に持ち込むプロジェクトでは、`probe-promete` でヘッドレスのテストに何ができるかを測る。これも測定で、結果が悪くても落ちない。
 
 ```bash
-sudo -u runner -H /srv/loop/bin/probe-promete
+sudo -u runner -H /srv/swa/bin/probe-promete
 ```
 
 1. `Vector` や `Angle` の計算と、`Container` のノードの木
 2. ヘッドレスのアプリで、フレームを進める、時間、メモリからのテクスチャ、既定のフォント、`Text` ノード、キーボード、`ConsoleLayer`、コルーチン、オーディオが動くか
 3. コードのプロジェクトのシーンを、テストから `UseScenesFrom` の有無で読み込めるか
 
-結果はランナーの `promete_facts` に書く。全文は `/srv/loop/logs/probe-promete-<日時>.log` に残る。
+結果はランナーの `promete_facts` に書く。全文は `/srv/swa/logs/probe-promete-<日時>.log` に残る。
 
 ### 2-9. 資格情報を入れる（箱）
 
@@ -355,15 +373,15 @@ sudo -u runner -H /srv/loop/bin/probe-promete
 
 | 役 | ファイル |
 |---|---|
-| solver | `/etc/loop/solver.env` |
-| planner | `/etc/loop/planner.env` |
-| critic | `/etc/loop/critic.env` |
+| solver | `/etc/swa/solver.env` |
+| planner | `/etc/swa/planner.env` |
+| critic | `/etc/swa/critic.env` |
 
 役ごとにトークンを作る。表示されたトークンを控えてから、ファイルを開いて貼る。
 
 ```bash
 sudo -u solver -H claude setup-token
-sudo nano /etc/loop/solver.env
+sudo nano /etc/swa/solver.env
 ```
 
 埋める行:
@@ -371,10 +389,10 @@ sudo nano /etc/loop/solver.env
 | 行 | 値 |
 |---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN=` | `claude setup-token` が表示したトークン |
-| `LOOP_MODEL=` | 使うモデル。空ならアカウントの既定。例: planner は `claude-opus-5-5`、solver と critic は `claude-sonnet-5` |
-| `LOOP_EFFORT=` | `low` / `medium` / `high` / `xhigh` / `max`。空なら既定 |
+| `SWA_MODEL=` | 使うモデル。空ならアカウントの既定。例: planner は `claude-opus-5-5`、solver と critic は `claude-sonnet-5` |
+| `SWA_EFFORT=` | `low` / `medium` / `high` / `xhigh` / `max`。空なら既定 |
 
-`LOOP_MODEL` と `LOOP_EFFORT` は、ダッシュボードの「役のモデル」からも変えられる。
+`SWA_MODEL` と `SWA_EFFORT` は、ダッシュボードの「役のモデル」からも変えられる。
 
 planner と critic も同じ手順で埋める。3役とも同じサブスクリプションの利用枠を使う。
 トークンが空の役があると、プロビジョニングの最後に `資格情報がまだ無い役` として名前が出る。
@@ -382,10 +400,10 @@ planner と critic も同じ手順で埋める。3役とも同じサブスクリ
 配管を確かめる:
 
 ```bash
-sudo -u runner /srv/loop/bin/smoke-solver
-sudo -u runner /srv/loop/bin/smoke-pytest
-sudo -u runner /srv/loop/bin/smoke-planner
-sudo -u runner /srv/loop/bin/smoke-critic
+sudo -u runner /srv/swa/bin/smoke-solver
+sudo -u runner /srv/swa/bin/smoke-pytest
+sudo -u runner /srv/swa/bin/smoke-planner
+sudo -u runner /srv/swa/bin/smoke-critic
 ```
 
 `smoke-pytest` は、ソルバーが pytest を実行**できない**ことを確かめる。
@@ -402,102 +420,102 @@ sudo -u runner /srv/loop/bin/smoke-critic
 
 ### 2-10. 走らせる（箱）
 
-保守ユーザーが `loop` コマンドで操作する。`25-runner.sh` が `/usr/local/bin/loop` に置く。
-ホストからは `host\loop.cmd` で同じコマンドを呼べる（`host/README.md`）。
+保守ユーザーが `swa` コマンドで操作する。`25-runner.sh` が `/usr/local/bin/swa` に置く。
+ホストからは `host\swa.cmd` で同じコマンドを呼べる（`host/README.md`）。
 
 ```bash
-loop go <仕様書>.md...               # 言語は --language typescript / csharp / cpp、持ち込む先は --framework
-loop approve                         # 今の段の設計を承認し、次の段へ流す
-loop reject <コメント>               # コメントを付けて、今の段の設計を書き直させる
-loop reopen <モジュール>...          # 詳細設計を直すモジュールを選び、中段に戻す
-loop status                          # 走っているか、段とモジュールの状態、FAILURE.md、台帳の末尾
-loop now                             # いまの作業を JSON で出す（ダッシュボードが読む）
-loop log                             # 走行ログを追う。Ctrl-C で抜けても走行は続く
-loop continue                        # 止まったところから続ける
-loop stop                            # 走行を止める
-loop findings                        # クリティックの指摘を出す
-loop update                          # このリポジトリを pull し、プロビジョニングを流し直す
+swa go <仕様書>.md...               # 言語は --language typescript / csharp / cpp、持ち込む先は --framework
+swa approve                         # 今の段の設計を承認し、次の段へ流す
+swa reject <コメント>               # コメントを付けて、今の段の設計を書き直させる
+swa reopen <モジュール>...          # 詳細設計を直すモジュールを選び、中段に戻す
+swa status                          # 走っているか、段とモジュールの状態、FAILURE.md、台帳の末尾
+swa now                             # いまの作業を JSON で出す（ダッシュボードが読む）
+swa log                             # 走行ログを追う。Ctrl-C で抜けても走行は続く
+swa continue                        # 止まったところから続ける
+swa stop                            # 走行を止める
+swa findings                        # クリティックの指摘を出す
+swa update                          # このリポジトリを pull し、プロビジョニングを流し直す
 ```
 
-`loop update` は、走行中とプロジェクトの切り替え中は断る。pull は fast-forward だけを受ける。
-`provision.sh` は全スクリプトが通ると、そのコミットを `/etc/loop/provisioned` に書く。`loop update` は
+`swa update` は、走行中とプロジェクトの切り替え中は断る。pull は fast-forward だけを受ける。
+`provision.sh` は全スクリプトが通ると、そのコミットを `/etc/swa/provisioned` に書く。`swa update` は
 pull の後のコミットがこれと同じならプロビジョニングを飛ばす。`--force` を付けると必ず流す。
 
-流れは3段で、段は `plan/stage.json` にある（RUNNER_SPEC §3）。各コマンドが裏で流す `loop.py` の
+流れは3段で、段は `plan/stage.json` にある（RUNNER_SPEC §3）。各コマンドが裏で流す `swa.py` の
 動詞は次のとおり。
 
 | コマンド | 段 | 流すもの | 止まるところ |
 |---|---|---|---|
-| `loop go` | 始まる前、上流 | `spec import`、`basic draft` | 基本設計を書いたところ |
-| `loop approve` | 上流 | `basic approve`、`modules draft`（続けて `modules critique`） | 詳細設計を書き、クリティックが読んだところ |
-| `loop approve` | 中段 | `modules approve`、`run --all` | 全モジュールが緑か、モジュールが止まって中段に戻ったところ |
-| `loop reject` | 上流 | `basic draft` | 基本設計を書き直したところ |
-| `loop reject` | 中段 | `modules draft`（続けて `modules critique`） | 詳細設計を書き直し、クリティックが読んだところ |
-| `loop continue` | 下流 | `run --all` | 上と同じ |
-| `loop continue` | 中段 | `modules critique` | クリティックが読んだところ |
+| `swa go` | 始まる前、上流 | `spec import`、`basic draft` | 基本設計を書いたところ |
+| `swa approve` | 上流 | `basic approve`、`modules draft`（続けて `modules critique`） | 詳細設計を書き、クリティックが読んだところ |
+| `swa approve` | 中段 | `modules approve`、`run --all` | 全モジュールが緑か、モジュールが止まって中段に戻ったところ |
+| `swa reject` | 上流 | `basic draft` | 基本設計を書き直したところ |
+| `swa reject` | 中段 | `modules draft`（続けて `modules critique`） | 詳細設計を書き直し、クリティックが読んだところ |
+| `swa continue` | 下流 | `run --all` | 上と同じ |
+| `swa continue` | 中段 | `modules critique` | クリティックが読んだところ |
 
-`loop go` は仕様書を `/srv/loop/human/in/spec/` に置く。上流が終わった後は断る。仕様書を
-差し替えて作り直すなら、新しいプロジェクトで始める。`loop reject` はコメントを
-`/srv/loop/human/in/COMMENT.md` に置く。プランナーは次の書き直しでそれを読み、書いた設計が
-検査を通ると消える。`loop reopen` は前面で流れ、裏には回さない。
+`swa go` は仕様書を `/srv/swa/human/in/spec/` に置く。上流が終わった後は断る。仕様書を
+差し替えて作り直すなら、新しいプロジェクトで始める。`swa reject` はコメントを
+`/srv/swa/human/in/COMMENT.md` に置く。プランナーは次の書き直しでそれを読み、書いた設計が
+検査を通ると消える。`swa reopen` は前面で流れ、裏には回さない。
 
-止まった場面と次の手は、ログの最後の行と `loop status` に出る。
+止まった場面と次の手は、ログの最後の行と `swa status` に出る。
 
 | 止まる場面 | 次の手 |
 |---|---|
-| 基本設計を書いた | `docs/basic/` を読み、`loop approve` か `loop reject <コメント>` |
-| 詳細設計を書き、クリティックが読んだ | `loop findings` と `docs/modules/` を読み、`loop approve` か `loop reject <コメント>` |
-| プランナーが検査を通る設計を書けなかった | ログの判定を読み、コメントを付けて `loop reject <コメント>` |
-| モジュールが下流で止まり、中段に戻った | `plan/FAILURE.md` を読み、`loop reopen <モジュール>...` のあと `loop reject <コメント>` か `loop approve` |
-| 全モジュールが緑になった | 写しを引いて動かす。直すなら `loop reopen <モジュール>...` |
-| 利用枠が尽きた | 枠が戻ってから `loop continue`。途中のモジュールがあれば先に `loop raw reset <モジュール>` |
+| 基本設計を書いた | `docs/basic/` を読み、`swa approve` か `swa reject <コメント>` |
+| 詳細設計を書き、クリティックが読んだ | `swa findings` と `docs/modules/` を読み、`swa approve` か `swa reject <コメント>` |
+| プランナーが検査を通る設計を書けなかった | ログの判定を読み、コメントを付けて `swa reject <コメント>` |
+| モジュールが下流で止まり、中段に戻った | `plan/FAILURE.md` を読み、`swa reopen <モジュール>...` のあと `swa reject <コメント>` か `swa approve` |
+| 全モジュールが緑になった | 写しを引いて動かす。直すなら `swa reopen <モジュール>...` |
+| 利用枠が尽きた | 枠が戻ってから `swa continue`。途中のモジュールがあれば先に `swa raw reset <モジュール>` |
 
-クリティックの指摘は `/srv/loop/human/in/CRITIQUE.json` にあり、`loop findings` で読む。`title` と
-`evidence` は日本語。指摘はプランナーに戻らない。書き直させたいことは `loop reject` のコメントに書く。
+クリティックの指摘は `/srv/swa/human/in/CRITIQUE.json` にあり、`swa findings` で読む。`title` と
+`evidence` は日本語。指摘はプランナーに戻らない。書き直させたいことは `swa reject` のコメントに書く。
 
-走行の設定は `/srv/loop/settings.json` に置く（RUNNER_SPEC §7-5）。root 所有で、ランナーは読むだけ。
+走行の設定は `/srv/swa/settings.json` に置く（RUNNER_SPEC §7-5）。root 所有で、ランナーは読むだけ。
 無ければ既定で走る。
 
-ダッシュボードとホストの `loop-import` は、走行の開始と停止、続行、プロジェクトの切り替えと受け皿づくり
-（`loop project init`）、役のモデルの変更を、SSH で
-`sudo -n /usr/local/bin/loop dash` に頼む。要求は標準入力の JSON 1つで、`loop_dash.py` が形と値を
-確かめる。端末の無い SSH ではパスワードを訊けないので、`25-runner.sh` が `/etc/sudoers.d/loop-dash` に、
+ダッシュボードとホストの `swa-import` は、走行の開始と停止、続行、プロジェクトの切り替えと受け皿づくり
+（`swa project init`）、役のモデルの変更を、SSH で
+`sudo -n /usr/local/bin/swa dash` に頼む。要求は標準入力の JSON 1つで、`swa_dash.py` が形と値を
+確かめる。端末の無い SSH ではパスワードを訊けないので、`25-runner.sh` が `/etc/sudoers.d/swa-dash` に、
 保守ユーザーがこの1つだけをパスワード無しで流せる規則を置く。引数まで固定するので、ほかのコマンドには
 効かない。要求の一覧は `host/dashboard/README.md` の「操作」にある。
 
-走行は systemd の一時ユニット `loop-run` として runner で動く。SSH が切れても止まらず、
-二重には起動できない。`loop stop` は3役の呼び出しも含めてまとめて止める。
+走行は systemd の一時ユニット `swa-run` として runner で動く。SSH が切れても止まらず、
+二重には起動できない。`swa stop` は3役の呼び出しも含めてまとめて止める。
 
-走行ログは `/srv/loop/logs/<プロジェクト>-<日時>.log` に書く。
-`/srv/loop/logs/<プロジェクト>-latest.log` が最新のログを指す。
-`/srv/loop/logs` は `runner:humanw 2750` で、読めるのは runner と保守ユーザーだけ。
+走行ログは `/srv/swa/logs/<プロジェクト>-<日時>.log` に書く。
+`/srv/swa/logs/<プロジェクト>-latest.log` が最新のログを指す。
+`/srv/swa/logs` は `runner:humanw 2750` で、読めるのは runner と保守ユーザーだけ。
 走行ログには失敗したテストの中身が載るので、3役には読ませない。
 
-`loop.py` の動詞を直接使うときは `loop raw` を使う。runner として前面で動く。
+`swa.py` の動詞を直接使うときは `swa raw` を使う。runner として前面で動く。
 
 ```bash
-loop raw status
-loop raw check
-loop raw reset <モジュール>
+swa raw status
+swa raw check
+swa raw reset <モジュール>
 ```
 
 ### 2-11. プロジェクトを切り替える（箱）
 
-箱には複数のプロジェクトを置ける。走るのは一度に1つだけで、`loop-project.sh` で切り替える。
-`/srv/loop` は root 所有なので、保守ユーザーが `sudo` で流す。runner にはできない。
+箱には複数のプロジェクトを置ける。走るのは一度に1つだけで、`swa-project.sh` で切り替える。
+`/srv/swa` は root 所有なので、保守ユーザーが `sudo` で流す。runner にはできない。
 
 ```bash
-loop project list                              # プロジェクトの一覧。* が今のもの
-loop project current                           # 今のプロジェクトの名前
-loop project init <名前>                        # 空のプロジェクトを用意する
-loop project init <名前> --branch <ブランチ>     # 既存リポジトリのブランチを受け入れる用意をする
-loop project init <名前> --src <ディレクトリ> --tests <ディレクトリ>
+swa project list                              # プロジェクトの一覧。* が今のもの
+swa project current                           # 今のプロジェクトの名前
+swa project init <名前>                        # 空のプロジェクトを用意する
+swa project init <名前> --branch <ブランチ>     # 既存リポジトリのブランチを受け入れる用意をする
+swa project init <名前> --src <ディレクトリ> --tests <ディレクトリ>
                                                 # 書き込みの柵の場所を決めて用意する
-loop project layout <名前> --src <ディレクトリ> --tests <ディレクトリ>
+swa project layout <名前> --src <ディレクトリ> --tests <ディレクトリ>
                                                 # 作ってあるプロジェクトの柵の場所を変える
-loop project use <名前>                         # 切り替える
-loop project remove <名前>                      # ディレクトリと走行ログごと消す。今のものは消せない
-loop project unity-refs <名前> <tar>            # Unity の参照アセンブリを置く（ホストの loop-unity-refs が流す）
+swa project use <名前>                         # 切り替える
+swa project remove <名前>                      # ディレクトリと走行ログごと消す。今のものは消せない
+swa project unity-refs <名前> <tar>            # Unity の参照アセンブリを置く（ホストの swa-unity-refs が流す）
 ```
 
 書き込みの柵は、ソルバーが書ける2つのディレクトリだ。コードの場所（`--src`）とテストの場所
@@ -506,51 +524,51 @@ loop project unity-refs <名前> <tar>            # Unity の参照アセンブ�
 
 - 使える文字は英数字と `.` `_` `-` `/` だけ。`..` と、`plan` `docs` `ac` `.git` `.runner` `.venv` `node_modules` の下は使えない
 - 一方がもう一方を含んではならない
-- 規則は `runner/loop.py` の `layout_problems` にしか書かない。`loop-project.sh` とプロビジョニングも、それを import して確かめる
+- 規則は `runner/swa.py` の `layout_problems` にしか書かない。`swa-project.sh` とプロビジョニングも、それを import して確かめる
 
 `layout` を今のプロジェクトに流すと、新しい場所のディレクトリと権限を作るために `provision.sh`
 を流す。前の場所は `40-perms.sh` が runner だけのものに戻す。
 
-`loop project` は `loop-project.sh` を root で流す。`loop` がまだ無い箱では、直接流す。
+`swa project` は `swa-project.sh` を root で流す。`swa` がまだ無い箱では、直接流す。
 
 ```bash
-cd /tmp && sudo ADMIN_USER=<保守ユーザー> bash /opt/swa/provision/loop-project.sh <引数>
+cd /tmp && sudo ADMIN_USER=<保守ユーザー> bash /opt/swa/provision/swa-project.sh <引数>
 ```
 
 置き場は次のとおり。
 
 | パス | 中身 |
 |---|---|
-| `/srv/loop/projects/<名前>/repo.git` | そのプロジェクトの bare リポジトリ。ホストはここから引き、ここへ push する |
-| `/srv/loop/projects/<名前>/parked/` | 使っていないあいだの作業場所。root だけが入れる |
-| `/srv/loop/projects/<名前>/layout.json` | そのプロジェクトの柵の場所。root 所有。既定の場所なら無い |
-| `/srv/loop/projects/CURRENT` | 今のプロジェクトの名前 |
-| `/srv/loop/repo.git` | 今のプロジェクトの bare を指すリンク |
-| `/srv/loop/layout.json` | 今のプロジェクトの `layout.json` を指すリンク。無ければ既定の場所。ランナーとプロビジョニングが読む |
-| `/srv/loop/projects/<名前>/unity-refs/` | Unity の参照アセンブリ（`refs/*.dll`）、版、定義シンボル、C# の版。root 所有 |
-| `/srv/loop/unity-refs` | 今のプロジェクトの `unity-refs/` を指すリンク。無ければ Unity を使わないプロジェクト |
-| `/srv/loop/project` | 今のプロジェクトの作業ツリー（実体） |
+| `/srv/swa/projects/<名前>/repo.git` | そのプロジェクトの bare リポジトリ。ホストはここから引き、ここへ push する |
+| `/srv/swa/projects/<名前>/parked/` | 使っていないあいだの作業場所。root だけが入れる |
+| `/srv/swa/projects/<名前>/layout.json` | そのプロジェクトの柵の場所。root 所有。既定の場所なら無い |
+| `/srv/swa/projects/CURRENT` | 今のプロジェクトの名前 |
+| `/srv/swa/repo.git` | 今のプロジェクトの bare を指すリンク |
+| `/srv/swa/layout.json` | 今のプロジェクトの `layout.json` を指すリンク。無ければ既定の場所。ランナーとプロビジョニングが読む |
+| `/srv/swa/projects/<名前>/unity-refs/` | Unity の参照アセンブリ（`refs/*.dll`）、版、定義シンボル、C# の版。root 所有 |
+| `/srv/swa/unity-refs` | 今のプロジェクトの `unity-refs/` を指すリンク。無ければ Unity を使わないプロジェクト |
+| `/srv/swa/project` | 今のプロジェクトの作業ツリー（実体） |
 
 `use` は次の順で動く。
 
-1. runner の `loop.py` と、solver・planner・critic のプロセスが無いことを確かめる。あれば止まる
+1. runner の `swa.py` と、solver・planner・critic のプロセスが無いことを確かめる。あれば止まる
 2. 今のプロジェクトの作業場所を `parked/` に `mv` で退避する。対象は `project`、`human/in`、`planner/out`、`planner/brief`、`critic/out`、`critic/brief`、`brief`。仕様書、コメント、クリティックの指摘の写しも一緒に動く
-3. `/srv/loop/repo.git` と `/srv/loop/layout.json` を切り替え先に向け直す
+3. `/srv/swa/repo.git` と `/srv/swa/layout.json` を切り替え先に向け直す
 4. 切り替え先に退避分があれば戻し、`40-perms.sh` で権限を確かめる。無ければ `provision.sh` で作る。作業ツリーは bare の HEAD が指すブランチになる
 
 `init --branch` で用意したプロジェクトは、そのブランチが push されるまで `use` できない。
 取り込みの手順はホスト側で行う（`host/README.md`）。
 
-作業ツリーの実体は常に `/srv/loop/project` に置く。ランナー、provision、sudoers はこのパスを
+作業ツリーの実体は常に `/srv/swa/project` に置く。ランナー、provision、sudoers はこのパスを
 名指ししており、venv の実行ファイルも絶対パスで持っているからだ。
 
-`loop-project.sh` を使う前に作った箱は、最初に今の状態へ名前を付ける。
+`swa-project.sh` を使う前に作った箱は、最初に今の状態へ名前を付ける。
 
 ```bash
-loop project adopt <名前>
+swa project adopt <名前>
 ```
 
-`/srv/loop/repo.git` の実体が `projects/<名前>/repo.git` に移り、元の場所はリンクになる。
+`/srv/swa/repo.git` の実体が `projects/<名前>/repo.git` に移り、元の場所はリンクになる。
 
 取り込んだブランチに環境のファイルを置くとき、そのリポジトリが自分の `conftest.py`、
 `index.html`、`vitest.config.mjs` を持っていれば、プロビジョニングは上書きせずに止まる。
@@ -563,8 +581,8 @@ VirtualBox のスナップショットに相当するのは `wsl --export`。
 
 ```powershell
 wsl --shutdown                                                   # export には停止が必要
-wsl --export Ubuntu-24.04 D:\wsl-backup\loop-base.tar
-# 復元: wsl --import Ubuntu-24.04-restore D:\wsl\restore D:\wsl-backup\loop-base.tar
+wsl --export Ubuntu-24.04 D:\wsl-backup\swa-base.tar
+# 復元: wsl --import Ubuntu-24.04-restore D:\wsl\restore D:\wsl-backup\swa-base.tar
 ```
 
 **`wsl --shutdown` を使ったら keepalive タスクを再起動すること**（§3-2）。
@@ -627,11 +645,11 @@ sshd は各キーワードについて **最初に見た値**を採用する。`
 `Port` のような単一値のキーワードを後から `99-*.conf` で上書きしようとしても**負ける**。
 エラーは出ないので、設定を書いたのに効いていない状態に気づけない。
 
-→ `50-lockdown.sh` は `00-loop.conf` に書く（`10-loop-dev.conf` より先に読まれる）。
+→ `50-lockdown.sh` は `00-swa.conf` に書く（`10-swa-dev.conf` より先に読まれる）。
 そして `sshd -T` で**実効値を検証する**。効いていなければ異常終了する。
 
 **`AllowUsers` / `DenyUsers` はリスト値で、drop-in をまたいで累積する。**
-`10-loop-dev.conf` の `AllowUsers <保守ユーザー>` と `00-loop.conf` の
+`10-swa-dev.conf` の `AllowUsers <保守ユーザー>` と `00-swa.conf` の
 `AllowUsers <保守ユーザー> runner` は、順序に関係なく合算される。
 帰結として重要なのは逆方向で、**後から書く drop-in は許可を広げることしかできない。**
 誰かを外すには、その名前を書いているファイル自体を直す必要がある。
@@ -670,7 +688,7 @@ Permission denied (publickey,password).
 PowerShell 5.1 は BOM 無し UTF-8 を ANSI として読む。日本語文字の末尾バイトが
 バッククォート（行継続）と解釈され、**コメント行が次の行を飲み込み、変数が黙って null になる。**
 
-→ `.ps1` / `.cmd` は ASCII のみで書く（`loop-dev.cmd` がそうなっている）か、
+→ `.ps1` / `.cmd` は ASCII のみで書く（`swa-dev.cmd` がそうなっている）か、
 スクリプトを作らずインライン実行する。多段クォート（PowerShell → ssh → リモートシェル）も
 崩れやすいので、複雑なものは base64 化して
 `echo <b64> | base64 -d | bash` で渡すのが確実。
@@ -691,7 +709,7 @@ execvpe(C:/Program Files/Git/usr/bin/bash) failed: No such file or directory
 MSYS_NO_PATHCONV=1 wsl -d Ubuntu-24.04 -u root bash /tmp/x.sh
 ```
 
-`loop-dev.cmd` が `/usr/bin/...` で通っているのは、cmd から呼ばれていて MSYS を
+`swa-dev.cmd` が `/usr/bin/...` で通っているのは、cmd から呼ばれていて MSYS を
 経由しないため。`wsl` を使う手順を PowerShell に寄せているのもこのため。
 
 ### 3-8. WSLg が Windows 側への通り道を開けたままにする
@@ -765,10 +783,10 @@ rc=1  WSL ERROR: UtilAcceptVsock:273: accept4 failed 110
 ランナーに root を渡すのは本末転倒（関門を強制する側が関門を外せてしまう）。
 
 → ディレクトリが runner 所有なら、中のファイルは**削除できる**。読んで・消して・
-runner として書き直すと所有権が移る（`runner/loop.py` の `adopt()`）。バイト列は同一なので
+runner として書き直すと所有権が移る（`runner/swa.py` の `adopt()`）。バイト列は同一なので
 git も凍結マニフェストも影響を受けず、特権を1つも増やさない。
 
-### 3-12. `/srv/loop/brief` に setgid が無いとブリーフが読まれない
+### 3-12. `/srv/swa/brief` に setgid が無いとブリーフが読まれない
 
 runner が書いたブリーフのグループが `runner` になり、`solver` から読めなくなる。
 症状は `solver-run` の `exited 2` だけで、原因から遠い。
@@ -778,7 +796,7 @@ runner が書いたブリーフのグループが `runner` になり、`solver` 
 
 ### 3-13. Codex の `apply_patch` はワークスペースのルートを経由して書く
 
-`solver_tiers` に `codex` を挙げたときの話。`/srv/loop/project` が `755 runner:runner` だと、
+`solver_tiers` に `codex` を挙げたときの話。`/srv/swa/project` が `755 runner:runner` だと、
 `src/` に権限があっても**全ての編集が失敗する**。しかもエラーは対象ファイル名で
 報告されるので `src/` の権限を疑わせる。`bubblewrap` が未導入だと、さらに手前の
 「サンドボックス構築の失敗」として出る。
@@ -799,7 +817,7 @@ fatal: failed to stat '/home/<保守ユーザー>': Permission denied
 
 で落ちる。**スクリプトの問題ではなく cwd の問題**で、`sudo` は呼び出し元の作業
 ディレクトリをそのまま渡し、`runner` は 0700 のホームを辿れない。
-`solver-run` の `cd /srv/loop/project` が存在する理由とまったく同じ形の失敗。
+`solver-run` の `cd /srv/swa/project` が存在する理由とまったく同じ形の失敗。
 
 → `cd /tmp` してから流す（§2-8）。
 
@@ -813,7 +831,7 @@ fatal: failed to stat '/home/<保守ユーザー>': Permission denied
 
 ### 3-16. sticky ビットは「ディレクトリの所有者」も例外にする
 
-`/srv/loop/planner/out` は 3770 `runner:plannerw`。sticky を付けた目的は
+`/srv/swa/planner/out` は 3770 `runner:plannerw`。sticky を付けた目的は
 「planner が runner 所有のファイルを消せないようにする」ことだが、
 **逆向きは塞がらない** ── sticky の削除条件は「ファイルの所有者**または**
 ディレクトリの所有者」なので、runner は planner が書いたファイルを消せる。
@@ -887,7 +905,7 @@ node_modules/        ← 全ての深さで無視する（これを書くと穴�
 凍結済みのシンボリックリンクだけが無視され、`src/node_modules` は未追跡として現れる。
 `35-node.sh` は `node_modules/` 形式の行を見つけたら**進まずに落ちる**。
 
-ツールチェーン本体を `/srv/loop/node` に置いて**プロジェクトの外**に出しているのは
+ツールチェーン本体を `/srv/swa/node` に置いて**プロジェクトの外**に出しているのは
 このため。中に置くと `node_modules/` を無視するしかなくなる。
 
 `35-node.sh` の `npm install` は `--legacy-peer-deps` を付ける。npm 10.9 は vitest の
@@ -928,15 +946,15 @@ WSL2 では VM が頻繁に止まるので規則の永続化が要る ──
 ```bash
 # DROP ではなく LOG を1本入れて、実際に叩かれた宛先だけを採る
 iptables -I OUTPUT 1 -m owner --uid-owner "$(id -u solver)" \
-  -m conntrack --ctstate NEW -j LOG --log-prefix "LOOPOBS "
-sudo -u runner /srv/loop/bin/smoke-solver
-dmesg | grep LOOPOBS
+  -m conntrack --ctstate NEW -j LOG --log-prefix "SWAOBS "
+sudo -u runner /srv/swa/bin/smoke-solver
+dmesg | grep SWAOBS
 ```
 
 ### 認証
 
 - **3役とも Claude のサブスクリプションのトークン**（`claude setup-token`）を使う。
-  置き場は `/etc/loop/<役>.env`（`root:<役> 640`）。手順は §2-9
+  置き場は `/etc/swa/<役>.env`（`root:<役> 640`）。手順は §2-9
 - 役ごとにファイルを分けるのは、ある役の資格情報が漏れても他の役の資格情報が渡らないようにするため。
   `45-agent-invoke.sh` が「各役は自分のファイルだけを読める」ことを assert する
 - 3役は同じ利用枠を使う。上限に当たった呼び出しは、ランナーが待ってからやり直す
@@ -994,6 +1012,7 @@ VirtualBox 構成の手順は `c4374f4` から拾える。
 
 ## 更新履歴
 
+- 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更し、古い箱を移す `08-rename.sh` を追加
 - 2026/10/15: 箱の中のクローンの場所を `/opt/swa` に変更
 - 2026/10/14: §2-10 の走らせ方を3段（上流、中段、下流）の `loop go`、`approve`、`reject`、`reopen` に変更
 - 2026/10/08: §2-11 に `loop project remove` を追加

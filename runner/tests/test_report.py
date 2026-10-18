@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from loop import parse_junit  # noqa: E402
+from swa import parse_junit  # noqa: E402
 
 
 def report(cases: str, **counts: int) -> str:

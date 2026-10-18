@@ -15,17 +15,17 @@ if [ ! -s /home/runner/.ssh/authorized_keys ]; then
   exit 1
 fi
 
-# ファイル名は元の drop-in（10-loop-dev.conf）より前に並ぶようにする。sshd は
+# ファイル名は元の drop-in（10-swa-dev.conf）より前に並ぶようにする。sshd は
 # 単一値のキーワードについて最初に見た値を採るので、99- の drop-in は後から
 # 読まれ、黙って負ける。
 #
-# AllowUsers は例外だ。リスト値で、drop-in をまたいで累積する。10-loop-dev.conf の
+# AllowUsers は例外だ。リスト値で、drop-in をまたいで累積する。10-swa-dev.conf の
 # `AllowUsers maint` とここの `AllowUsers maint runner` は、順番に関係なく
 # {maint, runner} に合算される。覚えておくべき帰結は逆向きのほうで、後の
 # drop-in は許可を広げることしかできず、狭めることはできない。ユーザーを外すには、
 # その名前を書いているファイルを直す。
-rm -f /etc/ssh/sshd_config.d/99-loop.conf
-cat > /etc/ssh/sshd_config.d/00-loop.conf <<EOF
+rm -f /etc/ssh/sshd_config.d/99-loop.conf /etc/ssh/sshd_config.d/00-loop.conf
+cat > /etc/ssh/sshd_config.d/00-swa.conf <<EOF
 # ログインできるのはこの2人だけ。エージェントのアカウントはあえて載せず、二重に
 # 拒否する。エージェントはランナーが Runas の例外で起動するもので、ログインでは
 # 起動しない。だから、そのどれかとして入ってくる SSH のセッションは、別の誰か
@@ -36,7 +36,7 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
 EOF
-chmod 644 /etc/ssh/sshd_config.d/00-loop.conf
+chmod 644 /etc/ssh/sshd_config.d/00-swa.conf
 
 # sshd は -t と -T でも /run/sshd を求める。作るのは ssh.service の RuntimeDirectory で、
 # サービスが止まると消え、/run は VM の起動し直しでも消える。ソケットで起きる ssh は
@@ -84,7 +84,7 @@ for u in solver planner; do
 done
 
 # sshd は 2222 のままでなければならない。Windows 側は localhostForwarding で
-# 127.0.0.1:2222 として届き、~/.ssh/config の `loop-dev` はそのポートを
+# 127.0.0.1:2222 として届き、~/.ssh/config の `swa-dev` はそのポートを
 # 決め打ちしている。
 port="$(eff port)"
 if [ "$port" != "2222" ]; then

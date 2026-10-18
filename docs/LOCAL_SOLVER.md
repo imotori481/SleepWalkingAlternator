@@ -69,7 +69,7 @@ VRAM 6 GB に対し重みが 4.81 GB なので、残りで KV キャッシュと
 ### 1-2. 重みを置く
 
 ```bash
-sudo install -o root -g llm -m 0440 <model>.gguf /srv/loop/models/model.gguf
+sudo install -o root -g llm -m 0440 <model>.gguf /srv/swa/models/model.gguf
 ```
 
 4bit 量子化で約 6GB。**0440 root:llm** なのは、solver アカウントに自分を動かしている
@@ -83,15 +83,15 @@ cd /tmp && sudo bash /opt/swa/provision/70-local-solver.sh
 
 `/opt/swa` は箱の中のこのリポジトリのクローン（`provision/README.md` §2-6）。
 
-uid `llm` の作成、`/srv/loop/models` の権限、3本のスクリプトの設置まで。
+uid `llm` の作成、`/srv/swa/models` の権限、3本のスクリプトの設置まで。
 **sudoers は変更しない** — `solver-run` が持つ Runas(solver) の1つの許可で足りる。
 
 ### 1-4. サーバを起動する
 
 ```bash
-sudo systemctl enable --now loop-llm          # systemd がある場合
+sudo systemctl enable --now swa-llm          # systemd がある場合
 # 無い場合:
-sudo -u llm setsid nohup /srv/loop/bin/llm-serve >/srv/loop/models/serve.out 2>&1 &
+sudo -u llm setsid nohup /srv/swa/bin/llm-serve >/srv/swa/models/serve.out 2>&1 &
 ```
 
 VM が生きている間だけ生きる。**`wsl --shutdown` 厳禁**（README 3-2）。
@@ -99,7 +99,7 @@ VM が生きている間だけ生きる。**`wsl --shutdown` 厳禁**（README 3
 ### 1-5. 配管を確かめる ← ここまで利用枠を使わない
 
 ```bash
-sudo -u solver /srv/loop/bin/smoke-local
+sudo -u solver /srv/swa/bin/smoke-local
 ```
 
 7項目。全部 PASS なら「配管は問題ではない」ことが確定する。
@@ -110,10 +110,10 @@ sudo -u solver /srv/loop/bin/smoke-local
 ```bash
 # 承認済みの設計をそのまま使う。題材を変えない ── 変えると
 # 「モデルが弱い」のか「その題材が難しい」のかが分離できない
-sudo -u runner python3 /srv/loop/runner/loop.py reset <モジュール>     # 必要なら
+sudo -u runner python3 /srv/swa/runner/swa.py reset <モジュール>     # 必要なら
 ```
 
-`/srv/loop/settings.json` に書く（root 所有。`sudo` で書く）:
+`/srv/swa/settings.json` に書く（root 所有。`sudo` で書く）:
 
 ```json
 {
@@ -131,11 +131,11 @@ sudo -u runner python3 /srv/loop/runner/loop.py reset <モジュール>     # �
 答えを引く。逆に `repair` にするなら温度は下げてよい。
 
 ```bash
-sudo -u runner python3 -u /srv/loop/runner/loop.py run --all 2>&1 \
-  | sudo -u runner tee -a /srv/loop/logs/<名前>.log
+sudo -u runner python3 -u /srv/swa/runner/swa.py run --all 2>&1 \
+  | sudo -u runner tee -a /srv/swa/logs/<名前>.log
 ```
 
-走行ログは `/srv/loop/logs/` に書く（`provision/README.md` §2-10）。
+走行ログは `/srv/swa/logs/` に書く（`provision/README.md` §2-10）。
 
 ---
 
@@ -147,8 +147,8 @@ sudo -u runner python3 -u /srv/loop/runner/loop.py run --all 2>&1 \
 |---|---|---|
 | 0 | 動いた（**中身が駄目でも 0**） | 下記「0 で返るのに何も起きない」参照 |
 | 2 | 引数かブリーフが読めない | `solver-run` の呼び方。通常は起きない |
-| 5 | ブリーフに `# Files you may create or modify` が無い | `loop.py` のブリーフ書式が変わった。`brief_impl()` と突き合わせる |
-| 6 | プロンプトがコンテキストに入らない | `llm-serve` の `--ctx-size` と `LOOP_LLM_CTX` を上げる。上げられないならモジュールを分割 |
+| 5 | ブリーフに `# Files you may create or modify` が無い | `swa.py` のブリーフ書式が変わった。`brief_impl()` と突き合わせる |
+| 6 | プロンプトがコンテキストに入らない | `llm-serve` の `--ctx-size` と `SWA_LLM_CTX` を上げる。上げられないならモジュールを分割 |
 | 7 | 推論サーバに届かない／拒否された | `pgrep -a -u llm llama-server`。落ちていれば 1-4 |
 | 124 | 制限時間内に返らない | `timeouts.solver` を上げる。CPU 推論なら数倍必要 |
 
@@ -159,7 +159,7 @@ sudo -u runner python3 -u /srv/loop/runner/loop.py run --all 2>&1 \
 
 **0 で返るのに何も書かれない / VERIFY が毎回同じ失敗**
 モデルが JSON を守れなかったか、許可外のパスを返した。`solver-local` が
-`wrote nothing` / `refused [...]` と標準出力に書いている。台帳ではなく `/srv/loop/logs/` の走行ログを見る。
+`wrote nothing` / `refused [...]` と標準出力に書いている。台帳ではなく `/srv/swa/logs/` の走行ログを見る。
 これは**設計どおり**の挙動 ── モデルの失敗は試行を1回消費するだけで、モジュールは止まらない。
 何度も続くならモジュールが大きすぎる（次項）。
 
@@ -209,8 +209,8 @@ run 5（Codex）が比較対象。**run 6 の実測値を入れてある**（202
 台帳から取れる:
 
 ```bash
-sudo -u runner grep -c '"event":"FAILED"' /srv/loop/project/plan/ledger.jsonl
-sudo -u runner grep '"phase":"VERIFY"' /srv/loop/project/plan/ledger.jsonl \
+sudo -u runner grep -c '"event":"FAILED"' /srv/swa/project/plan/ledger.jsonl
+sudo -u runner grep '"phase":"VERIFY"' /srv/swa/project/plan/ledger.jsonl \
   | python3 -c 'import sys,json,collections
 c=collections.Counter()
 for l in sys.stdin: r=json.loads(l); c[r.get("backend")]+=1
@@ -238,7 +238,7 @@ R1（収集数の不一致）／R4（スタブで通る）／R5（赤が本物�
 
 **ホールドアウト。** プランナーがテストを可視群と秘匿群に分け、ブリーフには可視群だけを
 描画し、RED_GATE と VERIFY は全部を走らせる。判断を含まない純粋な機構。
-ただし **IMPL 中の `tests/` は 0444 でソルバーから読める**（`loop.py` の `set_writable`）
+ただし **IMPL 中の `tests/` は 0444 でソルバーから読める**（`swa.py` の `set_writable`）
 ので、いまのままでは要請であって剥奪ではない。本物にするには `tests/` を runner のみに
 する必要がある。`claude` と `local` はもともと pytest を回せないので、自己検証を失う
 代償は `codex` 段にだけかかる。**1本目の目視で必要性を決める。**
@@ -252,6 +252,7 @@ R1（収集数の不一致）／R4（スタブで通る）／R5（赤が本物�
 
 ## 更新履歴
 
+- 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更
 - 2026/10/15: 箱の中のクローンの場所を `/opt/swa` に変更
 - 2026/10/14: ソルバー段の設定の置き場を `/srv/loop/settings.json` に、詰まったときの扱いをモジュールの停止と中段への差し戻しに変更
 - 2026/09/26: 既定のソルバー段を `claude` とし、`solver_tiers` を必ず書く手順に変更。配布と走行ログの場所を箱のクローン構成に合わせて変更

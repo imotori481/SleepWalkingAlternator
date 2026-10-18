@@ -1,4 +1,4 @@
-"""ホストの写しを `loop-pull.cmd` で箱の先まで進める。
+"""ホストの写しを `swa-pull.cmd` で箱の先まで進める。
 
 クローンが初めてなら数分かかるので、要求の中では待たずに裏のスレッドで流し、
 進みは status で返す。コマンドは固定で、HTTP の値は1つも入らない。
@@ -13,7 +13,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-SCRIPT = Path(__file__).resolve().parents[1] / "loop-pull.cmd"
+SCRIPT = Path(__file__).resolve().parents[1] / "swa-pull.cmd"
 TAIL_LINES = 40
 
 
@@ -36,7 +36,7 @@ class MirrorSync:
     def start(self) -> dict[str, Any]:
         with self._lock:
             if self._running:
-                raise ValueError("loop-pull is already running")
+                raise ValueError("swa-pull is already running")
             self._running = True
             self._started, self._finished, self._returncode = _now(), None, None
             self._output.clear()
@@ -57,7 +57,7 @@ class MirrorSync:
             returncode = process.wait()
         except OSError as error:
             with self._lock:
-                self._output.append(f"could not start loop-pull: {error}")
+                self._output.append(f"could not start swa-pull: {error}")
         finally:
             with self._lock:
                 self._running, self._finished, self._returncode = False, _now(), returncode

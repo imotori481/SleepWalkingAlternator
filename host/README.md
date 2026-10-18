@@ -8,14 +8,14 @@ WSL2 では起動と生存管理がホスト側の責務になった（`RUNNER_S
 
 | ファイル | 置き場所 | 役割 |
 |---|---|---|
-| `loop-dev.cmd` | `C:\Users\<you>\bin\loop-dev.cmd`（PATH の通った場所） | ディストロ起動 → sshd 待機 → VS Code Remote-SSH 起動 |
-| `loop.cmd` | このリポジトリのまま（`host` を PATH に足す） | ディストロ起動 → sshd 待機 → 箱の `loop` コマンドを実行 |
-| `loop-import.cmd` | このリポジトリのまま（`host` を PATH に足す） | 既存リポジトリのブランチを箱のプロジェクトとして取り込む |
-| `loop-unity-refs.cmd` / `.ps1` | このリポジトリのまま（`host` を PATH に足す） | Unity のプロジェクトがコンパイルに使う参照アセンブリを箱へ送る |
+| `swa-dev.cmd` | `C:\Users\<you>\bin\swa-dev.cmd`（PATH の通った場所） | ディストロ起動 → sshd 待機 → VS Code Remote-SSH 起動 |
+| `swa.cmd` | このリポジトリのまま（`host` を PATH に足す） | ディストロ起動 → sshd 待機 → 箱の `swa` コマンドを実行 |
+| `swa-import.cmd` | このリポジトリのまま（`host` を PATH に足す） | 既存リポジトリのブランチを箱のプロジェクトとして取り込む |
+| `swa-unity-refs.cmd` / `.ps1` | このリポジトリのまま（`host` を PATH に足す） | Unity のプロジェクトがコンパイルに使う参照アセンブリを箱へ送る |
 | `wsl-keepalive.vbs` | このリポジトリのまま（タスクが絶対パスで参照する） | VM を**窓を出さずに**生かし続ける。下の keepalive タスクの実体 |
-| `loop-pull.cmd` | このリポジトリのまま | **すべての** `repo*.git` と `projects/*/repo.git` をホストのミラーに引く。**VHDX を失っても残る唯一の複製** |
-| `loop-pr.cmd` | このリポジトリのまま（`host` を PATH に足す） | 全モジュールが緑になる前の成果を、下書きの PR として出す |
-| `loop-dashboard.cmd` | このリポジトリのまま | 進捗、設計のせき、最終確認を扱うGUIを起動（`127.0.0.1:8443`） |
+| `swa-pull.cmd` | このリポジトリのまま | **すべての** `repo*.git` と `projects/*/repo.git` をホストのミラーに引く。**VHDX を失っても残る唯一の複製** |
+| `swa-pr.cmd` | このリポジトリのまま（`host` を PATH に足す） | 全モジュールが緑になる前の成果を、下書きの PR として出す |
+| `swa-dashboard.cmd` | このリポジトリのまま | 進捗、設計のせき、最終確認を扱うGUIを起動（`127.0.0.1:8443`） |
 
 **ASCII のみで書くこと。** PowerShell 5.1 と cmd.exe は BOM 無し UTF-8 を ANSI として
 読むため、日本語コメントを入れると行継続として誤解釈され、変数が黙って null になる
@@ -23,38 +23,38 @@ WSL2 では起動と生存管理がホスト側の責務になった（`RUNNER_S
 
 ## 箱を操作する
 
-`loop.cmd` は、ディストロを起動して sshd を待ち、`ssh -t loop-dev loop <引数>` を流す。
-引数は箱の `loop` コマンドと同じ（`provision/README.md` §2-10）。
+`swa.cmd` は、ディストロを起動して sshd を待ち、`ssh -t swa-dev swa <引数>` を流す。
+引数は箱の `swa` コマンドと同じ（`provision/README.md` §2-10）。
 
-`loop` だけで打てるよう、このリポジトリの `host` ディレクトリをユーザーの PATH に足す
+`swa` だけで打てるよう、このリポジトリの `host` ディレクトリをユーザーの PATH に足す
 （手順は `docs/COMMANDS.md`）。コピーして置くと、pull しても更新が届かない。
 
 ```cmd
-loop go <spec-file>
-loop status
-loop log
+swa go <spec-file>
+swa status
+swa log
 ```
 
 `go` に渡した仕様書がこの機械のファイルなら、先に保守ユーザーのホームへ
-`loop-spec.md` として送る。走行は箱の中で続くので、窓を閉じてもよい。
-続きは `loop log` で追う。
+`swa-spec.md` として送る。走行は箱の中で続くので、窓を閉じてもよい。
+続きは `swa log` で追う。
 
 ## 既存リポジトリを取り込む
 
 ```cmd
-loop-import <project> <repo-url> <branch> [<base-branch>] [--src <src-dir>] [--tests <tests-dir>]
+swa-import <project> <repo-url> <branch> [<base-branch>] [--src <src-dir>] [--tests <tests-dir>]
 ```
 
 ディストロを起動して sshd を待ち、`dashboard\importer.py` を流す。ダッシュボードの「取り込み」タブも
 同じ `importer.py` を使う。次の順に流し、どこかで失敗したら、その場で止まり、次に打つコマンドを出す。
 
 1. `<repo-url>` を `C:\dev\roop-engin\projects\<project>` にクローンする。もうあれば使い回す。そのときは、`origin` が `<repo-url>` であることと、未コミットの変更が無いことを確かめてから fetch する
-2. `<branch>` に切り替える。手元にも `origin` にも無ければ、`<base-branch>` から作る。`<base-branch>` を省くと、`origin` の既定のブランチから作る。作ったときは、親ブランチを `git config branch.<branch>.loopBase` に記録する。ダッシュボードが PR を出す先になる。`<branch>` がもうあるときは、`<base-branch>` を渡したときだけ記録する
-3. 箱で `loop project init <project> --branch <branch>` を流す。`--src` と `--tests` を渡せば柵の場所も決める
-4. `loop-runner` で `<branch>` を箱の bare に push する
-5. 箱で `loop project use <project>` を流し、切り替えが終わるまで待つ
+2. `<branch>` に切り替える。手元にも `origin` にも無ければ、`<base-branch>` から作る。`<base-branch>` を省くと、`origin` の既定のブランチから作る。作ったときは、親ブランチを `git config branch.<branch>.swaBase` に記録する。ダッシュボードが PR を出す先になる。`<branch>` がもうあるときは、`<base-branch>` を渡したときだけ記録する
+3. 箱で `swa project init <project> --branch <branch>` を流す。`--src` と `--tests` を渡せば柵の場所も決める
+4. `swa-runner` で `<branch>` を箱の bare に push する
+5. 箱で `swa project use <project>` を流し、切り替えが終わるまで待つ
 
-3 と 5 は `sudo -n /usr/local/bin/loop dash` を通るので、パスワードを訊かれない。
+3 と 5 は `sudo -n /usr/local/bin/swa dash` を通るので、パスワードを訊かれない。
 
 `<repo-url>` は `https://`、`ssh://`、`user@host:path` の形だけを受け付ける。クローンの置き場は
 `importer.py` の `WORKROOT` で決まる。GitHub とやり取りするのはこのクローンだけだ。
@@ -63,7 +63,7 @@ loop-import <project> <repo-url> <branch> [<base-branch>] [--src <src-dir>] [--t
 ## Unity の参照アセンブリを送る
 
 ```cmd
-loop-unity-refs <project> <unity-project-dir>
+swa-unity-refs <project> <unity-project-dir>
 ```
 
 箱には Unity が無い。Unity のプロジェクトの C# をコンパイルするには、Unity がコンパイルに使う
@@ -76,7 +76,7 @@ DLL が要る。`<unity-project-dir>` の `Assembly-CSharp.csproj` から集め�
   `Library\ScriptAssemblies\<名前>.dll`。ネイティブの DLL、`NetStandard` の DLL、
   `Assembly-CSharp*` は外す
 - 定義シンボルは `UNITY_EDITOR` の系統を外して送る。C# の版と Unity の版も送る
-- 箱では `loop project unity-refs` が root の所有で `/srv/loop/projects/<project>/unity-refs/` に置く
+- 箱では `swa project unity-refs` が root の所有で `/srv/swa/projects/<project>/unity-refs/` に置く
 - `-DryRun` を付けると、tar を作ったところで止まり、何も送らない
 
 Unity の版やパッケージを変えたら、もう一度送る。
@@ -87,8 +87,8 @@ Unity の版やパッケージを変えたら、もう一度送る。
 全モジュールが緑になった後の最終確認をブラウザで扱うローカルGUI。次の順で同期して起動する。
 
 ```cmd
-host\loop-pull.cmd
-host\loop-dashboard.cmd
+host\swa-pull.cmd
+host\swa-dashboard.cmd
 ```
 
 その後、<http://127.0.0.1:8443> を開く。
@@ -172,39 +172,39 @@ Get-CimInstance Win32_Process -Filter "Name='wsl.exe' or Name='wscript.exe'" |
 
 ### `~/.ssh/config`
 
-Git Bash で追記する。鍵は `provision/README.md` §2-1 で作った `loop-dev` と `loop-runner`。
+Git Bash で追記する。鍵は `provision/README.md` §2-1 で作った `swa-dev` と `swa-runner`。
 `<保守ユーザー>` と `<you>` は実際の名前に置き換える。
 
 ```bash
 cat >> ~/.ssh/config <<'EOF'
-Host loop-dev
+Host swa-dev
     HostName 127.0.0.1
     Port 2222
     User <保守ユーザー>
-    IdentityFile C:\Users\<you>\.ssh\loop-dev
+    IdentityFile C:\Users\<you>\.ssh\swa-dev
     IdentitiesOnly yes
     # WSL は再作成でホスト鍵が変わるため、未知なら自動受け入れ
     StrictHostKeyChecking accept-new
     ServerAliveInterval 30
     ServerAliveCountMax 6
 
-Host loop-runner
+Host swa-runner
     HostName 127.0.0.1
     Port 2222
     User runner
-    IdentityFile C:\Users\<you>\.ssh\loop-runner
+    IdentityFile C:\Users\<you>\.ssh\swa-runner
     IdentitiesOnly yes
 EOF
 ```
 
-`loop-dev` は保守ユーザーでの対話と VS Code Remote-SSH に使う。`loop-runner` は
+`swa-dev` は保守ユーザーでの対話と VS Code Remote-SSH に使う。`swa-runner` は
 `repo*.git` を引くためだけに使う（git 経路専用、鍵も別）。`runner` はプロビジョニングで
-作られるので、`loop-runner` はプロビジョニングが終わるまで通らない。
+作られるので、`swa-runner` はプロビジョニングが終わるまで通らない。
 
-成果物は `loop-pull.cmd` を使わずに直接クローンしてもよい:
+成果物は `swa-pull.cmd` を使わずに直接クローンしてもよい:
 
 ```bash
-git clone loop-runner:/srv/loop/repo.git <置き場所>
+git clone swa-runner:/srv/swa/repo.git <置き場所>
 ```
 
 ### ホスト側のミラー（バックアップ）
@@ -213,12 +213,12 @@ git clone loop-runner:/srv/loop/repo.git <置き場所>
 
 | 段 | どこへ | 何から守るか |
 |---|---|---|
-| 1 | `project` → `/srv/loop/repo.git` | `reset` / `clean`。**同じ VHDX の中**なので、それ以上は守らない |
+| 1 | `project` → `/srv/swa/repo.git` | `reset` / `clean`。**同じ VHDX の中**なので、それ以上は守らない |
 | 2 | `repo.git` → `<MIRRORROOT>\project`、過去run → `runs\run-NNN`、プロジェクト → `projects\<名前>` | **VHDX の消失**。ここで初めて別のディスクに乗る |
 | 3 | ミラー → GitHub など | ホストの故障。やるなら**鍵はホストだけが持つ** |
 
-段1 はランナーが自動でやる（`loop.py` の `publish()`、GREEN と段のコマンドのコミットの直後）。
-段2 が `loop-pull.cmd`。**引数も事前のクローンも要らない** ── サンドボックスにある
+段1 はランナーが自動でやる（`swa.py` の `publish()`、GREEN と段のコマンドのコミットの直後）。
+段2 が `swa-pull.cmd`。**引数も事前のクローンも要らない** ── サンドボックスにある
 `repo*.git` と `projects/*/repo.git` を全部列挙し、無ければクローン、有れば fetch する。
 1件でも clone / fetch / reset / clean / fast-forward に失敗すれば、その場で非ゼロ終了する。
 プロジェクト、不変アーカイブの順にすべて確認してから最後にライブミラーへ進むため、どちらかの
@@ -226,23 +226,23 @@ git clone loop-runner:/srv/loop/repo.git <置き場所>
 「done」と表示してはならない。
 
 ```text
-/srv/loop/projects/<名前>/repo.git  ->  <MIRRORROOT>\projects\<名前>  （remote loop に fetch）
-/srv/loop/repo.runN.git             ->  <MIRRORROOT>\runs\run-NNN      （不変。ff のみ）
-/srv/loop/repo.<名前>.git            ->  <MIRRORROOT>\runs\<名前>        （不変。ff のみ）
-/srv/loop/repo.git                  ->  <MIRRORROOT>\project           （現行。毎回作り直す）
+/srv/swa/projects/<名前>/repo.git  ->  <MIRRORROOT>\projects\<名前>  （remote swa に fetch）
+/srv/swa/repo.runN.git             ->  <MIRRORROOT>\runs\run-NNN      （不変。ff のみ）
+/srv/swa/repo.<名前>.git            ->  <MIRRORROOT>\runs\<名前>        （不変。ff のみ）
+/srv/swa/repo.git                  ->  <MIRRORROOT>\project           （現行。毎回作り直す）
 ```
 
-プロジェクトの写しは `loop-import.cmd` のクローンと同じ場所で、`origin` は GitHub のままにする。
-箱のコミットは remote `loop` として入る。
+プロジェクトの写しは `swa-import.cmd` のクローンと同じ場所で、`origin` は GitHub のままにする。
+箱のコミットは remote `swa` として入る。
 
-- 箱が作業するブランチは bare の HEAD から読む。手元のそのブランチは、早送りできるときだけ進める。早送りできないときと、手元の変更が邪魔をするときは `NOTE` を出して動かさない。写しは `loop/<ブランチ>` に入っているので、失敗とは数えない
-- ランナーのタグ（`module-<id>`）は `refs/loop-tags/` に入れる。`refs/tags/` に入れると、`git push --tags` で GitHub に届く
-- GitHub への push は、ダッシュボードで最終確認を承認したときに PR として行う（`dashboard/README.md`）。全モジュールが緑になる前は `loop-pr` かダッシュボードの「ホストの写し」タブで下書きの PR として出す。手で出す手順は `docs/COMMANDS.md`
+- 箱が作業するブランチは bare の HEAD から読む。手元のそのブランチは、早送りできるときだけ進める。早送りできないときと、手元の変更が邪魔をするときは `NOTE` を出して動かさない。写しは `swa/<ブランチ>` に入っているので、失敗とは数えない
+- ランナーのタグ（`module-<id>`）は `refs/swa-tags/` に入れる。`refs/tags/` に入れると、`git push --tags` で GitHub に届く
+- GitHub への push は、ダッシュボードで最終確認を承認したときに PR として行う（`dashboard/README.md`）。全モジュールが緑になる前は `swa-pr` かダッシュボードの「ホストの写し」タブで下書きの PR として出す。手で出す手順は `docs/COMMANDS.md`
 
-`/srv/loop/repo.git` が今のプロジェクトへのリンクのときも、`project` は今のプロジェクトの写しになる。
+`/srv/swa/repo.git` が今のプロジェクトへのリンクのときも、`project` は今のプロジェクトの写しになる。
 作り直す先は、bare の HEAD が指すブランチだ。
 
-`<MIRRORROOT>` は `loop-pull.cmd` 冒頭の `set "MIRRORROOT=..."` で決まる。使う前に自分の置き場所に書き換える。
+`<MIRRORROOT>` は `swa-pull.cmd` 冒頭の `set "MIRRORROOT=..."` で決まる。使う前に自分の置き場所に書き換える。
 
 **run ごとにディレクトリを分けるのは整頓ではなく保存のため。** どの run も
 `module-<id>` という同じ形のタグ名を作るので、1つのクローンに引くと `--force` で
@@ -270,6 +270,7 @@ git clone loop-runner:/srv/loop/repo.git <置き場所>
 
 ## 更新履歴
 
+- 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更
 - 2026/10/14: 下書きの PR を出す操作をオペレーターGUIの「ホストの写し」タブに追加
 - 2026/10/14: オペレーターGUIの扱うものをエスカレーションと予定レビューから設計のせきと最終確認に変更
 - 2026/10/07: 途中の成果を下書きの PR として出す `loop-pr.cmd` を追加

@@ -4,7 +4,7 @@
 #     solver-claude <brief-file> <seconds>
 #
 # ランナーが名前 `claude` を渡すと、solver-run がこれを呼ぶ。uid は既に solver、
-# cwd は既に /srv/loop/project になっている。どちらも solver-run が決めることで、
+# cwd は既に /srv/swa/project になっている。どちらも solver-run が決めることで、
 # このスクリプトは触らない。
 #
 # 形は planner-run と同じにしてある。違うのはツールの範囲だけ。
@@ -22,9 +22,9 @@ LIMIT="${2:-900}"
 
 # 資格情報は solver だけが読めるファイルに置く。planner.env や critic.env とは
 # 別にする。ある役の資格情報が漏れても、他の役の資格情報は渡らない。
-if [ -r /etc/loop/solver.env ]; then
+if [ -r /etc/swa/solver.env ]; then
   set -a
-  . /etc/loop/solver.env
+  . /etc/swa/solver.env
   set +a
 fi
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
@@ -32,28 +32,28 @@ if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
     export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY_CONSOLE"
     echo "solver-claude: サブスクリプションのトークンが無いので、Console のクレジットを使う" >&2
   else
-    echo "solver-claude: /etc/loop/solver.env に資格情報が無い" >&2
+    echo "solver-claude: /etc/swa/solver.env に資格情報が無い" >&2
     echo "    サブスクリプション（推奨）: sudo -u solver -H claude setup-token で発行して書く" >&2
     exit 3
   fi
 fi
 unset ANTHROPIC_API_KEY_CONSOLE
 
-# モデルと effort。solver.env の LOOP_MODEL を --model で、LOOP_EFFORT を
+# モデルと effort。solver.env の SWA_MODEL を --model で、SWA_EFFORT を
 # --effort で渡す。空ならアカウントの既定。effort の値が間違っていたら、claude を
 # 呼ぶ前に止める。
 role_args=()
-if [ -n "${LOOP_MODEL:-}" ]; then
-  role_args+=(--model "$LOOP_MODEL")
+if [ -n "${SWA_MODEL:-}" ]; then
+  role_args+=(--model "$SWA_MODEL")
 fi
-if [ -n "${LOOP_EFFORT:-}" ]; then
-  case "$LOOP_EFFORT" in
-    low|medium|high|xhigh|max) role_args+=(--effort "$LOOP_EFFORT") ;;
-    *) echo "solver-claude: bad LOOP_EFFORT in solver.env: $LOOP_EFFORT" >&2; exit 5 ;;
+if [ -n "${SWA_EFFORT:-}" ]; then
+  case "$SWA_EFFORT" in
+    low|medium|high|xhigh|max) role_args+=(--effort "$SWA_EFFORT") ;;
+    *) echo "solver-claude: bad SWA_EFFORT in solver.env: $SWA_EFFORT" >&2; exit 5 ;;
   esac
 fi
 
-# サブエージェント。solver.env の LOOP_SUBAGENT_MODEL が空でなければ、そのモデルで
+# サブエージェント。solver.env の SWA_SUBAGENT_MODEL が空でなければ、そのモデルで
 # 動く助手を2つ --agents で定義し、Agent ツールで呼ばせる。空なら何も足さない。
 #   scout   読むだけ。既存のコードと参照を探し、パスと署名と短い抜粋だけを返す
 #   editor  中身の決まった書き換えだけをする
@@ -66,12 +66,12 @@ agent_tools=""
 agent_allow=""
 agent_args=()
 agent_note=""
-if [ -n "${LOOP_SUBAGENT_MODEL:-}" ]; then
-  if ! [[ "$LOOP_SUBAGENT_MODEL" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "solver-claude: bad LOOP_SUBAGENT_MODEL in solver.env: $LOOP_SUBAGENT_MODEL" >&2
+if [ -n "${SWA_SUBAGENT_MODEL:-}" ]; then
+  if ! [[ "$SWA_SUBAGENT_MODEL" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "solver-claude: bad SWA_SUBAGENT_MODEL in solver.env: $SWA_SUBAGENT_MODEL" >&2
     exit 5
   fi
-  export CLAUDE_CODE_SUBAGENT_MODEL="$LOOP_SUBAGENT_MODEL"
+  export CLAUDE_CODE_SUBAGENT_MODEL="$SWA_SUBAGENT_MODEL"
   agent_tools=",Agent"
   agent_allow=" Agent(scout) Agent(editor)"
   agent_args=(--agents "$(cat <<EOF
@@ -80,13 +80,13 @@ if [ -n "${LOOP_SUBAGENT_MODEL:-}" ]; then
     "description": "Read-only code search on a small model. Use it to find existing helpers, declarations, call sites and library references across many files instead of reading them yourself. It returns paths, signatures and short excerpts.",
     "prompt": "You search code for the solver of an automated build loop. Use Grep, Glob and Read with absolute paths. Answer exactly what you were asked: file paths with line numbers, declarations and signatures, and only the excerpts that answer the question. Do not paste whole files. Say plainly when you find nothing. You cannot write files.",
     "tools": ["Read", "Grep", "Glob"],
-    "model": "$LOOP_SUBAGENT_MODEL"
+    "model": "$SWA_SUBAGENT_MODEL"
   },
   "editor": {
     "description": "Applies an edit whose exact content you have already decided, on a small model: renames, moving or deleting code, boilerplate you spell out, one change repeated across files. Give it absolute paths and the exact text. Do not give it logic to design.",
     "prompt": "You apply edits for the solver of an automated build loop. Read a file before you Edit or Write it, with absolute paths. Make exactly the change you were given and nothing else. Do not refactor, reformat or add code of your own. If the instruction is ambiguous or the text to replace is not there, change nothing and say so. Reply with the files you changed.",
     "tools": ["Read", "Write", "Edit", "Grep", "Glob"],
-    "model": "$LOOP_SUBAGENT_MODEL"
+    "model": "$SWA_SUBAGENT_MODEL"
   }
 }
 EOF
@@ -128,14 +128,14 @@ SYSTEM_PROMPT="You are the solver in an automated build loop. The user message i
 # --disallowedTools "Bash"
 #     --tools に無い時点で定義されない。上の理由を読み手に示すために明示する。
 #
-# --add-dir /srv/loop/refs
+# --add-dir /srv/swa/refs
 #     持ち込む先のライブラリの参照（36-dotnet.sh）。作業ディレクトリの外なので、
 #     足さないと Read と Grep が届かない。root のもので、読めるが書けない。
 #
 # 上限時間はここで掛ける。ランナーは別 uid で、このプロセスに信号を送れない。
 # `timeout` は 124 で終わる。
 refs_args=()
-[ -d /srv/loop/refs ] && refs_args=(--add-dir /srv/loop/refs)
+[ -d /srv/swa/refs ] && refs_args=(--add-dir /srv/swa/refs)
 set +e
 timeout --kill-after=30 "$LIMIT" claude -p \
   "${role_args[@]}" \

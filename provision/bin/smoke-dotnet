@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # 凍結したフィードだけで、C# のテストがビルドされ、走り、junit のレポートを出すか。
 #
-#     sudo -u runner -H /srv/loop/bin/smoke-dotnet
+#     sudo -u runner -H /srv/swa/bin/smoke-dotnet
 #
 # 36-dotnet.sh がプロビジョニングのたびに流す。ランナーが使う2つの組み合わせを確かめる
-# （loop.py の FRAMEWORKS["csharp"]）。
+# （swa.py の FRAMEWORKS["csharp"]）。
 #
 #   unity    SDK 8。コードは netstandard2.1（Unity が読める形）、テストは net8.0
 #   promete  SDK 10。コードは net10.0 で Promete を参照し、テストも net10.0
@@ -14,7 +14,7 @@
 # 読むので、ロガーの版を変えたときに形が変わっていないかをここで見る。
 set -euo pipefail
 
-TOOLS="${LOOP_DOTNET_TOOLS:-/srv/loop/dotnet}"
+TOOLS="${SWA_DOTNET_TOOLS:-/srv/swa/dotnet}"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
 [ -r "$TOOLS/nuget.config" ] || { echo "smoke-dotnet: no $TOOLS/nuget.config; run 36-dotnet.sh" >&2; exit 2; }

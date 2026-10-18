@@ -1,8 +1,8 @@
-"""`loop now` の JSON を組み立てる。ホストのダッシュボードが SSH で読む。
+"""`swa now` の JSON を組み立てる。ホストのダッシュボードが SSH で読む。
 
 保守ユーザーが sudo なしで流す。ダッシュボードは端末の無い SSH で呼ぶので、
 パスワードを訊けない。台帳のある plan/ は runner だけが読めるので、ここで読むのは
-/srv/loop/logs だけだ。ここは humanw 経由で保守ユーザーが読める。
+/srv/swa/logs だけだ。ここは humanw 経由で保守ユーザーが読める。
 
 今の回のトークン数も、クリティックの指摘も、ログから読む。写しの台帳に届くのは
 コミットのときだけで、設計を書いている途中や、批評の前に止まったときには届かない。
@@ -19,10 +19,10 @@ import time
 
 ROLES = ("planner", "critic", "solver")
 
-# 行の形は loop（finish と step）と loop.py（record_usage と cmd_modules_critique）が決める。
+# 行の形は swa（finish と step）と swa.py（record_usage と cmd_modules_critique）が決める。
 # 変えるときはここも合わせる。
-LOOP_HEADER = re.compile(r"^=== loop (\w+) 開始 \((\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)\)")
-STEP_HEADER = re.compile(r"^--- loop\.py .* \((\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)\)$")
+SWA_HEADER = re.compile(r"^=== swa (\w+) 開始 \((\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)\)")
+STEP_HEADER = re.compile(r"^--- swa\.py .* \((\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)\)$")
 USAGE = re.compile(r"^\[USAGE\] who=(\w+) ")
 FIELD = re.compile(r"(\w+)=(\S+)")
 KINDS = ("input", "cache_write", "cache_read", "output")
@@ -39,7 +39,7 @@ def read(path, parse):
 
 
 def last_result(handle):
-    lines = [line.strip()[4:] for line in handle if line.startswith("=== loop ")]
+    lines = [line.strip()[4:] for line in handle if line.startswith("=== swa ")]
     return lines[-1] if lines else None
 
 
@@ -49,7 +49,7 @@ def stamp(day: str, clock: str) -> str:
 
 
 def project_logs(logs: str, project: str) -> list[str]:
-    """プロジェクトの走行ログを古い順に。名前は loop の start が付ける <project>-<日付>-<時刻>.log。
+    """プロジェクトの走行ログを古い順に。名前は swa の start が付ける <project>-<日付>-<時刻>.log。
 
     <project>-latest.log は同じものへのリンクなので外す。名前は日付と時刻の形で
     照らす。`game-[0-9]*` では、game-2 というプロジェクトのログまで拾う。
@@ -94,10 +94,10 @@ def add_usage(loop: dict, line: str) -> None:
 
 
 def current_loop(paths: list[str]) -> dict | None:
-    """最後の `loop go` から後のログを足し、今の回のトークン数と最後の指摘を返す。
+    """最後の `swa go` から後のログを足し、今の回のトークン数と最後の指摘を返す。
 
-    1回は `loop go` から完了まで。途中の承認、差し戻し、`loop continue` は同じ回に入る。
-    `loop go` のログが無ければ None。
+    1回は `swa go` から完了まで。途中の承認、差し戻し、`swa continue` は同じ回に入る。
+    `swa go` のログが無ければ None。
     """
     loop = None
     for path in paths:
@@ -106,7 +106,7 @@ def current_loop(paths: list[str]) -> dict | None:
                 lines = handle.read().splitlines()
         except OSError:
             continue
-        header = LOOP_HEADER.match(lines[0]) if lines else None
+        header = SWA_HEADER.match(lines[0]) if lines else None
         if header and header.group(1) == "go":
             loop = {"started": stamp(header.group(2), header.group(3)), "calls": 0,
                     "tokens": dict.fromkeys(ROLES, 0),
@@ -159,9 +159,9 @@ def head_branch(repo: str) -> str | None:
 
 
 def projects(logs: str, current: str) -> list[dict]:
-    """箱のプロジェクトの一覧。loop-project.sh の list と同じ見分け方をする。
+    """箱のプロジェクトの一覧。swa-project.sh の list と同じ見分け方をする。
 
-    parked/ は root だけが入れるが、/srv/loop/projects/<名前> は誰でも読めるので、
+    parked/ は root だけが入れるが、/srv/swa/projects/<名前> は誰でも読めるので、
     あるかどうかは分かる。
     """
     root = os.path.join(os.path.dirname(logs), "projects")

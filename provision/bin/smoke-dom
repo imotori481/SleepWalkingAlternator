@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 画面の無い機械は、本当に死んだユーザーインターフェイスを捕まえられるか。
 #
-#     sudo -u runner /srv/loop/bin/smoke-dom
+#     sudo -u runner /srv/swa/bin/smoke-dom
 #
 # Node の道筋全体を支える主張は、DOM は画面なしで動かせるので、「プレイヤーが
 # 押せるものが何も無い」が人間しか気づかないものではなく赤いテストになる、と
@@ -16,7 +16,7 @@
 # 見えるものの中に、画面について意見を持つものが無かったからだ。
 set -euo pipefail
 
-TOOLS=/srv/loop/node
+TOOLS=/srv/swa/node
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 

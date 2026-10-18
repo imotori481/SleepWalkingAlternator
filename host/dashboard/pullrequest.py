@@ -40,9 +40,10 @@ try:
 except ImportError:  # 直接実行したとき: python host/dashboard/pullrequest.py
     from state import design_modules, green_modules, read_jsonl
 
-# 箱が置いた環境のファイルと設計。PR には要らない。docs/COMMANDS.md の手順と同じ。
-REMOVED = ("plan", "docs/spec", "docs/basic", "docs/modules",
-           "conftest.py", "index.html", "vitest.config.mjs")
+# 箱が置いた環境のファイルと、走行の記録と、取り込んだ仕様書。PR には要らない。
+# プランナーが書いた設計書（docs/basic、docs/modules）は作業リポジトリに残す。
+# docs/COMMANDS.md の手順と同じ。
+REMOVED = ("plan", "docs/spec", "conftest.py", "index.html", "vitest.config.mjs")
 # .gitignore は箱が行を足している。親ブランチの版に戻し、無ければ消す。
 GITIGNORE = ".gitignore"
 BASE_KEY = "branch.{}.swaBase"

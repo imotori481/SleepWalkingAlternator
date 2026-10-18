@@ -28,6 +28,10 @@ def commit_files(repo, files, message):
     git(repo, "commit", "-q", "-m", message)
 
 
+# PR に載るファイル。プランナーが書いた設計書は残り、環境と走行の記録と仕様書は落ちる。
+KEPT = [".gitignore", "a.txt", "docs/basic/design.md", "docs/modules/S1.md", "src/game.cs"]
+
+
 class Repositories(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -100,12 +104,12 @@ class Repositories(unittest.TestCase):
 
 
 class Opening(Repositories):
-    def test_the_pr_branch_drops_the_design_and_the_environment(self):
+    def test_the_pr_branch_keeps_the_design_and_drops_the_environment(self):
         result = self.pulls().open(["S1"], "played it")
         self.assertEqual((result["head"], result["base"], result["created"]),
                          ("feat-pr", "develop", True))
         files = git(self.origin, "ls-tree", "-r", "--name-only", "feat-pr").splitlines()
-        self.assertEqual(sorted(files), [".gitignore", "a.txt", "src/game.cs"])
+        self.assertEqual(sorted(files), KEPT)
         self.assertEqual(git(self.origin, "show", "feat-pr:.gitignore"), "*.tmp")
         self.assertEqual(git(self.origin, "rev-parse", "feat-pr^"), self.approved)
 
@@ -140,7 +144,7 @@ class Opening(Repositories):
         self.assertIn("played it", edit[edit.index("--body") + 1])
         self.assertEqual(git(self.origin, "rev-parse", "feat-draft^"), self.approved)
         files = git(self.origin, "ls-tree", "-r", "--name-only", "feat-draft").splitlines()
-        self.assertEqual(sorted(files), [".gitignore", "a.txt", "src/game.cs"])
+        self.assertEqual(sorted(files), KEPT)
 
     def test_a_draft_already_made_ready_is_not_readied_again(self):
         self.gh_open = {"feat-draft": "https://github.com/o/r/pull/3"}
@@ -175,7 +179,7 @@ class Drafting(Repositories):
         self.assertEqual((result["head"], result["green"], result["remaining"]),
                          ("feat-draft", ["S1"], ["S2", "S3"]))
         files = git(self.origin, "ls-tree", "-r", "--name-only", "feat-draft").splitlines()
-        self.assertEqual(sorted(files), [".gitignore", "a.txt", "src/game.cs"])
+        self.assertEqual(sorted(files), KEPT)
         self.assertEqual(git(self.origin, "rev-parse", "feat-draft^"), self.approved)
         create = self.gh_calls[-1]
         self.assertIn("--draft", create)

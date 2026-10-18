@@ -209,12 +209,12 @@ git -C <clone-dir> config branch.<branch>.swaBase <base-branch>
 ```
 
 手で出すときは次のとおり。`<branch>` には、箱が置いた環境のファイル（`conftest.py`、`index.html`、`vitest.config.mjs`、
-`.gitignore` への追記）と設計（`plan/`、`docs/spec/`、`docs/basic/`、`docs/modules/`）がコミットされている。PR には要らないので、別のブランチで
-消してから出す。`<branch>` そのものは消さずに残す。箱はこれからもそこで作業する。
+`.gitignore` への追記）と、走行の記録（`plan/`）と、取り込んだ仕様書（`docs/spec/`）がコミットされている。PR には要らないので、別のブランチで
+消してから出す。プランナーが書いた設計書（`docs/basic/`、`docs/modules/`）は消さずに PR に載せる。`<branch>` そのものは消さずに残す。箱はこれからもそこで作業する。
 
 ```bash
 git switch -c <pr-branch> <branch>
-git rm -r -q --ignore-unmatch plan docs/spec docs/basic docs/modules conftest.py index.html vitest.config.mjs
+git rm -r -q --ignore-unmatch plan docs/spec conftest.py index.html vitest.config.mjs
 git checkout origin/<base-branch> -- .gitignore
 git commit -m "chore: SWAの環境のファイルを除く"
 git push origin <pr-branch>

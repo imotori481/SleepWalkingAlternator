@@ -204,8 +204,9 @@ SSH は3秒に1回までしか流さない。止めるときは `"live": {"enabl
    無ければ断る。`swa-pull` が済んでいないか、`swa-import` で取り込んだプロジェクトではない
 2. 親ブランチを、クローンの `git config branch.<branch>.swaBase` から読む。無ければ断る
 3. `origin` から親ブランチを fetch する
-4. 一時的な index の上で、`swa/<branch>` から `plan`、`docs/spec`、`docs/basic`、`docs/modules`、
+4. 一時的な index の上で、`swa/<branch>` から `plan`、`docs/spec`、
    `conftest.py`、`index.html`、`vitest.config.mjs` を除き、`.gitignore` を親ブランチの版に戻したコミットを作る。
+   プランナーが書いた設計書（`docs/basic`、`docs/modules`）は残す。
    親ブランチに `.gitignore` が無ければ消す
 5. 出す先のブランチを決める。`<branch>-pr` からの PR が開いていればそれを使う。無く、`<branch>-draft` からの
    下書きの PR が開いていれば、その下書きを使う。どちらも無ければ `<branch>-pr`

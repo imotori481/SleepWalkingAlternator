@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from host.dashboard.state import DashboardState, read_jsonl
+from host.dashboard.state import TOKEN_COLUMNS, DashboardState, read_jsonl
 
 
 class DashboardFixture(unittest.TestCase):
@@ -117,6 +117,43 @@ class TokenRuns(DashboardFixture):
                          {"input": 4, "cache_write": 100, "cache_read": 150, "output": 20})
         self.assertEqual(run["tokens"]["critic"], 274)
         self.assertEqual(run["usd"], {"planner": 0.0, "critic": 0.75, "solver": 0.0})
+
+    def test_each_role_keeps_its_tokens_and_cost_by_model(self):
+        # サブエージェントは別のモデルで動く。その分は model_usage にしか出ない。
+        self.ledger(
+            {"ts": "1", "event": "SPEC_IMPORT"},
+            {**usage("solver", input_tokens=4), "models": ["claude-haiku-5-5", "claude-opus-5-5"],
+             "model_usage": {
+                 "claude-opus-5-5": {"inputTokens": 4, "outputTokens": 20, "cacheReadInputTokens": 100,
+                                     "cacheCreationInputTokens": 6, "costUSD": 0.5},
+                 "claude-haiku-5-5": {"inputTokens": 1, "outputTokens": 5, "cacheReadInputTokens": 30,
+                                      "cacheCreationInputTokens": 9, "costUSD": 0.25}}},
+            {**usage("solver", output_tokens=10), "models": ["claude-opus-5-5"], "cost_usd": 0.125},
+            {**usage("planner", output_tokens=3), "models": []},
+        )
+        run = self.state.snapshot()["token_runs"][0]
+        self.assertEqual(run["models"]["solver"], {
+            "claude-opus-5-5": {"tokens": 140, "usd": 0.625},
+            "claude-haiku-5-5": {"tokens": 45, "usd": 0.25}})
+        self.assertEqual(run["models"]["planner"], {"unknown": {"tokens": 3, "usd": 0.0}})
+        self.assertEqual(run["models"]["critic"], {})
+
+    def test_the_stored_run_keeps_its_models(self):
+        self.ledger({"ts": "1", "event": "SPEC_IMPORT"},
+                    {**usage("solver"), "model_usage": {
+                        "claude-haiku-5-5": {"inputTokens": 1, "outputTokens": 5, "costUSD": 0.25}}})
+        before = self.state.snapshot()["token_runs"]
+        (self.project / "plan" / "ledger.jsonl").unlink()
+        self.assertEqual(self.state.snapshot()["token_runs"], before)
+
+    def test_a_stored_row_without_models_has_no_breakdown(self):
+        # models の列を持つ前の控えも読む。
+        columns = [c for c in TOKEN_COLUMNS if c != "models"]
+        (Path(self.temp.name) / "token-history.csv").write_text(
+            ",".join(columns) + "\n" + ",".join(["game", "1", "green", "1"] + ["0"] * (len(columns) - 4))
+            + "\n", encoding="utf-8")
+        runs = self.state.snapshot()["token_runs"]
+        self.assertEqual(runs[0]["models"], {"planner": {}, "critic": {}, "solver": {}})
 
     def test_a_second_spec_import_starts_the_next_loop(self):
         self.ledger(

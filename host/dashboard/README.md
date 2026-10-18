@@ -255,12 +255,13 @@ git -C <clone-dir> config branch.<branch>.loopBase <base-branch>
 ## トークン消費
 
 写しの `plan/ledger.jsonl` にある `USAGE` を、
-`loop go` から完了までの回ごとに足して、2つのグラフにする。横軸はどちらも回。
+`loop go` から完了までの回ごとに足して、3つのグラフにする。横軸はどれも回。
 
 | グラフ | 形 | 縦軸 | 切り替え |
 |---|---|---|---|
 | 役割ごとの消費 | 役割ごとの折れ線 | トークン数か USD | トークン / USD |
 | トークンの種類ごとの消費 | 種類ごとの積み上げ棒 | トークン数 | 全体 / プランナー / クリティック / ソルバー |
+| モデルごとの消費 | モデルの系統ごとの積み上げ棒 | トークン数か USD | トークン / USD と、全体 / プランナー / クリティック / ソルバー |
 
 種類は次の4つ。積み上げの下から並べる。
 
@@ -272,6 +273,14 @@ git -C <clone-dir> config branch.<branch>.loopBase <base-branch>
 | 出力 | `output_tokens` | 思考と、書いたファイル |
 
 USD は `USAGE` の `cost_usd` の和。
+
+モデルごとの消費は `USAGE` の `model_usage` から数える。サブエージェントのモデルの分もここに出る。
+
+- トークン数は `inputTokens`、`outputTokens`、`cacheReadInputTokens`、`cacheCreationInputTokens` の和。USD は `costUSD`
+- `model_usage` の無い記録は、`models` が1つならそのモデルに、それ以外は不明として全部を付ける
+- 積み上げは系統（Opus、Sonnet、Haiku、Fable、その他）でまとめる。不明と、名前に系統の語が無いモデルはその他に入る
+- ツールチップは系統の中の個々のモデルを出す
+- 箱の今の回はモデルごとを数えない。同じ回の写しがあれば写しの値を残す
 
 読む台帳は、写しの置き場の直下とその1段下にある全部。`loop-pull` が書く `project`、
 `projects\<name>`、`runs\<name>` がこれに当たる。置き場は既定で `--project` の親で、
@@ -288,7 +297,8 @@ USD は `USAGE` の `cost_usd` の和。
 - 回は開始時刻で見分け、開始時刻の順に番号を振る。同じ回が2つの写しにあれば、
   呼び出しの多いほうを採る。`project` と `projects\<name>` に同じ回があるときは後者の名前を出す
 - 控えの列は `source`、`started`、`outcome`、`calls` と、役ごとの `<役>_input`、
-  `<役>_cache_write`、`<役>_cache_read`、`<役>_output`、`<役>_usd`
+  `<役>_cache_write`、`<役>_cache_read`、`<役>_output`、`<役>_usd`、`models`。
+  `models` は役ごとモデルごとのトークン数と USD を JSON で持つ。この列の無い行はモデルごとの内訳の無い回になる
 - 結果は最後に起きたものを出す。`ALL_GREEN` なら完了、`RUN_ALL_STOP` なら停止、
   次の `SPEC_IMPORT` が来た回は中断、どれでもなければ未完了
 - トークン数は入力（キャッシュの読み書きを含む）と出力の和。ランナーが画面に出す

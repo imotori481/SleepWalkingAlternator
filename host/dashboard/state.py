@@ -103,10 +103,40 @@ def usage_usd(record: dict[str, Any]) -> float:
     return float(value) if isinstance(value, (int, float)) else 0.0
 
 
+# modelUsage の1モデル分の中で、トークンを持つ項目と USD を持つ項目。
+MODEL_TOKEN_KEYS = ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens")
+MODEL_USD_KEY = "costUSD"
+# 内訳が無く、どのモデルの分か決められない消費の名前。
+UNKNOWN_MODEL = "unknown"
+
+
+def _number(value: Any) -> float:
+    return value if isinstance(value, (int, float)) else 0
+
+
+def usage_models(record: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """USAGE 1件の、モデルごとのトークン数と USD。
+
+    台帳の model_usage があればそれを使う。サブエージェントの分はここにしか出ない。
+    無い古い記録は、モデルが1つならそのモデルに、それ以外は unknown に全部を付ける。
+    """
+    model_usage = record.get("model_usage")
+    if isinstance(model_usage, dict):
+        per_model = {name: value for name, value in model_usage.items() if isinstance(value, dict)}
+        if per_model:
+            return {name: {"tokens": int(sum(_number(value.get(key)) for key in MODEL_TOKEN_KEYS)),
+                           "usd": float(_number(value.get(MODEL_USD_KEY)))}
+                    for name, value in per_model.items()}
+    models = record.get("models")
+    name = models[0] if isinstance(models, list) and len(models) == 1 else UNKNOWN_MODEL
+    return {str(name): {"tokens": usage_tokens(record), "usd": usage_usd(record)}}
+
+
 def token_runs(ledger: list[dict[str, Any]], source: str = "") -> list[dict[str, Any]]:
     """1つの台帳を、loop go から完了までの回に分け、回ごと役ごとのトークン数を足す。
 
     tokens は役ごとの合計、kinds は役ごとの種類別、usd は役ごとの cost_usd の和。
+    models は役ごとモデルごとのトークン数と USD。
 
     1回は SPEC_IMPORT から始まり、次の SPEC_IMPORT の手前で終わる。設計と批評は
     run --all より前に流れるので、RUN_ALL_START では区切らない。SPEC_IMPORT より前に
@@ -126,12 +156,17 @@ def token_runs(ledger: list[dict[str, Any]], source: str = "") -> list[dict[str,
                        "outcome": "running", "calls": 0,
                        "tokens": dict.fromkeys(ROLES, 0),
                        "kinds": {role: dict.fromkeys(KINDS, 0) for role in ROLES},
-                       "usd": dict.fromkeys(ROLES, 0.0)}
+                       "usd": dict.fromkeys(ROLES, 0.0),
+                       "models": {role: {} for role in ROLES}}
             runs.append(current)
         if event == "USAGE" and record.get("who") in ROLES:
             who = record["who"]
             for kind, value in usage_kinds(record).items():
                 current["kinds"][who][kind] += value
+            for name, value in usage_models(record).items():
+                kept = current["models"][who].setdefault(name, {"tokens": 0, "usd": 0.0})
+                kept["tokens"] += value["tokens"]
+                kept["usd"] += value["usd"]
             current["tokens"][who] += usage_tokens(record)
             current["usd"][who] += usage_usd(record)
             current["calls"] += 1
@@ -166,7 +201,7 @@ def ledger_source(root: Path, path: Path) -> str:
 # ブランチを切り替えるか、今のプロジェクトが替わると読めなくなる。
 TOKEN_HISTORY = "token-history.csv"
 TOKEN_COLUMNS = ["source", "started", "outcome", "calls"] + [
-    f"{role}_{name}" for role in ROLES for name in (*KINDS, "usd")]
+    f"{role}_{name}" for role in ROLES for name in (*KINDS, "usd")] + ["models"]
 _history_lock = threading.Lock()
 
 
@@ -176,7 +211,29 @@ def run_row(run: dict[str, Any]) -> dict[str, Any]:
         for kind in KINDS:
             row[f"{role}_{kind}"] = run["kinds"][role][kind]
         row[f"{role}_usd"] = run["usd"][role]
+    row["models"] = json.dumps(run["models"], ensure_ascii=False, sort_keys=True)
     return row
+
+
+def row_models(value: str | None) -> dict[str, dict[str, dict[str, Any]]]:
+    """控えの models の列。モデルの名前は回ごとに変わるので、JSON で1列に持つ。
+
+    列の無い古い控えと、読めない値は、内訳の無い回にする。
+    """
+    try:
+        stored = json.loads(value or "{}")
+    except json.JSONDecodeError:
+        stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
+    models = {}
+    for role in ROLES:
+        by_model = stored.get(role)
+        models[role] = {name: {"tokens": int(_number(item.get("tokens"))),
+                               "usd": float(_number(item.get("usd")))}
+                        for name, item in (by_model.items() if isinstance(by_model, dict) else ())
+                        if isinstance(item, dict)}
+    return models
 
 
 def row_run(row: dict[str, str]) -> dict[str, Any]:
@@ -184,7 +241,8 @@ def row_run(row: dict[str, str]) -> dict[str, Any]:
     return {"source": row["source"], "started": row["started"], "outcome": row["outcome"],
             "calls": int(row["calls"]), "kinds": kinds,
             "tokens": {role: sum(kinds[role].values()) for role in ROLES},
-            "usd": {role: float(row[f"{role}_usd"]) for role in ROLES}}
+            "usd": {role: float(row[f"{role}_usd"]) for role in ROLES},
+            "models": row_models(row.get("models"))}
 
 
 def read_token_history(path: Path) -> list[dict[str, Any]]:

@@ -99,6 +99,15 @@ const KINDS = [
   {key: "input", label: "入力", color: "#d55181"},
   {key: "output", label: "出力", color: "#008300"},
 ];
+// モデルは系統でまとめて積む。色は系統に付く。名前に系統の語が無いモデルと、
+// どのモデルの分か分からない消費はその他に入れる。
+const FAMILIES = [
+  {key: "opus", label: "Opus", color: "#3987e5"},
+  {key: "sonnet", label: "Sonnet", color: "#d95926"},
+  {key: "haiku", label: "Haiku", color: "#199e70"},
+  {key: "fable", label: "Fable", color: "#9085e9"},
+  {key: "other", label: "その他", color: "#8a8984"},
+];
 const OUTCOME = {green: "完了", stopped: "停止", running: "未完了", abandoned: "中断", active: "走行中"};
 const SVG = "http://www.w3.org/2000/svg";
 const compact = new Intl.NumberFormat("ja-JP", {notation: "compact", maximumFractionDigits: 1});
@@ -111,6 +120,8 @@ const METRIC = {
 };
 // 役割のグラフに出す量と、種類のグラフに出す役。all は3役の和。
 let roleMetric = "tokens", kindRole = "all", shownRuns = [];
+// モデルのグラフに出す量と役。
+let modelMetric = "tokens", modelRole = "all";
 
 function svg(tag, attributes) {
   const element = document.createElementNS(SVG, tag);
@@ -158,6 +169,7 @@ function drawTokens() {
   shownRuns = runs;
   renderRoles(runs);
   renderKinds(runs);
+  renderModels(runs);
 }
 
 // ボタンの組の1つを押された状態にし、その値を渡す。
@@ -563,7 +575,102 @@ function renderKinds(runs) {
   chart.append(root, tip);
 }
 
-const STEP_STATE = {green: "完了", active: "作業中", pending: "未着手"};
+function modelFamily(name) {
+  return FAMILIES.find(family => family.key !== "other" && name.toLowerCase().includes(family.key)) || FAMILIES.at(-1);
+}
+
+// 選んだ役の、モデルごとと系統ごとの量。内訳の無い回は null。
+function modelValues(run) {
+  if (!run.models) return null;
+  const roles = modelRole === "all" ? ROLES.map(role => role.key) : [modelRole];
+  const byModel = {};
+  for (const role of roles) {
+    for (const [name, value] of Object.entries(run.models[role] || {})) {
+      byModel[name] = (byModel[name] || 0) + (value?.[modelMetric] || 0);
+    }
+  }
+  const names = Object.keys(byModel);
+  if (!names.length) return null;
+  const families = Object.fromEntries(FAMILIES.map(family => [family.key, 0]));
+  for (const name of names) families[modelFamily(name).key] += byModel[name];
+  return {byModel, families, total: names.reduce((sum, name) => sum + byModel[name], 0)};
+}
+
+function renderModels(runs) {
+  const metric = METRIC[modelMetric];
+  renderLegend("#model-legend", FAMILIES);
+  const values = runs.map(modelValues);
+
+  const head = document.querySelector("#model-head"); head.replaceChildren();
+  for (const label of ["回", "写し", "開始", ...FAMILIES.map(family => family.label)]) head.append(text("th", label));
+  const table = document.querySelector("#model-table"); table.replaceChildren();
+  runs.map((run, index) => [run, values[index]]).reverse().forEach(([run, value]) => {
+    const row = document.createElement("tr");
+    row.append(text("td", run.run), text("td", run.source), text("td", run.started),
+               ...FAMILIES.map(family => text("td", value ? metric.exact(value.families[family.key]) : "—")));
+    table.append(row);
+  });
+
+  const chart = document.querySelector("#model-chart"); chart.replaceChildren();
+  if (!values.some(Boolean)) { chart.append(text("p", "モデルごとの記録がまだありません。", "why")); return; }
+
+  const {width, height, left, top, bottom} = CHART, right = 16, gap = 2;
+  const plotWidth = width - left - right, plotHeight = height - top - bottom;
+  const max = niceMax(Math.max(...values.map(value => value?.total || 0)));
+  const band = plotWidth / runs.length, barWidth = Math.min(36, band * 0.6);
+  const x = index => left + band * (index + 0.5);
+  const y = value => top + plotHeight - value / max * plotHeight;
+  const root = svg("svg", {viewBox: `0 0 ${width} ${height}`, role: "img",
+                           "aria-label": `run --all の回ごとの、モデル別の消費（${metric.label}）`});
+  drawAxes(root, runs, max, metric.axis, x, y, right);
+
+  const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true;
+  const bars = runs.map((run, index) => {
+    const group = svg("g", {class: "bar"});
+    let base = 0;
+    for (const family of FAMILIES) {
+      const value = values[index]?.families[family.key] || 0;
+      if (!value) continue;
+      // 下の段との間に、面の色の隙間を2px空ける。
+      const segment = y(base) - y(base + value) - (base ? gap : 0);
+      if (segment > 0) {
+        group.append(svg("rect", {x: x(index) - barWidth / 2, y: y(base + value), width: barWidth,
+                                  height: segment, fill: family.color}));
+      }
+      base += value;
+    }
+    root.append(group);
+    return group;
+  });
+
+  runs.forEach((run, index) => {
+    const hit = svg("rect", {x: left + band * index, y: top, width: band, height: plotHeight, fill: "transparent"});
+    hit.onmouseenter = () => {
+      bars.forEach((bar, other) => bar.classList.toggle("dim", other !== index));
+      tipHeading(tip, run);
+      const value = values[index];
+      if (!value) {
+        tip.append(text("p", "モデルごとの内訳がありません", "why"));
+      } else {
+        // 系統の中の個々のモデルも出す。積みの上の系統から並べる。
+        const names = Object.keys(value.byModel).sort((a, b) =>
+          FAMILIES.indexOf(modelFamily(b)) - FAMILIES.indexOf(modelFamily(a)) || a.localeCompare(b));
+        for (const name of names) {
+          tip.append(tipLine(modelFamily(name).color, name === "unknown" ? "不明" : name,
+                             metric.exact(value.byModel[name])));
+        }
+        tip.append(tipLine("", "合計", metric.exact(value.total)));
+      }
+      placeTip(chart, root, tip, x(index));
+    };
+    hit.onmouseleave = () => { tip.hidden = true; bars.forEach(bar => bar.classList.remove("dim")); };
+    root.append(hit);
+  });
+  chart.style.position = "relative";
+  chart.append(root, tip);
+}
+
+const STEP_STATE ={green: "完了", active: "作業中", pending: "未着手"};
 
 function text(tag, value, className) {
   const element = document.createElement(tag);
@@ -965,4 +1072,6 @@ async function start() {
 document.querySelector("#refresh").onclick = refresh;
 toggle("#role-metric", value => { roleMetric = value; renderRoles(shownRuns); });
 toggle("#kind-role", value => { kindRole = value; renderKinds(shownRuns); });
+toggle("#model-metric", value => { modelMetric = value; renderModels(shownRuns); });
+toggle("#model-role", value => { modelRole = value; renderModels(shownRuns); });
 start().catch(error => { document.querySelector("#phase").textContent = error.message; });

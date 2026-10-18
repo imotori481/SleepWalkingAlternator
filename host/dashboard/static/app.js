@@ -856,7 +856,27 @@ async function loadSettings() {
   if (value.languages.includes(chosen)) language.value = chosen;
   frameworksByLanguage = value.frameworks || {};
   fillFrameworks();
-  for (const [role, current] of Object.entries(value.roles)) box.append(modelRow(role, current, value.efforts));
+  const rows = [];
+  for (const [role, current] of Object.entries(value.roles)) box.append(modelRow(role, current, value.efforts, rows));
+  if (session.scope !== "local" || !rows.length) return;
+  const save = document.createElement("button"); save.textContent = "保存";
+  save.onclick = () => saveModels(save, rows);
+  const actions = document.createElement("div"); actions.className = "actions"; actions.append(save);
+  box.append(actions);
+}
+
+// 変えた役だけを1つずつ書き換える。箱への要求は役ごとに1つ。
+async function saveModels(save, rows) {
+  const changed = rows.filter(row => JSON.stringify(row.body()) !== JSON.stringify(row.saved));
+  if (!changed.length) { alert("変えた役がありません。"); return; }
+  save.disabled = true;
+  try {
+    for (const row of changed) {
+      try { await api("/api/model", {method: "POST", body: JSON.stringify(row.body())}); }
+      catch (error) { throw new Error(`${ROLE_LABEL[row.role] || row.role}: ${error.message}`); }
+    }
+  } catch (error) { alert(error.message); }
+  await loadSettings();
 }
 
 // 言語ごとの持ち込む先。先頭が言語の既定。
@@ -869,7 +889,8 @@ function fillFrameworks() {
   if (names.includes(chosen)) select.value = chosen;
 }
 
-function modelRow(role, current, efforts) {
+// 1つの役の行。書き換えられる行は rows に、今の値と保存した値を足す。
+function modelRow(role, current, efforts, rows) {
   const row = document.createElement("div"); row.className = "model-row";
   row.append(text("span", ROLE_LABEL[role] || role));
   if (!current) { row.append(text("p", `/etc/swa/${role}.env がありません`, "why")); return row; }
@@ -892,17 +913,12 @@ function modelRow(role, current, efforts) {
     if (subagent) subagent.disabled = true;
     return row;
   }
-  const save = document.createElement("button"); save.textContent = "保存";
-  save.onclick = async () => {
-    save.disabled = true;
-    const body = {role, model: model.value.trim(), effort: effort.value};
-    if (subagent) body.subagent = subagent.value.trim();
-    try {
-      await api("/api/model", {method: "POST", body: JSON.stringify(body)});
-      await loadSettings();
-    } catch (error) { alert(error.message); save.disabled = false; }
+  const body = () => {
+    const value = {role, model: model.value.trim(), effort: effort.value};
+    if (subagent) value.subagent = subagent.value.trim();
+    return value;
   };
-  row.append(save);
+  rows.push({role, body, saved: body()});
   return row;
 }
 

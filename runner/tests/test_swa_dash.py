@@ -6,6 +6,8 @@
     python3 -m unittest discover -s runner/tests
 """
 
+import contextlib
+import io
 import json
 import os
 import sys
@@ -86,6 +88,22 @@ class Request(unittest.TestCase):
         self.refused({"action": "model", "role": "solver", "model": "", "effort": "ultra"})
         self.refused({"action": "model", "role": "runner", "model": "", "effort": ""})
 
+    def test_a_subagent_line_is_passed_only_when_the_request_names_one(self):
+        self.assertEqual(
+            self.parse({"action": "model", "role": "planner", "model": "", "effort": "",
+                        "subagent": "claude-haiku-5-5"}),
+            ["model", "planner", "", "", "claude-haiku-5-5"])
+        self.assertEqual(
+            self.parse({"action": "model", "role": "solver", "model": "", "effort": "",
+                        "subagent": ""}),
+            ["model", "solver", "", "", ""])
+        # 起動スクリプトは [ ] を通さないので、モデル欄より狭い。
+        for model in ("claude-opus-5-5[1m]", "x; id", "$(id)", "-v", "a b", "a\nb", None, 5):
+            self.refused({"action": "model", "role": "solver", "model": "", "effort": "",
+                          "subagent": model})
+        self.refused({"action": "model", "role": "critic", "model": "", "effort": "",
+                      "subagent": "claude-haiku-5-5"})
+
     def test_an_import_passes_the_project_the_branch_and_the_fences(self):
         self.assertEqual(self.parse({"action": "init", "project": "game", "branch": "swa/x"}),
                          ["init", "game", "swa/x", "", ""])
@@ -148,11 +166,13 @@ class RoleSettings(unittest.TestCase):
         return (self.etc / f"{role}.env").read_text(encoding="utf-8")
 
     def test_settings_carry_the_model_and_effort_and_never_the_token(self):
-        self.env("planner", TOKEN, 'SWA_MODEL="claude-opus-5-5"', "SWA_EFFORT=xhigh")
+        self.env("planner", TOKEN, 'SWA_MODEL="claude-opus-5-5"', "SWA_EFFORT=xhigh",
+                 "SWA_SUBAGENT_MODEL=claude-haiku-5-5")
         (self.etc / "critic.env").unlink()
         value = swa_dash.settings(str(self.etc))
-        self.assertEqual(value["roles"]["planner"], {"model": "claude-opus-5-5", "effort": "xhigh"})
-        self.assertEqual(value["roles"]["solver"], {"model": "", "effort": ""})
+        self.assertEqual(value["roles"]["planner"], {"model": "claude-opus-5-5", "effort": "xhigh",
+                                                     "subagent": "claude-haiku-5-5"})
+        self.assertEqual(value["roles"]["solver"], {"model": "", "effort": "", "subagent": ""})
         self.assertIsNone(value["roles"]["critic"])
         self.assertIn("csharp", value["languages"])
         # 持ち込む先は言語ごとで、先頭が既定。ダッシュボードはそれを既定と書く。
@@ -166,6 +186,34 @@ class RoleSettings(unittest.TestCase):
                          "# 資格情報\n" + TOKEN + "\n\nSWA_MODEL=claude-sonnet-5-5\nSWA_EFFORT=medium\n")
         self.assertEqual(swa_dash.read_role(str(self.etc / "solver.env")),
                          {"model": "claude-sonnet-5-5", "effort": "medium"})
+
+    def test_the_critic_has_no_subagent_field(self):
+        self.env("critic", TOKEN, "SWA_MODEL=", "SWA_EFFORT=", "SWA_SUBAGENT_MODEL=x")
+        self.assertEqual(swa_dash.settings(str(self.etc))["roles"]["critic"],
+                         {"model": "", "effort": ""})
+
+    def test_a_subagent_rewrites_its_line_and_keeps_the_rest(self):
+        self.env("solver", TOKEN, "SWA_MODEL=", "SWA_EFFORT=", "SWA_SUBAGENT_MODEL=")
+        swa_dash.set_model(str(self.etc), "solver", "claude-sonnet-5-5", "", "claude-haiku-5-5")
+        self.assertEqual(self.read("solver"), TOKEN + "\nSWA_MODEL=claude-sonnet-5-5\nSWA_EFFORT=\n"
+                         "SWA_SUBAGENT_MODEL=claude-haiku-5-5\n")
+        swa_dash.set_model(str(self.etc), "solver", "", "", "")
+        self.assertEqual(self.read("solver"), TOKEN + "\nSWA_MODEL=\nSWA_EFFORT=\nSWA_SUBAGENT_MODEL=\n")
+
+    def test_without_a_subagent_its_line_is_left_alone(self):
+        self.env("planner", TOKEN, "SWA_SUBAGENT_MODEL=claude-haiku-5-5")
+        swa_dash.set_model(str(self.etc), "planner", "", "high")
+        self.assertEqual(self.read("planner"), TOKEN + "\nSWA_SUBAGENT_MODEL=claude-haiku-5-5\n"
+                         "SWA_MODEL=\nSWA_EFFORT=high\n")
+        swa_dash.set_model(str(self.etc), "critic", "", "", "")
+        self.assertNotIn("SWA_SUBAGENT_MODEL", self.read("critic"))
+
+    def test_the_command_line_takes_the_subagent_as_a_fifth_value(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = swa_dash.main(["swa_dash.py", "set-model", str(self.etc), "solver",
+                                  "", "", "claude-haiku-5-5"])
+        self.assertEqual(code, 0)
+        self.assertIn("SWA_SUBAGENT_MODEL=claude-haiku-5-5\n", self.read("solver"))
 
     def test_missing_lines_are_added(self):
         self.env("critic", TOKEN)

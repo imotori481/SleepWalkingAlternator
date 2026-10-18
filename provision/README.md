@@ -391,8 +391,9 @@ sudo nano /etc/swa/solver.env
 | `CLAUDE_CODE_OAUTH_TOKEN=` | `claude setup-token` が表示したトークン |
 | `SWA_MODEL=` | 使うモデル。空ならアカウントの既定。例: planner は `claude-opus-5-5`、solver と critic は `claude-sonnet-5` |
 | `SWA_EFFORT=` | `low` / `medium` / `high` / `xhigh` / `max`。空なら既定 |
+| `SWA_SUBAGENT_MODEL=` | planner と solver だけ。助手のモデル。空なら助手を使わない。例: `claude-haiku-5-5` |
 
-`SWA_MODEL` と `SWA_EFFORT` は、ダッシュボードの「役のモデル」からも変えられる。
+`SWA_MODEL`、`SWA_EFFORT`、`SWA_SUBAGENT_MODEL` は、ダッシュボードの「役のモデル」からも変えられる。
 
 planner と critic も同じ手順で埋める。3役とも同じサブスクリプションの利用枠を使う。
 トークンが空の役があると、プロビジョニングの最後に `資格情報がまだ無い役` として名前が出る。

@@ -250,9 +250,11 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
                     elif path == "/api/project/remove":
                         message = live.remove_project(str(body.get("project", "")))
                     else:
+                        subagent = body.get("subagent")
                         message = live.set_model(str(body.get("role", "")),
                                                  str(body.get("model", "")),
-                                                 str(body.get("effort", "")))
+                                                 str(body.get("effort", "")),
+                                                 None if subagent is None else str(subagent))
                     self._json({"message": message}, HTTPStatus.ACCEPTED)
                     return
                 if path == "/api/pull":

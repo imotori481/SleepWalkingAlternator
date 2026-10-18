@@ -136,16 +136,23 @@ class Live:
         return value
 
     def settings(self) -> dict[str, Any]:
-        """役ごとの SWA_MODEL と SWA_EFFORT、選べる effort と言語。資格情報は返らない。"""
+        """役ごとの SWA_MODEL と SWA_EFFORT、planner と solver の SWA_SUBAGENT_MODEL、
+        選べる effort と言語。資格情報は返らない。"""
         return self._read("settings")
 
     def design(self) -> dict[str, Any]:
         """段、基本設計、詳細設計、受け入れ条件、インターフェースチェック、批評、止まった理由。"""
         return self._read("design")
 
-    def set_model(self, role: str, model: str, effort: str) -> str:
-        """/etc/swa/<役>.env の SWA_MODEL と SWA_EFFORT を書き換える。"""
-        return self._dash({"action": "model", "role": role, "model": model, "effort": effort})
+    def set_model(self, role: str, model: str, effort: str, subagent: str | None = None) -> str:
+        """/etc/swa/<役>.env の SWA_MODEL と SWA_EFFORT を書き換える。
+
+        subagent を渡すと SWA_SUBAGENT_MODEL も書き換える。None なら触れない。
+        """
+        request = {"action": "model", "role": role, "model": model, "effort": effort}
+        if subagent is not None:
+            request["subagent"] = subagent
+        return self._dash(request)
 
     def _ask(self) -> dict[str, Any]:
         try:

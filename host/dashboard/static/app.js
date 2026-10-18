@@ -743,7 +743,7 @@ const ROLE_LABEL = Object.fromEntries(ROLES.map(role => [role.key, role.label]))
 const PROJECT_STATE = {current: "使用中", parked: "退避中", new: "未構築"};
 // モデル欄の候補。ここに無い名前も打てる。
 const MODEL_OPTIONS = ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5",
-                       "claude-haiku-4-5-20251001", "opus", "sonnet", "haiku"];
+                       "claude-haiku-5-5", "claude-haiku-4-5-20251001", "opus", "sonnet", "haiku"];
 let liveState = {running: false, switching: false, reachable: false}, drawnProjects = "";
 
 // 箱への操作を1つ流す。押したボタンは終わるまで押せなくする。
@@ -878,14 +878,27 @@ function modelRow(role, current, efforts) {
   const effort = document.createElement("select");
   effort.append(new Option("既定", ""), ...efforts.map(name => new Option(name, name)));
   effort.value = current.effort;
-  row.append(model, effort);
-  if (session.scope !== "local") { model.disabled = effort.disabled = true; return row; }
+  // 助手の欄は settings が subagent を返す役（planner と solver）にだけ出す。
+  let subagent = null;
+  if ("subagent" in current) {
+    subagent = document.createElement("input");
+    subagent.value = current.subagent; subagent.placeholder = "助手なし";
+    subagent.title = "SWA_SUBAGENT_MODEL。探索と機械的な書き換えを回す助手のモデル";
+    subagent.setAttribute("list", "model-options");
+  }
+  row.append(model, effort, subagent || document.createElement("div"));
+  if (session.scope !== "local") {
+    model.disabled = effort.disabled = true;
+    if (subagent) subagent.disabled = true;
+    return row;
+  }
   const save = document.createElement("button"); save.textContent = "保存";
   save.onclick = async () => {
     save.disabled = true;
+    const body = {role, model: model.value.trim(), effort: effort.value};
+    if (subagent) body.subagent = subagent.value.trim();
     try {
-      await api("/api/model", {method: "POST", body: JSON.stringify(
-        {role, model: model.value.trim(), effort: effort.value})});
+      await api("/api/model", {method: "POST", body: JSON.stringify(body)});
       await loadSettings();
     } catch (error) { alert(error.message); save.disabled = false; }
   };

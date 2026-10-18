@@ -293,7 +293,7 @@ swa go <spec> --language cpp
 | 止める | 走行 | `swa stop` |
 | 途中で止まったモジュールを最後のコミットに戻す | 走行 | `swa raw reset <module>` |
 | プロジェクトを切り替える | プロジェクト | `swa project use <project>` |
-| 役ごとのモデルと effort を変える | 役のモデル | `/etc/swa/<役>.env` の `SWA_MODEL` と `SWA_EFFORT` を書き換える |
+| 役ごとのモデルと effort、助手のモデルを変える | 役のモデル | `/etc/swa/<役>.env` の `SWA_MODEL` と `SWA_EFFORT`、`SWA_SUBAGENT_MODEL` を書き換える |
 | 写しを最新にする | ホストの写し | `swa-pull` |
 | 途中の成果を下書きの PR に出す | ホストの写し | `swa-pr` |
 | 既存リポジトリのブランチを取り込む | 取り込み | `swa-import <project> <repo-url> <branch> [<base-branch>]` |

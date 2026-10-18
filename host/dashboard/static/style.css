@@ -60,7 +60,7 @@ details { margin-top: 14px; } summary { cursor: pointer; color: #9bb7a8; font-si
 .panel input, .panel select { width: 100%; padding: 8px 10px; color: inherit; background: #09110f; border: 1px solid #3d5d51; border-radius: 8px; font: inherit; }
 .panel input[type="file"] { padding: 6px; }
 .form .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.model-row { display: grid; grid-template-columns: 7rem 1fr 7rem auto; gap: 8px; align-items: center; }
+.model-row { display: grid; grid-template-columns: 7rem 1fr 7rem 1fr auto; gap: 8px; align-items: center; }
 .model-row span { letter-spacing: 0; text-transform: none; color: #edf5ef; font-size: .9rem; }
 .table-wrap.flat { padding: 0; border: 0; background: transparent; } .table-wrap.flat td button { padding: 4px 10px; font-size: .82rem; }
 .table-wrap.flat td button + button { margin-left: 6px; }

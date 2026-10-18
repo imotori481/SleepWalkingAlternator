@@ -142,6 +142,23 @@ if not exist "%DEST%\.git" (
 )
 
 echo   %NAME%  ^-^>  %DEST%   [fetch]
+
+REM A copy cloned while the sandbox was still called loop has origin at the
+REM old host alias and /srv/loop. Neither exists after 08-rename.sh, so the
+REM fetch below would fail and every later run would stop here, leaving the
+REM live mirror on whatever project it held last. Only that prefix is
+REM rewritten; the rest of the URL is kept as it is.
+set "ORIGIN="
+for /f "delims=" %%U in ('git -C "%DEST%" remote get-url origin') do set "ORIGIN=%%U"
+if defined ORIGIN (
+  set "MOVED=!ORIGIN:ssh://loop-runner/srv/loop/=ssh://%SSHHOST%/srv/swa/!"
+  if not "!MOVED!"=="!ORIGIN!" (
+    echo      origin: !ORIGIN! -^> !MOVED!
+    git -C "%DEST%" remote set-url origin "!MOVED!"
+    if errorlevel 1 exit /b 1
+  )
+)
+
 git -C "%DEST%" fetch --prune --prune-tags --tags --force origin
 if errorlevel 1 exit /b 1
 

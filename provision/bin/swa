@@ -339,7 +339,7 @@ cmd_dash() {
   case "$action" in
     settings) python3 "$DASH_PY" settings "$ROLE_ENV" ;;
     design)   python3 "$DASH_PY" design "$SWA/project" ;;
-    model)    python3 "$DASH_PY" set-model "$ROLE_ENV" "${req[1]}" "${req[2]}" "${req[3]}" ;;
+    model)    python3 "$DASH_PY" set-model "$ROLE_ENV" "${req[@]:1}" ;;
     go)       cmd_go "$work/spec.md" --language "${req[1]}" --framework "${req[2]}" ;;
     approve)  cmd_approve ;;
     reject)   cmd_reject "$(cat "$work/comment.md")" ;;

@@ -4,7 +4,8 @@
 要求は標準入力の JSON 1つで、コマンドラインには何も載らない。ここで形と値を確かめ、
 確かめた値だけを1行ずつ返す。`swa` はその行で動く。
 
-役の設定は /etc/swa/<役>.env の SWA_MODEL と SWA_EFFORT の行だけを読み書きする。
+役の設定は /etc/swa/<役>.env の SWA_MODEL と SWA_EFFORT、planner と solver では
+SWA_SUBAGENT_MODEL の行だけを読み書きする。
 同じファイルにある資格情報は読み出さず、書き換えもしない。起動スクリプトはこのファイルを
 シェルで読み込むので、書く値は使える文字を絞ってから書く。
 
@@ -13,7 +14,7 @@
 
     python3 swa_dash.py request <作業ディレクトリ>   # 標準入力に要求の JSON
     python3 swa_dash.py settings <ディレクトリ>
-    python3 swa_dash.py set-model <ディレクトリ> <役> <モデル> <effort>
+    python3 swa_dash.py set-model <ディレクトリ> <役> <モデル> <effort> [<助手のモデル>]
     python3 swa_dash.py design <作業ツリー>
 """
 
@@ -34,6 +35,10 @@ ROLES = ("planner", "critic", "solver")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 # --model に渡す名前。シェルで読み込まれるので、空白、引用符、$ などは通さない。
 MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,99}")
+# 助手を持てる役。critic はツールが Read と Write だけなので持たない（45-agent-invoke.sh）。
+SUBAGENT_ROLES = ("planner", "solver")
+# 助手のモデル。planner-run と solver-claude が受け付ける英数字と . _ - だけを通す。
+SUBAGENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 # swa-project.sh の valid_name と同じ規則。
 PROJECT = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 # 取り込むブランチ。行にもオプションにもならない文字だけを通す。git の規則
@@ -44,6 +49,7 @@ MAX_SPEC = 200_000
 # 差し戻しのコメント。ダッシュボードの欄は 4000 字までだが、箱の側でも絞る。
 MAX_COMMENT = 20_000
 KEYS = {"model": "SWA_MODEL", "effort": "SWA_EFFORT"}
+SUBAGENT_KEY = "SWA_SUBAGENT_MODEL"
 
 
 class Refused(Exception):
@@ -60,6 +66,21 @@ def check_effort(value: object) -> str:
     if value not in ("", *EFFORTS):
         raise Refused(f"effort は {' / '.join(EFFORTS)} のどれかか空: {value!r}")
     return value
+
+
+def check_subagent(role: str, value: object) -> str:
+    if not isinstance(value, str) or (value and not SUBAGENT.fullmatch(value)):
+        raise Refused(f"助手のモデルの名前に使えない: {value!r}")
+    if value and role not in SUBAGENT_ROLES:
+        raise Refused(f"{role} は助手を持たない")
+    return value
+
+
+def role_keys(role: str) -> dict[str, str]:
+    """役の .env で読み書きする欄と行の名前。"""
+    if role in SUBAGENT_ROLES:
+        return {**KEYS, "subagent": SUBAGENT_KEY}
+    return dict(KEYS)
 
 
 def check_role(value: object) -> str:
@@ -106,8 +127,13 @@ def parse(request: object, work: str) -> list[str]:
     if action in ("settings", "design", "continue", "stop", "approve"):
         return [action]
     if action == "model":
-        return ["model", check_role(request.get("role")), check_model(request.get("model")),
-                check_effort(request.get("effort"))]
+        role = check_role(request.get("role"))
+        lines = ["model", role, check_model(request.get("model")),
+                 check_effort(request.get("effort"))]
+        # 助手の欄が無い要求は SWA_SUBAGENT_MODEL の行に触れない。行も足さない。
+        if "subagent" in request:
+            lines.append(check_subagent(role, request["subagent"]))
+        return lines
     if action in ("use", "remove"):
         return [action, check_project(request.get("project"))]
     if action == "reset":
@@ -159,12 +185,12 @@ def unquote(value: str) -> str:
     return value
 
 
-def read_role(path: str) -> dict[str, str]:
-    """1つの役の SWA_MODEL と SWA_EFFORT。ほかの行は返さない。"""
-    found = dict.fromkeys(KEYS, "")
+def read_role(path: str, keys: dict[str, str] = KEYS) -> dict[str, str]:
+    """1つの役の keys の行。既定は SWA_MODEL と SWA_EFFORT。ほかの行は返さない。"""
+    found = dict.fromkeys(keys, "")
     with open(path, encoding="utf-8") as handle:
         for line in handle:
-            for field, key in KEYS.items():
+            for field, key in keys.items():
                 if line.startswith(key + "="):
                     found[field] = unquote(line[len(key) + 1:])
     return found
@@ -174,7 +200,7 @@ def settings(directory: str) -> dict:
     roles = {}
     for role in ROLES:
         try:
-            roles[role] = read_role(os.path.join(directory, f"{role}.env"))
+            roles[role] = read_role(os.path.join(directory, f"{role}.env"), role_keys(role))
         except OSError:
             roles[role] = None
     # 持ち込む先は言語ごとの一覧で、先頭が言語の既定。
@@ -230,14 +256,20 @@ def design(project: str) -> dict:
             "failure": failure}
 
 
-def set_model(directory: str, role: str, model: str, effort: str) -> None:
+def set_model(directory: str, role: str, model: str, effort: str,
+              subagent: str | None = None) -> None:
     """SWA_MODEL と SWA_EFFORT の行を書き換える。行が無ければ足す。
 
+    subagent を渡すと、planner と solver では SWA_SUBAGENT_MODEL の行も書き換える。
     ほかの行はそのまま残す。同じディレクトリに書いてから rename するので、起動スクリプトが
     書きかけのファイルを読み込むことは無い。所有者と権限は元のファイルのものを引き継ぐ。
     """
     check_role(role)
     values = {"SWA_MODEL": check_model(model), "SWA_EFFORT": check_effort(effort)}
+    if subagent is not None:
+        check_subagent(role, subagent)
+        if role in SUBAGENT_ROLES:
+            values[SUBAGENT_KEY] = subagent
     path = os.path.join(directory, f"{role}.env")
     status = os.stat(path)
     with open(path, encoding="utf-8") as handle:
@@ -279,8 +311,8 @@ def main(argv: list[str]) -> int:
         if len(argv) == 3 and argv[1] == "design":
             print(json.dumps(design(argv[2]), ensure_ascii=False))
             return 0
-        if len(argv) == 6 and argv[1] == "set-model":
-            set_model(*argv[2:6])
+        if len(argv) in (6, 7) and argv[1] == "set-model":
+            set_model(*argv[2:])
             print(f"{argv[3]} の設定を書き換えた。次の呼び出しから効く")
             return 0
     except Refused as error:
@@ -290,7 +322,7 @@ def main(argv: list[str]) -> int:
         print(f"swa dash: {error}", file=sys.stderr)
         return 1
     print("使い方: swa_dash.py request <dir> | settings <dir> | design <dir>"
-          " | set-model <dir> <役> <モデル> <effort>",
+          " | set-model <dir> <役> <モデル> <effort> [<助手のモデル>]",
           file=sys.stderr)
     return 2
 

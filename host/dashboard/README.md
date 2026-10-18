@@ -72,7 +72,7 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 | 取り込み | 既存リポジトリのブランチを新しいプロジェクトにして切り替える | `swa project init` と `swa project use` | ローカル |
 | プロジェクト | 一覧を見て切り替える | `swa project use` を一時ユニット `swa-switch` で | ローカル |
 | プロジェクト | 今のもの以外を、名前を打って確かめてから箱のディレクトリと走行ログごと消す。走行中と切り替え中は断る | `swa project remove` | ローカル |
-| 役のモデル | 役ごとに `SWA_MODEL` と `SWA_EFFORT` を変える | `/etc/swa/<役>.env` の2行の書き換え | ローカル |
+| 役のモデル | 役ごとに `SWA_MODEL` と `SWA_EFFORT` を、planner と solver では `SWA_SUBAGENT_MODEL` も変える | `/etc/swa/<役>.env` の行の書き換え | ローカル |
 | 走行 | 仕様書のファイルと言語を選んで開始 | `swa go` | ローカル |
 | 走行 | 止まったところから続ける | `swa continue` | どこからでも |
 | 走行 | 止める | `swa stop` | どこからでも |
@@ -95,12 +95,13 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 | `{"action": "use", "project": <名前>}` / `{"action": "remove", "project": <名前>}` | 名前は `swa-project.sh` と同じ規則 |
 | `{"action": "init", "project": <名前>, "branch": <ブランチ>, "src": <柵>, "tests": <柵>}` | ブランチは英数字で始まり、英数字と `. _ / -` だけ。柵は `swa.py` の `layout_problems` で確かめ、空なら既定 |
 | `{"action": "design"}` | 段、基本設計仕様書、詳細設計仕様書、受け入れ条件、`plan/INTERFACE.json`、`plan/CRITIQUE.json`、`plan/FAILURE.md` を JSON で返す |
-| `{"action": "settings"}` | 役ごとの `SWA_MODEL` と `SWA_EFFORT`、選べる effort と言語を JSON で返す。資格情報の行は返さない |
-| `{"action": "model", "role": <役>, "model": <名前>, "effort": <effort>}` | 名前は英数字と `. _ - [ ]` だけ。effort は `low` / `medium` / `high` / `xhigh` / `max` か空 |
+| `{"action": "settings"}` | 役ごとの `SWA_MODEL` と `SWA_EFFORT`、planner と solver の `SWA_SUBAGENT_MODEL`（`subagent`）、選べる effort と言語を JSON で返す。資格情報の行は返さない |
+| `{"action": "model", "role": <役>, "model": <名前>, "effort": <effort>, "subagent": <名前>}` | 名前は英数字と `. _ - [ ]` だけ。effort は `low` / `medium` / `high` / `xhigh` / `max` か空。`subagent` は省ける。渡すなら英数字と `. _ -` だけか空で、critic には空しか渡せない |
 
 ### 役のモデル
 
-- 書き換えるのは `SWA_MODEL=` と `SWA_EFFORT=` の行だけ。行が無ければ足す。資格情報の行には触れない
+- 書き換えるのは `SWA_MODEL=` と `SWA_EFFORT=` の行、planner と solver では `SWA_SUBAGENT_MODEL=` の行だけ。行が無ければ足す。資格情報の行には触れない
+- 助手の欄は planner と solver の行にだけ出る。空なら助手を使わない。要求に `subagent` が無ければ `SWA_SUBAGENT_MODEL=` の行に触れない
 - 同じディレクトリに書いてから rename する。所有者と権限（`root:<役> 640`）は元のファイルのものを引き継ぐ
 - 起動スクリプトは呼び出しのたびに `.env` を読む。走行中に変えても、次の呼び出しから効く
 - 空は「アカウントの既定」。モデル欄の候補に無い名前も打てる

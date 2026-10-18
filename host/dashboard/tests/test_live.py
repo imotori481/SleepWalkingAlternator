@@ -137,6 +137,10 @@ class ActOnTheSandbox(LiveView):
         self.live.set_model("solver", "claude-opus-5-5", "high")
         self.assertEqual(self.dash_request(run), {"action": "model", "role": "solver",
                                                   "model": "claude-opus-5-5", "effort": "high"})
+        self.live.set_model("planner", "", "", "claude-haiku-5-5")
+        self.assertEqual(self.dash_request(run), {"action": "model", "role": "planner",
+                                                  "model": "", "effort": "",
+                                                  "subagent": "claude-haiku-5-5"})
 
     @patch("host.dashboard.live.subprocess.run")
     def test_settings_are_read_as_json(self, run):

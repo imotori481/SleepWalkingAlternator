@@ -32,6 +32,8 @@ NUNIT_ADAPTER_VERSION="4.6.0"
 TEST_SDK_VERSION="17.11.1"
 JUNIT_LOGGER_VERSION="4.1.0"
 PROMETE_VERSION="2.1.0"
+# Promete の Agent Skill を取るタグ。パッケージと同じ版のものにする。
+PROMETE_SKILL_TAG="core-$PROMETE_VERSION"
 
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
@@ -105,15 +107,28 @@ EOF
 
 # ---- ライブラリの参照 -------------------------------------------------------
 # プランナーとソルバーが Promete の型とメンバーを実物から知るための索引。フィードの
-# パッケージの XML ドキュメントから作る（swa_refs.py）。版が変わったときだけ作り直す。
+# パッケージの XML ドキュメントから作る（swa_refs.py）。
+#
+# Promete が配る Agent Skill（SKILL.md と references/ のガイド）も skill/ に写す。
+# ソルバーは --safe-mode で走り、HOME も使い捨てなので、スキルとしては読み込めない。
+# ファイルとして置き、ブリーフで場所を伝える（swa.py の library_refs_section）。
+# 版かタグが変わったときだけ作り直し、そのときだけ GitHub に出る。
 REFS=/srv/swa/refs
+REFS_WANT="$PROMETE_VERSION skill=$PROMETE_SKILL_TAG"
 install -d -o root -g root -m 755 "$REFS"
-if [ "$(cat "$REFS/promete/.version" 2>/dev/null)" != "$PROMETE_VERSION" ]; then
+if [ "$(cat "$REFS/promete/.version" 2>/dev/null)" != "$REFS_WANT" ]; then
   pkg="$(find "$FEED" -maxdepth 1 -iname "promete.$PROMETE_VERSION.nupkg" | head -n 1)"
   [ -n "$pkg" ] || { echo "36-dotnet: promete.$PROMETE_VERSION.nupkg がフィードに無い" >&2; exit 1; }
   rm -rf "$REFS/promete.new"
   python3 swa_refs.py xml "$pkg" Promete.xml "$REFS/promete.new"
-  echo "$PROMETE_VERSION" > "$REFS/promete.new/.version"
+  install -d -m 755 "$REFS/promete.new/skill"
+  # アーカイブの中は Promete-<タグ>/plugins/promete/skills/promete/... なので5段外す。
+  curl -fsSL "https://codeload.github.com/prometeapp/Promete/tar.gz/refs/tags/$PROMETE_SKILL_TAG" \
+    | tar -xz -C "$REFS/promete.new/skill" --strip-components=5 \
+        --wildcards "*/plugins/promete/skills/promete/*"
+  [ -f "$REFS/promete.new/skill/SKILL.md" ] \
+    || { echo "36-dotnet: $PROMETE_SKILL_TAG に Promete のスキルが無い" >&2; exit 1; }
+  echo "$REFS_WANT" > "$REFS/promete.new/.version"
   rm -rf "$REFS/promete"
   mv "$REFS/promete.new" "$REFS/promete"
 fi
@@ -138,9 +153,11 @@ for who in solver planner critic; do
   if sudo -u "$who" test -w "$FEED"; then
     echo "FAIL: $who should NOT be able to: test -w $FEED"; fail=1
   fi
-  if ! sudo -u "$who" test -r "$REFS/promete/MEMBERS.txt"; then
-    echo "FAIL: $who should be able to: test -r $REFS/promete/MEMBERS.txt"; fail=1
-  fi
+  for ref in MEMBERS.txt skill/SKILL.md; do
+    if ! sudo -u "$who" test -r "$REFS/promete/$ref"; then
+      echo "FAIL: $who should be able to: test -r $REFS/promete/$ref"; fail=1
+    fi
+  done
   if sudo -u "$who" test -w "$REFS/promete"; then
     echo "FAIL: $who should NOT be able to: test -w $REFS/promete"; fail=1
   fi

@@ -285,6 +285,16 @@ class TheLibraryReference(Promete):
             brief = swa.solver_material(step, "CONTEXT")
         self.assertIn(f"are in {self.refs / 'promete'} (MEMBERS.txt, TYPES.txt)", brief)
         self.assertIn("Grep `MEMBERS.txt`", brief)
+        self.assertNotIn("SKILL.md", brief)
+
+    def test_the_solver_is_told_to_read_the_skill(self):
+        # ソルバーは --safe-mode でスキルを読み込めない。写した中身の場所をブリーフで渡す。
+        skill = self.refs / "promete" / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text("# Promete\n", encoding="utf-8")
+        section = swa.library_refs_section()
+        self.assertIn(f"is in\n{skill}. Read `SKILL.md` there first", section)
+        self.assertIn("(MEMBERS.txt, TYPES.txt)", section)
 
     def test_a_framework_without_a_reference_says_nothing(self):
         with mock.patch.dict(swa.LANGUAGE, swa.compose_language("csharp", "unity"), clear=True):

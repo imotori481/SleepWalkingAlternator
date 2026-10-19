@@ -1287,7 +1287,9 @@ def csharp_failure_kind(failure: ET.Element) -> str:
 
 # 持ち込む先のライブラリの参照。Promete は 36-dotnet.sh が、DXライブラリは
 # `swa refs dxlib` が root で置き、誰でも読めて誰も書けない。MEMBERS.txt を1行1件で
-# 持ち、型のあるライブラリは TYPES.txt も持つ（provision/swa_refs.py）。
+# 持ち、型のあるライブラリは TYPES.txt も持つ（provision/swa_refs.py）。ライブラリが
+# Agent Skill を配っていれば、その中身を skill/ に持つ。ソルバーは --safe-mode で
+# スキルを読み込めないので、ファイルとして読ませる。
 REFS = SWA / "refs"
 
 
@@ -1345,6 +1347,15 @@ def library_refs_section() -> str:
         return ""
     files = ", ".join(sorted(p.name for p in path.iterdir() if p.is_file()
                              and not p.name.startswith(".")))
+    skill = path / "skill"
+    guide = f"""
+A guide to the library, copied from its official documentation, is in
+{skill}. Read `SKILL.md` there first: its page index names the page under
+`references/` for each topic. Before you write code that uses a part of the
+library, read its page and follow how the page uses it. Where the guide and
+`MEMBERS.txt` disagree, `MEMBERS.txt` is the version this code is built
+against.
+""" if (skill / "SKILL.md").is_file() else ""
     return f"""
 # The library reference
 The documented functions, members and constants of the library this code is
@@ -1353,7 +1364,7 @@ with a short summary, and `TYPES.txt`, where there is one, lists the types.
 Before you use a library function or member, Grep `MEMBERS.txt` for its name
 or its type and use what is listed. One that is not listed may still exist;
 then look in the other file there, or in how the project uses it.
-"""
+{guide}"""
 
 
 DOTNET_TOOLS = SWA / "dotnet"

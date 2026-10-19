@@ -303,10 +303,13 @@ Vite はインラインのモジュールスクリプトを `/index.html?html-pr
 | NUnit 3、NUnit3TestAdapter、Microsoft.NET.Test.Sdk、JunitXml.TestLogger、Promete 2.1.0 と推移的な依存 | `/srv/swa/dotnet/feed`（`.nupkg` を並べたフォルダ） | root。誰も書けない |
 | ソースをフィードだけにする設定 | `/srv/swa/dotnet/nuget.config`（`<clear/>` のあとにフィードだけ） | root |
 | ランナーが書く csproj とビルドの出力 | `/srv/swa/dotnet/build` | runner、700 |
+| Promete の型とメンバーの索引（`TYPES.txt`、`MEMBERS.txt`） | `/srv/swa/refs/promete` | root。誰でも読めて誰も書けない |
+| Promete の Agent Skill（`SKILL.md` と `references/`） | `/srv/swa/refs/promete/skill`（GitHub の `core-<版>` タグから） | root。誰でも読めて誰も書けない |
 
 - 版はスクリプトの冒頭で固定する。フィードに出るのは版を変えたときだけなので、egress を閉じた後に流し直してもネットワークは要らない
 - NUnit は 3 系にする。Unity の Test Framework の NUnit は 3 系で、4 系は `Assert.AreEqual` を `ClassicAssert` に移した
 - SDK は持ち込む先で選ぶ。Unity は 8、Promete は 10 で、ランナーは `build` に置いた `global.json` でそれを固定し、dotnet を `build` で呼ぶ
+- Promete のスキルはスキルとして入れず、ファイルとして置く。ソルバーは `--safe-mode` と使い捨ての HOME で走り、スキルを読み込めない。ソルバーのブリーフが `skill/SKILL.md` から読むよう伝える。プランナーには渡さない
 - csproj はプロジェクトの根に置かない。取り込んだ Unity のプロジェクトでは、IDE が Unity の生成した csproj と一緒に拾ってしまう
 - `build` はコンパイルしたコードとテストを持つので、planner と critic から見えてはならない（BOOTSTRAP 1-1）
 

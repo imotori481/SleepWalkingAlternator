@@ -299,6 +299,10 @@ class TheDownstreamPlan(Python):
         self.assertNotIn("ndjson contract", context)
         self.assertNotIn("The conventions of the existing code", context)
 
+    def test_every_solver_is_told_to_comment_in_japanese(self):
+        for step in self.tasks()["steps"]:
+            self.assertIn("Write every comment in Japanese", step["context"])
+
     def test_in_the_existing_mode_every_solver_gets_the_conventions(self):
         with mock.patch.dict(swa.RUN, {"mode": "existing"}), \
              mock.patch.object(swa, "basic_section",

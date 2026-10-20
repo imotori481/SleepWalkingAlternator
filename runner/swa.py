@@ -1168,9 +1168,8 @@ person later builds it with Visual Studio (MSVC), so: no compiler extensions,
 no `<bits/stdc++.h>`, no variable-length arrays, no `#include <windows.h>` or
 DxLib.h in anything a test reaches. Write new code in the global namespace.
 
-Write every file in ASCII only, comments and string literals included. MSVC
-reads a source file without a byte order mark in the system code page, and a
-UTF-8 Japanese comment there breaks the build on the person's machine.
+Write every file in UTF-8 without a byte order mark. Keep string literals ASCII
+only: what the program shows on screen is the person's to write.
 
 Tests use GoogleTest: `#include <gtest/gtest.h>`, `TEST(Suite, Name)`,
 `EXPECT_EQ(expected, actual)`, `EXPECT_TRUE`, `EXPECT_THROW(call, type)`. A test
@@ -3154,7 +3153,7 @@ values and have no behaviour to stub, and an uninitialised one holds garbage
 that a test could pass against by chance.
 
 Every header starts with `#pragma once` and includes the headers its
-signatures need. Write ASCII only. Implement no behaviour whatsoever.
+signatures need. Implement no behaviour whatsoever.
 """
     return f"""Create stubs only.
 
@@ -4093,6 +4092,14 @@ the scout helper, hand it the wide searches.
 """
 
 
+# コードとテストのコメントは、人が読むので日本語で書かせる。名前は英語のまま。
+COMMENTS_NOTE = """## Comments
+Write every comment in Japanese, in the code and in the tests alike: doc
+comments and docstrings included. Names -- of types, functions, variables,
+tests -- stay in English.
+"""
+
+
 def module_context(module: dict, modules: dict[str, dict], overview: str) -> str:
     """ソルバーに渡す背景。システムの目的、置き方、自分の設計、依存先の振る舞い。
 
@@ -4122,6 +4129,7 @@ The overview of the basic design, written in Japanese:
 ## How the code is laid out
 {layout_text(LANGUAGE["layout_note"]).strip()}
 
+{COMMENTS_NOTE}
 {solver_tools_note()}
 {this}
 

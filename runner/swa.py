@@ -4268,13 +4268,18 @@ def tracked(rel: str) -> bool:
     return bool(run(["git", "ls-files", "--", rel]).stdout.strip())
 
 
+def has_files(path: Path) -> bool:
+    """ファイルか、下にファイルを持つディレクトリなら真。空のディレクトリは git に渡せない。"""
+    return path.is_file() or (path.is_dir() and any(p.is_file() for p in path.rglob("*")))
+
+
 def commit_paths(paths: list[Path], message: str, what: str) -> None:
     """`paths` の変更だけをコミットして送る。変更が無ければ何もしない。
 
     作業ツリーにほかの変更（止まったモジュールの試行）が残っていても、それは入れない。
     """
     rel = [p.relative_to(PROJECT).as_posix() for p in paths]
-    rel = [r for r in rel if (PROJECT / r).exists() or tracked(r)]
+    rel = [r for r in rel if has_files(PROJECT / r) or tracked(r)]
     if not rel:
         return
     run(["git", "add", "-A", "--"] + rel, check=True)

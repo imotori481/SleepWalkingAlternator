@@ -9,6 +9,7 @@
 """
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -344,6 +345,47 @@ class RedAgainstTheCodeAsItIs(Existing):
         with mock.patch.object(swa, "load_plan", lambda sid: (step, "context")):
             self.assertEqual(swa.run_step("changes/Rate"), 0)
         self.assertEqual(self.stubbed, 1)
+
+
+class CommittingADesignWithoutChanges(unittest.TestCase):
+    """変更が1つも無い詳細設計でも、空の docs/changes/ でコミットが落ちない。"""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        for args in (["init", "-q"], ["config", "user.email", "runner@example.com"],
+                     ["config", "user.name", "runner"]):
+            subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
+        # run の cwd の既定は定義した時の PROJECT なので、ここで作ったリポジトリを渡す。
+        run = swa.run
+        for name, value in {"PROJECT": self.root, "publish": lambda what: None,
+                            "run": lambda cmd, **kw: run(cmd, **{"cwd": self.root, **kw})}.items():
+            patcher = mock.patch.object(swa, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def log(self) -> str:
+        return subprocess.run(["git", "log", "--name-only", "--format=%s"], cwd=self.root,
+                              check=True, capture_output=True, text=True).stdout
+
+    def test_an_empty_changes_directory_is_left_out(self):
+        (self.root / "docs" / "modules").mkdir(parents=True)
+        (self.root / "docs" / "modules" / "savedata.md").write_text("# savedata\n", encoding="utf-8")
+        (self.root / "docs" / "changes").mkdir()
+        swa.commit_paths([self.root / "docs" / "modules", self.root / "docs" / "changes"],
+                         "docs: write the module design", "the module design")
+        self.assertIn("docs/modules/savedata.md", self.log())
+
+    def test_a_changes_directory_emptied_since_the_last_commit_records_the_removal(self):
+        changes = self.root / "docs" / "changes"
+        changes.mkdir(parents=True)
+        (changes / "Rate.md").write_text("# Rate\n", encoding="utf-8")
+        swa.commit_paths([changes], "docs: one", "one")
+        (changes / "Rate.md").unlink()
+        swa.commit_paths([changes], "docs: two", "two")
+        self.assertFalse(subprocess.run(["git", "ls-files"], cwd=self.root, check=True,
+                                        capture_output=True, text=True).stdout.strip())
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@
 
 ### サブエージェント
 
-`/etc/swa/<役>.env` の `SWA_SUBAGENT_MODEL` にモデルを書くと、そのモデルで動く助手を `--agents` で渡し、`Agent` ツールを足す。空なら渡さない。
+`/etc/swa/<役>.env` の `SWA_SUBAGENT_MODEL` にモデルを書くと、そのモデルで動く助手を `--agents` で渡し、`Agent` ツールを足す。既定は `claude-haiku-5-5`。空なら渡さない。
 
 | 助手 | 渡す役 | ツール | 任せる仕事 |
 |---|---|---|---|

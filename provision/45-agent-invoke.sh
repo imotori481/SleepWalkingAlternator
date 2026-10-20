@@ -153,8 +153,7 @@ for who in solver planner; do
 
 # サブエージェントのモデル。探索と機械的な書き換えをこのモデルの助手に回す。
 # 空ならサブエージェントを使わない。
-# 例: SWA_SUBAGENT_MODEL=claude-haiku-5-5
-SWA_SUBAGENT_MODEL=
+SWA_SUBAGENT_MODEL=claude-haiku-5-5
 EOF
   fi
 done

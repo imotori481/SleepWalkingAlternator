@@ -106,11 +106,11 @@ class Live:
         """`swa reopen`。詳細設計を直すモジュールを選び、中段に戻す。"""
         return self._dash({"action": "reopen", "modules": modules})
 
-    def start_loop(self, spec: str, language: str, framework: str = "") -> str:
+    def start_loop(self, spec: str, language: str, framework: str = "", mode: str = "") -> str:
         """`swa go`。仕様書の本文は箱の一時ディレクトリに書かれ、そこから置かれる。
-        持ち込む先が空なら、箱が言語の既定を選ぶ。"""
+        持ち込む先が空なら、箱が言語の既定を選ぶ。モードが空なら箱が断る。"""
         return self._dash({"action": "go", "spec": spec, "language": language,
-                           "framework": framework})
+                           "framework": framework, "mode": mode})
 
     def use_project(self, name: str) -> str:
         """`swa project use` を箱の一時ユニットで裏に回す。進みは `swa now` の switch に出る。"""

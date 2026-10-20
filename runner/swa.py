@@ -152,6 +152,10 @@ DOCS = PROJECT / "docs"
 DOCS_SPEC = DOCS / "spec"        # 人が書いた仕様書
 DOCS_BASIC = DOCS / "basic"      # 基本設計仕様書。上流の成果物
 DOCS_MODULES = DOCS / "modules"  # 詳細設計仕様書。中段の成果物。src/ と同じ形
+DOCS_CHANGES = DOCS / "changes"  # 変更の詳細設計仕様書。既存のモードの中段の成果物
+# 変更の id の頭。変更の受け入れ条件は ac/changes/<名前>.json に、下流のステップの
+# id は changes/<名前> になる。モジュールの id はこれで始まれない。
+CHANGE_PREFIX = "changes/"
 # 受け入れ条件。モジュールごとの JSON で、ランナーだけが読む。.gitignore で
 # コミットから外す。TEST_WRITE のブリーフにだけ入れる。
 AC = PROJECT / "ac"
@@ -168,6 +172,13 @@ FAILURE = PLAN / "FAILURE.md"
 # ので、コミットしない .runner/ に置く。
 TASKS = STATE / "tasks.json"
 STAGES = ("upstream", "midstream", "downstream", "review")
+# 走行のモード。人が走行の開始で選び、段に刻む。言語と同じく後から変えない。
+#   new       新しいコードを作る。下流の単位はモジュールだけ
+#   existing  既存のコードに手を入れる。下流の単位はモジュールと変更
+MODES = ("new", "existing")
+# いまの走行のモード。段か下流の計画から読んで入れる（use_stage_language、run_step）。
+# モードを刻む前の段は、新規として扱う。モードが無かったころの動きと同じだ。
+RUN = {"mode": "new"}
 
 # tests/ はプロジェクトの venv の pytest でだけ走らせる。素の
 # `python3 -m pytest` にすると、solver 自身の ~/.local のパッケージが sys.path に
@@ -2295,9 +2306,12 @@ def render_acceptance(step: dict) -> str:
 
 
 def test_files_section(step: dict) -> str:
-    """単体テストと統合テストの置き場。統合テストの条件が無ければ空。"""
+    """単体テストと統合テストの置き場。統合テストの条件が無ければ空。
+
+    変更はテストのファイルを1つしか持たない。どのテストも本物のコードに対して走る。
+    """
     kinds = {a.get("kind") or "unit" for a in step["acceptance"]}
-    if "integration" not in kinds:
+    if "integration" not in kinds or step.get("unit") == "change":
         return ""
     where = (f"Write the unit criteria in {step['files_test'][0]} and the integration "
              f"criteria in\n{step['files_test'][1]}." if len(step["files_test"]) > 1 else
@@ -2310,7 +2324,8 @@ real modules it requires -- no stand-ins, no mocks of them.
 
 
 def render_provides(step: dict) -> str:
-    return "\n".join(step["contracts"]["provides"])
+    return "\n".join(step["contracts"]["provides"]) or \
+        "(none -- every name this step touches keeps its signature)"
 
 
 def render_invariants(step: dict) -> str:
@@ -2367,10 +2382,19 @@ def brief_test_write(step: dict, context: str, broken: str = "",
     # goal は渡さない。テストは受け入れ条件から作るもので、これからソルバーに
     # 頼む実装の説明から作るものではない。
     acceptance = render_acceptance(step)
+    if step.get("unit") == "change":
+        task = "Write tests for the behaviour this change describes. Do not change the code."
+        red = change_red_note(step)
+    else:
+        task = "Write tests for the signatures above. Do not write an implementation."
+        red = f"""The implementation does not exist yet, so
+every test you write must fail when run against {LANGUAGE["stub_shape"]}.
+Do not weaken a test to make it pass, and do not create the module under test.
+{LANGUAGE["stub_note"]}"""
     return f"""{solver_material(step, context)}
 # Your task
 
-Write tests for the signatures above. Do not write an implementation.
+{task}
 
 # Acceptance criteria -- write exactly {step["expected_tests"]} tests, one per criterion
 {acceptance}
@@ -2378,10 +2402,25 @@ Write tests for the signatures above. Do not write an implementation.
 # Files you may create or modify
 {chr(10).join(step["files_test"])}
 {test_files_section(step)}
-Write nothing outside those paths. The implementation does not exist yet, so
-every test you write must fail when run against {LANGUAGE["stub_shape"]}.
-Do not weaken a test to make it pass, and do not create the module under test.
-{LANGUAGE["stub_note"]}{replaced_tests_section(replaced or [], step["expected_tests"])}{naming_note()}{compile_failure_section(broken)}{crash_section(crashed)}"""
+Write nothing outside those paths. {red}{replaced_tests_section(replaced or [], step["expected_tests"])}{naming_note()}{compile_failure_section(broken)}{crash_section(crashed)}"""
+
+
+def change_red_note(step: dict) -> str:
+    """変更のテストが、何に対して落ちなければならないか。"""
+    stubbed = ""
+    if step["contracts"]["provides"]:
+        stubbed = f"""
+The names under "Signatures this step provides" are replaced with stubs before
+the tests run: for those, the same rule as for any stub holds, and every test
+must fail against {LANGUAGE["stub_shape"]}.
+{LANGUAGE["stub_note"]}"""
+    return f"""The code you test already exists and
+already works; this change alters what it does. Every test you write must fail
+when run against the code as it is now, on an assertion: the behaviour it
+checks is the new behaviour, which the code does not have yet. A test the
+current code already passes never showed it can fail, and stops the step.
+Read the files this change edits to see how to call them.
+{stubbed}"""
 
 
 def compile_failure_section(broken: str) -> str:
@@ -3255,13 +3294,22 @@ def original_code_section(step: dict) -> str:
         diffs.append(diff)
     if not diffs:
         return ""
-    return """
+    if step.get("unit") == "change" and not step["contracts"]["provides"]:
+        lead = """
+# The code before this step
+The files differ from the last commit: an earlier attempt of this step changed
+them. Lines starting with `-` below are the original code.
+
+"""
+    else:
+        lead = """
 # The code before this step
 The stub replaced the bodies of the members this step changes. Lines starting
 with `-` below are the original code; that is where your work starts, not from
 the stub.
 
-""" + "\n".join(diffs) + """
+"""
+    return lead + "\n".join(diffs) + """
 Edit the original code, do not rewrite it. Keep its branches, its calls and its
 structure, and change only what the tests need: if a new case is required, add
 an `else if` (or a `case`) to the existing chain rather than replacing the
@@ -3272,10 +3320,13 @@ that does the job, and call it.
 
 
 def brief_impl(step: dict, context: str, tests_text: str, last_failure: str) -> str:
+    task = ("Make the tests pass by changing the existing code as this change describes."
+            if step.get("unit") == "change" else
+            "Make the tests pass by implementing the signatures above.")
     return f"""{solver_material(step, context)}
 # Your task
 
-Make the tests pass by implementing the signatures above.
+{task}
 
 # Goal
 {step["goal"]}
@@ -3436,11 +3487,18 @@ def modules_of(files_write: list[str]) -> list[str]:
 CONTRACT_BLOCK = re.compile(r"^```ndjson contract[ \t]*\r?\n(.*?)^```[ \t]*$", re.M | re.S)
 CONTRACT_OPEN = re.compile(r"^```ndjson contract\b", re.M)
 OVERVIEW_HEADING = "## 概要"
+# 既存のモードの基本設計だけが持つ節。規約の節は概要と一緒にソルバーへ渡す。
+CURRENT_HEADING = "## 現状の構成"
+SCOPE_HEADING = "## 変更の範囲"
+CONVENTIONS_HEADING = "## 守る規約"
+EXISTING_HEADINGS = (CURRENT_HEADING, SCOPE_HEADING, CONVENTIONS_HEADING)
 BEHAVIOUR_HEADING = "## 振る舞い"
 CONTRACT_HEADING = "## 契約"
 JAPANESE = re.compile(r"[぀-ヿ一-鿿]")
 # モジュールの id は src/ の下のパスから拡張子を落としたもの（`game/board`）。
 MODULE_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*(?:/[A-Za-z0-9_][A-Za-z0-9_-]*)*")
+# 変更の名前。テストのファイル名になり、C# ではクラス名、C++ ではスイート名になる。
+CHANGE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 KINDS = {"unit", "integration"}
 CRITERION_KEYS = {"case", "kind", "given", "then"}
 
@@ -3502,11 +3560,26 @@ def norm_sig(sig: str) -> str:
 
 
 def parse_contract(text: str) -> tuple[list[dict], list[dict], list[str]]:
-    """契約のブロックを読む。(provides, requires, 問題) を返す。"""
+    """モジュールの契約のブロックを読む。(provides, requires, 問題) を返す。"""
+    edits, provides, requires, problems = read_contract(text, change=False)
+    return provides, requires, problems
+
+
+def parse_change_contract(text: str) -> tuple[list[str], list[dict], list[dict], list[str]]:
+    """変更の契約のブロックを読む。(edits, provides, requires, 問題) を返す。
+
+    変更の契約は、触る既存のファイルを edits の行で挙げる。provides の行は、
+    署名が変わる名前と新しく足す名前だけで、どのファイルに置くかを in で言う。
+    """
+    return read_contract(text, change=True)
+
+
+def read_contract(text: str, change: bool) -> tuple[list[str], list[dict], list[dict], list[str]]:
     opened = len(CONTRACT_OPEN.findall(text))
     blocks = CONTRACT_BLOCK.findall(text)
     if opened != 1 or len(blocks) != 1:
-        return [], [], [f"has {opened} `ndjson contract` block(s); exactly one is required"]
+        return [], [], [], [f"has {opened} `ndjson contract` block(s); exactly one is required"]
+    edits: list[str] = []
     provides: list[dict] = []
     requires: list[dict] = []
     problems: list[str] = []
@@ -3519,7 +3592,24 @@ def parse_contract(text: str) -> tuple[list[dict], list[dict], list[str]]:
         except json.JSONDecodeError as bad:
             problems.append(f"contract line {n} is not JSON: {bad.msg}")
             continue
-        if isinstance(value, dict) and "provides" in value:
+        if change and isinstance(value, dict) and "edits" in value:
+            if set(value) != {"edits"} or not isinstance(value["edits"], str) \
+                    or not value["edits"].strip():
+                problems.append(f'contract line {n}: an edits line is {{"edits": <the existing '
+                                f'file, as its path under {LAYOUT["src"]}/ without the '
+                                f'extension>}}')
+                continue
+            edits.append(value["edits"].strip())
+        elif change and isinstance(value, dict) and "provides" in value:
+            if set(value) != {"provides", "in"} \
+                    or not all(isinstance(value[k], str) and value[k].strip() for k in value):
+                problems.append(f'contract line {n}: a provides line of a change is '
+                                f'{{"provides": <signature>, "in": <one of the files it '
+                                f'edits>}}')
+                continue
+            provides.append({"sig": norm_sig(value["provides"]), "entry": False,
+                             "in": value["in"].strip()})
+        elif isinstance(value, dict) and "provides" in value:
             sig = value["provides"]
             if set(value) - {"provides", "entry"} or not isinstance(sig, str) \
                     or not sig.strip() or not isinstance(value.get("entry", False), bool):
@@ -3536,12 +3626,18 @@ def parse_contract(text: str) -> tuple[list[dict], list[dict], list[str]]:
                 continue
             requires.append({"sig": norm_sig(value["requires"]), "from": value["from"].strip()})
         else:
-            problems.append(f"contract line {n} is neither a provides nor a requires line")
-    return provides, requires, problems
+            problems.append(f"contract line {n} is neither "
+                            f"{'an edits, ' if change else 'a '}provides nor a requires line")
+    return edits, provides, requires, problems
 
 
-def parse_ac(text: str | None, where: str) -> tuple[list[dict], list[str]]:
-    """受け入れ条件の JSON を読む。(条件, 問題) を返す。"""
+def parse_ac(text: str | None, where: str,
+             every_case: bool = True) -> tuple[list[dict], list[str]]:
+    """受け入れ条件の JSON を読む。(条件, 問題) を返す。
+
+    `every_case` なら normal、boundary、error のすべてを求める。変更は求めない。
+    変えない振る舞いは既存のテストが守り、条件が確かめるのは変える振る舞いだけだ。
+    """
     if text is None:
         return [], [f"{where}: missing; every module has acceptance criteria"]
     try:
@@ -3577,7 +3673,7 @@ def parse_ac(text: str | None, where: str) -> tuple[list[dict], list[str]]:
                             f"so its test passes before anything is implemented (R4)")
         kept.append(c)
     missing = CASES - {c["case"] for c in kept}
-    if kept and missing:
+    if kept and missing and every_case:
         problems.append(f"{where}: has no criterion of case {sorted(missing)}")
     return kept, problems
 
@@ -3661,19 +3757,45 @@ def head_files(prefix: str) -> set[str]:
     return set(filter(None, listing.stdout.split("\0"))) if listing.returncode == 0 else set()
 
 
-def design_problems(docs: dict[str, str],
-                    acs: dict[str, str]) -> tuple[dict[str, dict], list[str]]:
-    """詳細設計仕様書と受け入れ条件を読み、形を確かめる。(モジュール, 問題) を返す。"""
-    if not docs:
-        return {}, ["there is no module design: write at least one modules/<path>.md"]
+def is_change(unit_id: str) -> bool:
+    return unit_id.startswith(CHANGE_PREFIX)
+
+
+def design_problems(docs: dict[str, str], acs: dict[str, str],
+                    changes: dict[str, str] | None = None) -> tuple[dict[str, dict], list[str]]:
+    """詳細設計仕様書と受け入れ条件を読み、形を確かめる。(単位, 問題) を返す。
+
+    単位はモジュールと変更で、変更の id は changes/<名前>。変更は既存のモードに
+    しか無く、既存のモードのモジュールは新しいファイルにしか置けない。
+    """
+    changes = changes or {}
+    if not docs and not changes:
+        return {}, ["there is no module design: write at least one modules/<path>.md"
+                    + (" or changes/<name>.md" if existing_mode() else "")]
     modules: dict[str, dict] = {}
     problems: list[str] = []
+    head: set[str] | None = None
+    if changes and not existing_mode():
+        problems.append("changes/: changes are for the existing mode only; this run is in "
+                        "the new mode, so every piece of work is a module")
+        changes = {}
     for mid, text in sorted(docs.items()):
         where = f"modules/{mid}.md"
         if not MODULE_ID.fullmatch(mid):
             problems.append(f"{where}: the path does not name a source file under "
                             f"{LAYOUT['src']}/ (letters, digits, '_' and '-' only)")
             continue
+        if is_change(mid + "/"):
+            problems.append(f"{where}: {CHANGE_PREFIX} is kept for the changes; put the "
+                            f"module somewhere else")
+            continue
+        if existing_mode():
+            head = head_files(LAYOUT["src"]) if head is None else head
+            there = [f for f in module_files(mid) if f in head]
+            if there:
+                problems.append(f"{where}: {', '.join(there)} already exists. A module is a "
+                                f"new file; change an existing file with a change "
+                                f"(changes/<name>.md) instead of rewriting it")
         provides, requires, bad = parse_contract(text)
         problems += [f"{where}: {b}" for b in bad]
         for heading in (BEHAVIOUR_HEADING, CONTRACT_HEADING):
@@ -3696,15 +3818,59 @@ def design_problems(docs: dict[str, str],
             problems.append(f"ac/{mid}.json: has integration criteria, but {mid} requires "
                             f"nothing from another module")
         modules[mid] = {
-            "id": mid, "doc": text, "provides": provides, "requires": requires,
-            "criteria": criteria, "files": module_files(mid),
+            "id": mid, "unit": "module", "doc": text, "provides": provides,
+            "requires": requires, "criteria": criteria, "files": module_files(mid),
             "files_test": module_test_files(
                 mid, any(c["kind"] == "integration" for c in criteria),
                 unit=any(c["kind"] != "integration" for c in criteria)),
             "design": text_digest(text + "\0" + (acs.get(mid) or "")),
         }
-    for mid in sorted(set(acs) - set(docs)):
-        problems.append(f"ac/{mid}.json: there is no modules/{mid}.md for it")
+    for name, text in sorted(changes.items()):
+        cid = CHANGE_PREFIX + name
+        where = f"changes/{name}.md"
+        if not CHANGE_NAME.fullmatch(name):
+            problems.append(f"{where}: a change's name is one word of letters, digits and "
+                            f"'_', starting with a letter; it names the change's tests")
+            continue
+        edits, provides, requires, bad = parse_change_contract(text)
+        problems += [f"{where}: {b}" for b in bad]
+        for heading in (BEHAVIOUR_HEADING, CONTRACT_HEADING):
+            if heading_count(text, heading) != 1:
+                problems.append(f"{where}: needs exactly one `{heading}` section")
+        if not is_japanese(text):
+            problems.append(f"{where}: is not written in Japanese")
+        if not bad and not edits:
+            problems.append(f"{where}: the contract names no file it edits; add an "
+                            f'{{"edits": <file>}} line for each existing file it touches')
+        head = head_files(LAYOUT["src"]) if head is None else head
+        for edit in edits:
+            if not MODULE_ID.fullmatch(edit) \
+                    or not any(f in head for f in module_files(edit)):
+                problems.append(f"{where}: edits {edit}, which is not a file under "
+                                f"{LAYOUT['src']}/ in the last commit; a new file is a "
+                                f"module (modules/<path>.md)")
+        for p in provides:
+            if p["in"] not in edits:
+                problems.append(f"{where}: provides `{p['sig']}` in {p['in']}, which is not "
+                                f"one of the files it edits")
+            bare = shapeless_types(p["sig"])
+            if bare:
+                problems.append(
+                    f"形: {cid} provides `{p['sig']}` with {', '.join(bare)} left "
+                    f"unparameterised; a later module is handed this line and nothing "
+                    f"else, so the contents have to be in it ({LANGUAGE['shape_example']})")
+        criteria, bad_ac = parse_ac(acs.get(cid), f"ac/{cid}.json", every_case=False)
+        problems += bad_ac
+        modules[cid] = {
+            "id": cid, "unit": "change", "doc": text, "edits": edits,
+            "provides": provides, "requires": requires, "criteria": criteria,
+            "files": [f for edit in edits for f in module_files(edit)],
+            "files_test": module_test_files(cid, False),
+            "design": text_digest(text + "\0" + (acs.get(cid) or "")),
+        }
+    for mid in sorted(set(acs) - set(docs) - {CHANGE_PREFIX + name for name in changes}):
+        problems.append(f"ac/{mid}.json: there is no "
+                        f"{mid if is_change(mid) else 'modules/' + mid}.md for it")
     # テストのファイル名は、C# のクラス名や C++ のスイート名になる。重なると、
     # 2つのモジュールのテストが同じ名前で選ばれる。
     owners: dict[str, str] = {}
@@ -3717,11 +3883,30 @@ def design_problems(docs: dict[str, str],
     return modules, problems
 
 
+def change_providers(modules: dict[str, dict], source: str, name: str) -> list[str]:
+    """既存のファイル `source` に名前 `name` を置く変更。"""
+    return sorted(cid for cid, c in modules.items() if c.get("unit") == "change"
+                  and any(p["in"] == source and declared_name(p["sig"]) == name
+                          for p in c["provides"]))
+
+
 def module_deps(modules: dict[str, dict]) -> dict[str, list[str]]:
-    """モジュールごとの、この設計の中の依存先。"""
-    return {mid: sorted({r["from"] for r in m["requires"]
-                         if r["from"] in modules and r["from"] != mid})
-            for mid, m in modules.items()}
+    """単位ごとの、この設計の中の依存先。
+
+    requires の from はファイルを指す。この設計のモジュールならそのモジュールに、
+    既存のファイルで、その名前を変更が置くなら、その変更に依存する。
+    """
+    deps: dict[str, list[str]] = {}
+    for mid, m in modules.items():
+        found: set[str] = set()
+        for r in m["requires"]:
+            if r["from"] in modules and not is_change(r["from"]):
+                found.add(r["from"])
+            else:
+                found.update(change_providers(modules, r["from"], declared_name(r["sig"])))
+        found.discard(mid)
+        deps[mid] = sorted(found)
+    return deps
 
 
 def module_order(modules: dict[str, dict]) -> tuple[list[str], list[str]]:
@@ -3755,8 +3940,19 @@ def interface_problems(modules: dict[str, dict]) -> list[str]:
     for mid, module in sorted(modules.items()):
         for r in module["requires"]:
             name, source = declared_name(r["sig"]), r["from"]
+            providers = [cid for cid in change_providers(modules, source, name) if cid != mid]
             if source == mid:
                 problems.append(f"存在: {mid} requires `{name}` from itself")
+            elif is_change(source):
+                problems.append(f"存在: {mid} requires `{name}` from {source}; `from` names "
+                                f"a file, so name the file the change puts it in")
+            elif providers:
+                sigs = {p["sig"] for cid in providers for p in modules[cid]["provides"]
+                        if p["in"] == source and declared_name(p["sig"]) == name}
+                if r["sig"] not in sigs:
+                    problems.append(f"署名の一致: {mid} requires `{r['sig']}` from "
+                                    f"{source}, where {', '.join(providers)} puts "
+                                    f"`{sorted(sigs)[0]}`")
             elif source in modules:
                 sig = provided[source].get(name)
                 if sig is None:
@@ -3783,7 +3979,10 @@ def interface_problems(modules: dict[str, dict]) -> list[str]:
                         f"on such a cycle: {', '.join(cycle)}")
     used = {(r["from"], declared_name(r["sig"]))
             for m in modules.values() for r in m["requires"]}
+    # 変更が置く名前は、既存のコードがすでに呼んでいる。未使用には数えない。
     for mid, module in sorted(modules.items()):
+        if is_change(mid):
+            continue
         for p in module["provides"]:
             if not p["entry"] and (mid, declared_name(p["sig"])) not in used:
                 problems.append(f"未使用: {mid} provides `{declared_name(p['sig'])}`, which no "
@@ -3806,32 +4005,42 @@ def design_digest(modules: dict[str, dict]) -> str:
 
 
 def basic_problems(docs: dict[str, str]) -> list[str]:
-    """基本設計仕様書の形。概要の節がちょうど1つあり、日本語で書いてある。"""
+    """基本設計仕様書の形。概要の節がちょうど1つあり、日本語で書いてある。
+    既存のモードでは、現状の構成、変更の範囲、守る規約の節もちょうど1つずつある。
+    """
     if not docs:
         return ["there is no basic design: write at least one basic/<name>.md"]
     problems = []
-    overviews = sum(heading_count(text, OVERVIEW_HEADING) for text in docs.values())
-    if overviews != 1:
-        problems.append(f"the basic design needs exactly one `{OVERVIEW_HEADING}` section "
-                        f"across its files, not {overviews}")
+    headings = (OVERVIEW_HEADING,) + (EXISTING_HEADINGS if existing_mode() else ())
+    for heading in headings:
+        count = sum(heading_count(text, heading) for text in docs.values())
+        if count != 1:
+            problems.append(f"the basic design needs exactly one `{heading}` section "
+                            f"across its files, not {count}")
     for name, text in sorted(docs.items()):
         if not is_japanese(text):
             problems.append(f"basic/{name}.md: is not written in Japanese")
     return problems
 
 
-def basic_overview() -> str:
-    """基本設計仕様書の概要の節。"""
+def basic_section(heading: str) -> str:
+    """基本設計仕様書の `heading` の節。無ければ空。"""
     for text in read_texts(DOCS_BASIC, ".md").values():
-        found = section(text, OVERVIEW_HEADING)
+        found = section(text, heading)
         if found is not None:
             return found
     return ""
 
 
+def basic_overview() -> str:
+    """基本設計仕様書の概要の節。"""
+    return basic_section(OVERVIEW_HEADING)
+
+
 def current_design() -> tuple[dict[str, dict], list[str]]:
-    """docs/modules/ と ac/ にある、いまの設計。"""
-    return design_problems(read_texts(DOCS_MODULES, ".md"), read_texts(AC, ".json"))
+    """docs/modules/、docs/changes/ と ac/ にある、いまの設計。"""
+    return design_problems(read_texts(DOCS_MODULES, ".md"), read_texts(AC, ".json"),
+                           read_texts(DOCS_CHANGES, ".md"))
 
 
 # --------------------------------------------------------------------------
@@ -3863,6 +4072,27 @@ tests after the solver has finished and hands the failures to the next attempt.
 """
 
 
+def conventions_section() -> str:
+    """既存のモードで、基本設計の守る規約の節と、既存のコードを読ませる指示。
+    新規のモードでは空。"""
+    if not existing_mode():
+        return ""
+    conventions = basic_section(CONVENTIONS_HEADING)
+    return f"""
+## The conventions of the existing code
+The code you write goes into a project that already exists. The basic design
+states the conventions its code follows, written in Japanese. Follow them in
+every line you write:
+
+{conventions or "(not written)"}
+
+Before you write, read the files next to the ones you write and the existing
+code you call, and write the way they do. If the project already has
+something that does the job, call it instead of writing it again. If you have
+the scout helper, hand it the wide searches.
+"""
+
+
 def module_context(module: dict, modules: dict[str, dict], overview: str) -> str:
     """ソルバーに渡す背景。システムの目的、置き方、自分の設計、依存先の振る舞い。
 
@@ -3873,18 +4103,27 @@ def module_context(module: dict, modules: dict[str, dict], overview: str) -> str
     behaviours = "\n\n".join(
         f"### {dep}\n{section(modules[dep]['doc'], BEHAVIOUR_HEADING) or '(not written)'}"
         for dep in deps) or "(none -- this module uses no other module of this design)"
+    if module.get("unit") == "change":
+        this = f"""## This change: {module["id"]} (edits {", ".join(module["files"])})
+This step changes behaviour in code that already exists. Its detailed design,
+written in Japanese, says what changes. Every other behaviour of these files
+stays as it is: the tests already in the repository check it. Names whose
+signature changes or that are new are listed under "Signatures this step
+provides" below; every other name keeps its signature."""
+    else:
+        this = f"""## This module: {module["id"]} ({", ".join(module["files"])})
+Its detailed design, written in Japanese. The signatures it provides are listed
+under "Signatures this step provides" below."""
     return f"""## What the system is for
 The overview of the basic design, written in Japanese:
 
 {overview or "(not written)"}
-
+{conventions_section()}
 ## How the code is laid out
 {layout_text(LANGUAGE["layout_note"]).strip()}
 
 {solver_tools_note()}
-## This module: {module["id"]} ({", ".join(module["files"])})
-Its detailed design, written in Japanese. The signatures it provides are listed
-under "Signatures this step provides" below.
+{this}
 
 {without_contract(module["doc"])}
 
@@ -3901,13 +4140,19 @@ def build_tasks(modules: dict[str, dict], stage: dict) -> dict:
     steps = []
     for mid in order:
         module = modules[mid]
+        change = module.get("unit") == "change"
         steps.append({
             "id": mid,
+            "unit": "change" if change else "module",
             "kind": "integration" if deps[mid] else "unit",
-            "goal": f"Implement the module {mid} so that its design above holds.",
+            "goal": (f"Change the existing code so that the behaviour the change {mid} "
+                     f"describes above holds." if change else
+                     f"Implement the module {mid} so that its design above holds."),
             "depends_on": deps[mid],
             "contracts": {
-                "provides": [legacy_line(p["sig"], module["files"])
+                # 変更の provides は、置くファイルを in で言う。
+                "provides": [legacy_line(p["sig"], module_files(p["in"]) if change
+                                         else module["files"])
                              for p in module["provides"]],
                 "requires": [legacy_line(r["sig"], module_files(r["from"]))
                              for r in module["requires"]],
@@ -3923,6 +4168,7 @@ def build_tasks(modules: dict[str, dict], stage: dict) -> dict:
         })
     return {"version": 2, "language": stage.get("language") or LANGUAGE["name"],
             "framework": stage.get("framework") or LANGUAGE["framework"],
+            "mode": stage.get("mode") or "new",
             "digest": design_digest(modules), "steps": steps}
 
 
@@ -3994,9 +4240,14 @@ def write_stage(**changes) -> dict:
 
 
 def use_stage_language(stage: dict) -> None:
-    """段に記録した言語と持ち込む先を使う。"""
+    """段に記録した言語と持ち込む先、モードを使う。"""
     if stage.get("language"):
         load_settings({"language": stage["language"], "framework": stage.get("framework")})
+    RUN["mode"] = stage.get("mode") or "new"
+
+
+def existing_mode() -> bool:
+    return RUN["mode"] == "existing"
 
 
 def refuse(message: str) -> int:
@@ -4116,7 +4367,7 @@ def spec_text() -> str:
 # ファイルを置き換えられない。planner-run は umask 002 で動くので、プランナーが
 # 作ったものもランナーが消せる。
 
-PLANNER_PARTS = {"basic": ".md", "modules": ".md", "ac": ".json"}
+PLANNER_PARTS = {"basic": ".md", "modules": ".md", "changes": ".md", "ac": ".json"}
 
 
 def share_with_planner(path: Path, directory: bool) -> None:
@@ -4269,11 +4520,48 @@ def draft_with_retry(brief_for, check, parts: set[str], tag: str) -> list[str]:
 
 
 def planner_reads_note() -> str:
-    return layout_text(f"""
-The code already in the repository is under {PROJECT}/{{SRC}}/. You may read it
-with Read, Grep and Glob to learn what exists and how it is written. You cannot
-write it, and you never see the tests.
+    note = layout_text(f"""
+The repository is at {PROJECT}/, and its code is under {PROJECT}/{{SRC}}/. You may
+read it with Read, Grep and Glob to learn what exists and how it is written:
+everything except the tests ({{TESTS}}/) and the runner's own plan/, docs/, ac/,
+.runner/ and .git/. You cannot write it, and you never see the tests.
 """)
+    if existing_mode():
+        note += """
+This run changes code that already exists. Before you design anything, read the
+code the specification touches: the files, how they call one another, and how
+they are written. If you have the scout helper, hand it the wide searches.
+"""
+    return note
+
+
+def existing_basic_note() -> str:
+    """既存のモードの基本設計に求める3つの節。新規のモードでは空。"""
+    if not existing_mode():
+        return ""
+    return f"""
+This run changes code that already exists, so the basic design also has exactly
+one of each of these sections across its files:
+
+- `{CURRENT_HEADING}` -- how the code this change touches is put together now:
+  its files, what each is responsible for, and how they call one another. Only
+  what the change touches, read from the code, not guessed.
+- `{SCOPE_HEADING}` -- what this run changes, what it adds, and what it leaves
+  alone. Each piece of work downstream is one of two kinds, and this section
+  says which:
+    a module  -- one NEW source file. Name its path.
+    a change  -- one behaviour that changes in code that already exists. Name
+                 the behaviour and every existing file it touches. One change
+                 may touch several files, and one file may be touched by
+                 several changes.
+  An existing file is only ever touched by changes, never rewritten as a
+  module.
+- `{CONVENTIONS_HEADING}` -- the conventions the existing code follows, which
+  every new or changed line must follow too: naming, how the code is split
+  into layers, how errors are handled, and the existing helpers to call
+  instead of writing new ones. Concrete names from the code belong here. Every
+  solver receives this section along with the overview.
+"""
 
 
 def brief_basic(spec: str, comment: str, feedback: str = "") -> str:
@@ -4307,11 +4595,53 @@ e.g. `basic/design.md`. Write it in Japanese.
   holds data -- is not a module; it belongs to the module that uses it, or to
   one shared types module.
 - What this version will not do.
-
+{existing_basic_note()}
 Write nothing outside `basic/`. Do not write the modules' detailed design yet;
 that comes after the person approves this.
 {comment_section(comment)}{feedback_section(feedback)}
 Output nothing but the files. Do not restate the design in your final message.
+"""
+
+
+def existing_modules_note() -> str:
+    """既存のモードで、変更の書き方。新規のモードでは空。"""
+    if not existing_mode():
+        return ""
+    return f"""
+# Changes: this run changes code that already exists
+
+The basic design's `{SCOPE_HEADING}` says which work is a module and which is a
+change. A module is a NEW file, written as above; a module whose file already
+exists under {{SRC}}/ is rejected. A change is one behaviour that changes in
+code that already exists, and it is written as two files:
+
+- `changes/<name>.md` -- the change's detailed design. `<name>` is one word of
+  letters, digits and '_', starting with a letter (e.g. `ScoreBonus`); it
+  names the change's tests. The same two sections as a module. Under
+  `{BEHAVIOUR_HEADING}`: which behaviour changes, how it is now and how it will
+  be, and where in the files.
+- `ac/changes/<name>.json` -- its acceptance criteria, in the same form as a
+  module's.
+
+A change's contract line is one of:
+
+    {{"edits": "<path>"}}
+    {{"provides": "<signature>", "in": "<path>"}}
+    {{"requires": "<signature>", "from": "<path>"}}
+
+- `edits` names an existing file the change touches, one line per file.
+  `<path>` is the file's path under {{SRC}}/ without the extension.
+- `provides` lists only a name whose signature changes or that is new, and
+  `in` is the file it edits that holds it. A name that keeps its signature is
+  not listed: the change edits its body.
+- A module or change that uses a name a change puts in a file requires it with
+  `from` naming that file, copied exactly as the change's provides line has it.
+
+A change's tests run against the code as it is now before anything is
+changed. So every criterion of a change must be false for the current code:
+state the new behaviour, not something the code already does. A change's
+criteria check only what it changes and need not have all three cases. What
+stays the same is checked by the tests already in the repository.
 """
 
 
@@ -4328,10 +4658,12 @@ def brief_modules(spec: str, basic: str, open_: list[str] | None, comment: str,
 A module failed downstream, and the person chose the modules whose design is
 wrong: {", ".join(open_)}.
 
-Change only modules/<module>.md and ac/<module>.json for those. Every other
-file under modules/ and ac/ must stay exactly as it is, and you may not add or
-remove a module: the runner compares every other file with the approved design
-and rejects any difference. The basic design does not change either.
+Change only modules/<module>.md and ac/<module>.json for those (for a change,
+changes/<name>.md and ac/changes/<name>.json). Every other file under
+modules/, changes/ and ac/ must stay exactly as it is, and you may not add or
+remove a module or a change: the runner compares every other file with the
+approved design and rejects any difference. The basic design does not change
+either.
 """
     return layout_text(f"""You are the planner. Split the basic design below into modules, and write the
 detailed design (詳細設計仕様書) and the acceptance criteria of each module.
@@ -4393,7 +4725,7 @@ A contract line is one of:
   code calls, a library's public API.
 
 {LANGUAGE["contract_note"]}
-
+{existing_modules_note()}
 # The acceptance criteria
 
     {{"criteria": [
@@ -4450,44 +4782,61 @@ def check_basic_out() -> list[str]:
 
 
 def check_modules_out(open_: list[str] | None, docs: dict[str, str],
-                      acs: dict[str, str]) -> list[str]:
+                      acs: dict[str, str], changes: dict[str, str] | None = None) -> list[str]:
     """プランナーが書いた詳細設計を確かめる。差し戻しでは、指定外の変更を拒む。"""
+    changes = changes or {}
     new_docs = read_texts(PLANNER_OUT / "modules", ".md")
+    new_changes = read_texts(PLANNER_OUT / "changes", ".md")
     new_acs = read_texts(PLANNER_OUT / "ac", ".json")
     problems = []
     if open_ is not None:
-        for name, before, after in (("modules", docs, new_docs), ("ac", acs, new_acs)):
+        # 変更の文書は changes/ の下の名前で、単位の id は changes/<名前>。
+        # どちらも単位の id で突き合わせる。
+        for name, before, after, prefix in (
+                ("modules", docs, new_docs, ""), ("changes", changes, new_changes, CHANGE_PREFIX),
+                ("ac", acs, new_acs, "")):
             suffix = PLANNER_PARTS[name]
-            for mid in sorted(set(before) | set(after)):
-                if mid not in open_ and before.get(mid) != after.get(mid):
-                    problems.append(f"差し戻し: {name}/{mid}{suffix} changed, but only "
+            for key in sorted(set(before) | set(after)):
+                if prefix + key not in open_ and before.get(key) != after.get(key):
+                    problems.append(f"差し戻し: {name}/{key}{suffix} changed, but only "
                                     f"{', '.join(open_)} may change")
-    modules, shape = design_problems(new_docs, new_acs)
+    modules, shape = design_problems(new_docs, new_acs, new_changes)
     problems += shape
     if not shape:
         problems += interface_problems(modules)
     return problems
 
 
-def cmd_basic_draft(language: str | None, framework: str | None) -> int:
+def cmd_basic_draft(language: str | None, framework: str | None,
+                    mode: str | None = None) -> int:
     """仕様書から基本設計仕様書を書かせる。人の意見があれば渡す。"""
     stage = read_stage()
     refused = in_stage(stage, "upstream")
     if refused:
         return refuse(refused)
+    # モードは最初の基本設計で刻む。言語より前に確かめ、断るときは何も書かない。
+    # 言語だけが刻まれた段は、モードが無かったころに始めた走行で、新規として続ける。
+    if mode and stage.get("mode") and mode != stage["mode"]:
+        return refuse(f"refusing: this run is in the {stage['mode']} mode, and the mode "
+                      f"cannot change; start a new project instead")
+    if not mode and not stage.get("mode") and not stage.get("language"):
+        return refuse(f"refusing: name the mode the first time, with --mode "
+                      f"({' or '.join(MODES)})")
     if language or framework:
         language = language or stage.get("language") or "python"
         load_settings({"language": language, "framework": framework})
         stage = write_stage(language=language, framework=LANGUAGE["framework"])
     elif not stage.get("language"):
         return refuse("refusing: name the language the first time, with --language")
+    if mode and not stage.get("mode"):
+        stage = write_stage(mode=mode)
     use_stage_language(stage)
     spec = spec_text()
     if not spec:
         return refuse(f"refusing: there is no specification in {DOCS_SPEC}; run spec import")
     comment = human_comment()
     ledger("BASIC_DRAFT", language=LANGUAGE["name"], framework=LANGUAGE["framework"],
-           comment=bool(comment))
+           mode=RUN["mode"], comment=bool(comment))
     prepare_planner_out({"basic": read_texts(DOCS_BASIC, ".md")})
     problems = draft_with_retry(lambda feedback: brief_basic(spec, comment, feedback),
                                 check_basic_out, {"basic"}, "BASIC_DRAFT_CHECK")
@@ -4514,6 +4863,7 @@ def cmd_basic_approve() -> int:
     refused = in_stage(stage, "upstream")
     if refused:
         return refuse(refused)
+    use_stage_language(stage)   # 既存のモードなら、3つの節も確かめる
     problems = basic_problems(read_texts(DOCS_BASIC, ".md"))
     if problems:
         for problem in problems:
@@ -4550,12 +4900,19 @@ def cmd_modules_draft() -> int:
     basic = "\n\n".join(f"--- basic/{name}.md ---\n{text}"
                         for name, text in read_texts(DOCS_BASIC, ".md").items())
     docs, acs = read_texts(DOCS_MODULES, ".md"), read_texts(AC, ".json")
+    changes = read_texts(DOCS_CHANGES, ".md")
     comment = human_comment()
     ledger("MODULES_DRAFT", open=open_, comment=bool(comment))
-    prepare_planner_out({"modules": docs, "ac": acs})
+    # 変更は既存のモードにしか無い。新規のモードでは changes/ を置かず、プランナーが
+    # 書いても読まずに消す。
+    parts = {"modules": docs, "ac": acs}
+    if existing_mode():
+        parts["changes"] = changes
+    prepare_planner_out(parts)
     problems = draft_with_retry(
         lambda feedback: brief_modules(spec, basic, open_, comment, feedback),
-        lambda: check_modules_out(open_, docs, acs), {"modules", "ac"}, "MODULES_DRAFT_CHECK")
+        lambda: check_modules_out(open_, docs, acs, changes), set(parts),
+        "MODULES_DRAFT_CHECK")
     if problems:
         for problem in problems:
             print("  " + problem, file=sys.stderr)
@@ -4564,6 +4921,10 @@ def cmd_modules_draft() -> int:
         return 2
     only = None if open_ is None else set(open_)
     write_texts(DOCS_MODULES, read_texts(PLANNER_OUT / "modules", ".md"), ".md", only)
+    if existing_mode():
+        write_texts(DOCS_CHANGES, read_texts(PLANNER_OUT / "changes", ".md"), ".md",
+                    None if only is None else
+                    {mid[len(CHANGE_PREFIX):] for mid in only if is_change(mid)})
     write_texts(AC, read_texts(PLANNER_OUT / "ac", ".json"), ".json", only)
     modules, _ = current_design()
     INTERFACE.write_text(json.dumps(interface_record(modules, []), ensure_ascii=False,
@@ -4572,7 +4933,7 @@ def cmd_modules_draft() -> int:
     HUMAN_COMMENT.unlink(missing_ok=True)
     write_stage(critiqued=None)
     ledger("MODULES_WRITTEN", modules=sorted(modules))
-    commit_paths([DOCS_MODULES, INTERFACE, STAGE_FILE, LEDGER],
+    commit_paths([DOCS_MODULES, DOCS_CHANGES, INTERFACE, STAGE_FILE, LEDGER],
                  "docs: write the module design", "the module design")
     clear_planner_out()
     return cmd_modules_critique()
@@ -4588,8 +4949,14 @@ def cmd_modules_draft() -> int:
 
 
 def brief_critique(spec: str, basic: str, modules: dict[str, dict]) -> str:
-    designs = "\n\n".join(f"--- modules/{mid}.md ---\n{m['doc']}"
+    # 変更の id は changes/<名前> で、文書の置き場もその名前になる。
+    designs = "\n\n".join(f"--- {mid if is_change(mid) else 'modules/' + mid}.md ---\n{m['doc']}"
                           for mid, m in sorted(modules.items()))
+    changes_note = "" if not existing_mode() else """
+A design under changes/ is a change to code that already exists: its edits
+lines name the existing files it touches. Behaviour it does not name stays as
+it is, and the tests already in the repository keep it so.
+"""
     return f"""Below are a specification, the basic design made from it, and the detailed
 design of every module. Your role and your task follow after them.
 
@@ -4601,7 +4968,7 @@ design of every module. Your role and your task follow after them.
 
 # The module designs
 {designs}
-
+{changes_note}
 # Your role
 
 You are the critic. You review the module design once. Nothing has been built
@@ -4779,7 +5146,8 @@ def cmd_reopen(mids: list[str]) -> int:
     refused = in_stage(stage, "midstream", "downstream", "review")
     if refused:
         return refuse(refused)
-    known = set(read_texts(DOCS_MODULES, ".md"))
+    known = set(read_texts(DOCS_MODULES, ".md")) \
+        | {CHANGE_PREFIX + name for name in read_texts(DOCS_CHANGES, ".md")}
     unknown = sorted(set(mids) - known)
     if unknown or not mids:
         return refuse(f"refusing: not a module of this design: {', '.join(unknown) or '(none)'}; "
@@ -4862,6 +5230,8 @@ def cmd_status() -> int:
     """段と、モジュールごとの状態。"""
     stage = read_stage()
     print(f"stage: {stage.get('stage') or '(not started)'}")
+    if stage.get("stage"):
+        print(f"mode: {stage.get('mode') or 'new'}")
     if stage.get("open"):
         print(f"open for the planner: {', '.join(stage['open'])}")
     elif stage.get("open") == []:
@@ -6617,7 +6987,24 @@ write a criterion about the text of index.html.
     if shortened:
         existing = [csharp_short_declaration(line) for line in existing]
     existing_text = ""
-    if existing:
+    if existing and existing_mode():
+        existing_text = layout_text("""
+# What the code already declares
+
+The repository already has code under {SRC}/. These are its public
+declarations, read from the last commit. They exist before the first module is
+built.
+
+A module or change that uses one of these writes a requires line for it, with
+`from` naming its file under {SRC}/ without the extension. A file listed here
+is only ever touched by a change, never rewritten by a module.
+
+Do not write criteria to show that the rest still works. The tests already in
+the repository run on every module and change, and one that breaks any of them
+is not green. That is how unchanged behaviour is kept.
+
+""")
+    elif existing:
         existing_text = layout_text("""
 # What the code already declares
 
@@ -7078,6 +7465,7 @@ def run_step(step_id: str) -> int:
     NOW["step"], NOW["attempt"] = step_id, None
     tasks = json.loads(TASKS.read_text(encoding="utf-8"))
     load_settings({**tasks, **read_settings()})
+    RUN["mode"] = tasks.get("mode") or "new"
 
     step, context = load_plan(step_id)
     ledger("PLAN_LOAD", step=step_id, files_write=step["files_write"], files_test=step["files_test"])
@@ -7131,12 +7519,21 @@ def run_step(step_id: str) -> int:
             # 既存のファイルは、provides の名前だけを差し替える。丸ごと書き直すと、
             # ステップに関係の無い関数まで消える。
             originals = head_sources(step["files_write"])
-            written = generate_stub(step, dep_contract_lines(step), originals)
+            change = step.get("unit") == "change"
             said = ""
+            if change and not step["contracts"]["provides"]:
+                # 署名の変わらない変更にスタブは無い。テストは今のコードに対して
+                # 落ちる。変える振る舞いが、まだ無いからだ。
+                written = {}
+                ledger("STUB", step=step_id, ok=True, by="none",
+                       note="a change that keeps every signature runs red against the "
+                            "code as it is")
+            else:
+                written = generate_stub(step, dep_contract_lines(step), originals)
             if written is None:
                 said = call_solver("STUB", brief_stub(step, sorted(originals)))
                 ledger("STUB", step=step_id, ok=True, by="solver")
-            else:
+            elif written:
                 for rel, text in written.items():
                     path = PROJECT / rel
                     path.parent.mkdir(parents=True, exist_ok=True)
@@ -7144,7 +7541,9 @@ def run_step(step_id: str) -> int:
                 ledger("STUB", step=step_id, ok=True, by="runner",
                        files=sorted(written))
             assert_touched("STUB", step["files_test"] + step["files_write"])
-            assert_written("STUB", step["files_write"], said)
+            # 変更が触るファイルは、HEAD にあるものだけが必ずある。C++ の対の片方は
+            # 無いこともある。
+            assert_written("STUB", sorted(originals) if change else step["files_write"], said)
             changed = stub_kept_the_rest(step, originals)
             if changed:
                 raise Halt("STUB",
@@ -7208,8 +7607,9 @@ def run_step(step_id: str) -> int:
         if red.passed_names:                                               # R4
             raise Halt(
                 "RED_GATE",
-                "R4: some tests already pass against the stub, so they never "
-                "demonstrated the behaviour they claim to check",
+                f"R4: some tests already pass against "
+                f"{'the code as it is' if change else 'the stub'}, so they never "
+                f"demonstrated the behaviour they claim to check",
                 "passing: " + ", ".join(red.passed_names))
         bad = sorted({k for k in red.failure_kinds if not LANGUAGE["red_kinds"].match(k)})
         if bad:                                                            # R5
@@ -7527,6 +7927,9 @@ def main() -> int:
                                            for name in names}),
                            help="where the code is taken to (unity, dxlib, ...); it must "
                                 "belong to --language (default: the language's own)")
+    draft_cmd.add_argument("--mode", default=None, choices=MODES,
+                           help="new: build new code; existing: change the code already in "
+                                "the repository. Required the first time, and fixed after that")
     basic_sub.add_parser("approve", help="approve the basic design and move to the midstream")
 
     # 中段。詳細設計を書かせ、クリティックに1回読ませ、人が承認する。
@@ -7579,7 +7982,7 @@ def main() -> int:
             return cmd_spec_import()
         if args.cmd == "basic":
             if args.sub_cmd == "draft":
-                return cmd_basic_draft(args.language, args.framework)
+                return cmd_basic_draft(args.language, args.framework, args.mode)
             return cmd_basic_approve()
         if args.cmd == "modules":
             if args.sub_cmd == "draft":

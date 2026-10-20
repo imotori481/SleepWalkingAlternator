@@ -158,13 +158,16 @@ def parse(request: object, work: str) -> list[str]:
             framework = swa.LANGUAGES[language]["framework"]
         if framework not in swa.FRAMEWORKS[language]:
             raise Refused(f"{language} の持ち込む先に無い: {framework!r}")
+        mode = request.get("mode")
+        if mode not in swa.MODES:
+            raise Refused(f"モードを選ぶ（{' か '.join(swa.MODES)}）: {mode!r}")
         if not isinstance(text, str) or not text.strip():
             raise Refused("仕様書が空")
         if len(text) > MAX_SPEC:
             raise Refused(f"仕様書が長すぎる。{MAX_SPEC} 字まで")
         with open(os.path.join(work, "spec.md"), "w", encoding="utf-8") as handle:
             handle.write(text)
-        return ["go", language, framework]
+        return ["go", language, framework, mode]
     if action == "reject":
         # コメントの本文も仕様書と同じく作業ディレクトリに書き、行には載せない。
         text = request.get("text")
@@ -247,9 +250,13 @@ def design(project: str) -> dict:
             failure = handle.read()
     except OSError:
         failure = None
+    # 変更は単位の id（changes/<名前>）でモジュールと並べる。受け入れ条件も同じ id だ。
+    units = read_tree(os.path.join(project, "docs", "modules"), ".md")
+    units.update({swa.CHANGE_PREFIX + name: text for name, text
+                  in read_tree(os.path.join(project, "docs", "changes"), ".md").items()})
     return {"stage": read_json_file(os.path.join(plan, "stage.json")) or {},
             "basic": read_tree(os.path.join(project, "docs", "basic"), ".md"),
-            "modules": read_tree(os.path.join(project, "docs", "modules"), ".md"),
+            "modules": units,
             "ac": acs,
             "interface": read_json_file(os.path.join(plan, "INTERFACE.json")),
             "critique": read_json_file(os.path.join(plan, "CRITIQUE.json")),

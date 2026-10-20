@@ -31,7 +31,8 @@ PowerShell なら `.\host\swa.cmd <args>`、Git Bash なら `./host/swa.cmd <arg
 |---|---|
 | `<repo-dir>` | ホストにクローンした SWA のリポジトリ |
 | `<spec>` | 仕様書のファイルのパス。手元だけで使うものは `<repo-dir>\requirements\local\` に置く |
-| `<module>` | モジュールの ID。詳細設計仕様書のパスから `docs/modules/` と `.md` を除いたもの（`core/board` など） |
+| `<module>` | 単位の ID。モジュールなら詳細設計仕様書のパスから `docs/modules/` と `.md` を除いたもの（`core/board` など）、変更なら `changes/<名前>`（`changes/ScoreBonus` など） |
+| `<mode>` | 走行のモード。新しいコードを作るなら `new`、既存のコードに手を入れるなら `existing` |
 | `<comment>` | 設計を書き直させるときに人が付けるコメント |
 | `<project>` | 箱の中でのプロジェクトの名前。英小文字、数字、`.` `_` `-` |
 | `<repo-url>` | 対象のリポジトリの GitHub の URL |
@@ -54,8 +55,8 @@ PowerShell なら `.\host\swa.cmd <args>`、Git Bash なら `./host/swa.cmd <arg
 
 | やりたいこと | コマンド |
 |---|---|
-| 仕様書を置き、基本設計を書かせる | `swa go <spec>... --language <言語>` |
-| 持ち込む先を選んで始める | `swa go <spec>... --language <言語> --framework <持ち込む先>` |
+| 仕様書を置き、基本設計を書かせる | `swa go <spec>... --mode <mode> --language <言語>` |
+| 持ち込む先を選んで始める | `swa go <spec>... --mode <mode> --language <言語> --framework <持ち込む先>` |
 | 今の段の設計を承認して次へ流す | `swa approve` |
 | コメントを付けて今の段の設計を書き直させる | `swa reject <comment>` |
 | 直すモジュールを選んで中段に戻す | `swa reopen <module>...` |
@@ -65,8 +66,17 @@ PowerShell なら `.\host\swa.cmd <args>`、Git Bash なら `./host/swa.cmd <arg
 | 止める | `swa stop` |
 | いまの作業を JSON で見る | `swa now` |
 
-言語は `python`、`typescript`、`cpp`、`csharp` のどれかで、省くと `python`。ホストで打つときは、
-`<spec>` にホストのファイルのパスを1つだけそのまま渡せる。箱で打つときは複数渡せる。
+モードは省けない。言語は `python`、`typescript`、`cpp`、`csharp` のどれかで、省くと `python`。
+モードと言語は最初の基本設計で決まり、後から変えられない。ホストで打つときは、`<spec>` に
+ホストのファイルのパスを1つだけそのまま渡せる。箱で打つときは複数渡せる。
+
+| モード | 下流の単位 | プランナーに求めるもの |
+|---|---|---|
+| `new` | モジュール（新しいファイル1つ） | 基本設計の概要 |
+| `existing` | モジュールと変更（変える振る舞い1つ。触る既存のファイルをすべて持つ） | 設計の前に既存のコードを読むこと。基本設計の概要に加えて `## 現状の構成`、`## 変更の範囲`、`## 守る規約` |
+
+既存のモードでは、既存のファイルはモジュールとして書き直さず、変更で触る。変更のテストは、
+変える前の今のコードに対して落ちることを確かめてから実装させる。
 
 段ごとに `swa approve` と `swa reject` がすることは次のとおり。
 
@@ -75,8 +85,8 @@ PowerShell なら `.\host\swa.cmd <args>`、Git Bash なら `./host/swa.cmd <arg
 | 上流 | 基本設計を承認し、詳細設計を書かせてクリティックに読ませる | 基本設計を書き直させる |
 | 中段 | 詳細設計を承認し、全モジュールを実装する | 詳細設計を書き直させ、クリティックに読ませ直す |
 
-上流の成果物は `docs/basic/`、中段の成果物は `docs/modules/` と `ac/` にある。写しには `docs/`
-だけが入る。受け入れ条件は箱で読む。
+上流の成果物は `docs/basic/`、中段の成果物は `docs/modules/`、`docs/changes/` と `ac/` にある。
+写しには `docs/` だけが入る。受け入れ条件は箱で読む。
 
 ```bash
 sudo -u runner cat /srv/swa/project/ac/<module>.json
@@ -165,7 +175,7 @@ swa-import <project> <repo-url> <branch> [<base-branch>] [--src <src-dir>] [--te
 
     ```bash
     swa project use <project>
-    swa go <spec> --language <言語>
+    swa go <spec> --mode existing --language <言語>
     ```
 
     `use` は、ブランチが push されていなければ何も動かさずに止まる。初回はプロビジョニングが
@@ -210,7 +220,7 @@ git -C <clone-dir> config branch.<branch>.swaBase <base-branch>
 
 手で出すときは次のとおり。`<branch>` には、箱が置いた環境のファイル（`conftest.py`、`index.html`、`vitest.config.mjs`、
 `.gitignore` への追記）と、走行の記録（`plan/`）と、取り込んだ仕様書（`docs/spec/`）がコミットされている。PR には要らないので、別のブランチで
-消してから出す。プランナーが書いた設計書（`docs/basic/`、`docs/modules/`）は消さずに PR に載せる。`<branch>` そのものは消さずに残す。箱はこれからもそこで作業する。
+消してから出す。プランナーが書いた設計書（`docs/basic/`、`docs/modules/`、`docs/changes/`）は消さずに PR に載せる。`<branch>` そのものは消さずに残す。箱はこれからもそこで作業する。
 
 ```bash
 git switch -c <pr-branch> <branch>
@@ -231,12 +241,12 @@ git push origin <pr-branch>
 - 自前の `conftest.py`、`index.html`、`vitest.config.mjs` があると、プロビジョニングは上書きせずに止まる
 - `.gitignore` に `node_modules/` があると `35-node.sh` が止まる
 - 依存パッケージは入らない。箱にあるのは pytest と vitest だけだ
-- 既存のファイルでは、スタブは契約が挙げた名前の宣言だけを差し替える。既存のテストは凍結されるので、振る舞いを変えるとそのテストが回帰として落ちる
+- 既存のファイルを触るのは変更だけだ。署名の変わる名前があれば、スタブはその名前の宣言だけを差し替える。既存のテストは凍結されるので、振る舞いを変えるとそのテストが回帰として落ちる
 
 ## C++ で作業させる
 
 ```bash
-swa go <spec> --language cpp
+swa go <spec> --mode <mode> --language cpp
 ```
 
 箱は標準の C++17 のロジックだけを g++ と GoogleTest で確かめる。DXライブラリや Windows の API は箱に無い。
@@ -288,7 +298,7 @@ swa go <spec> --language cpp
 
 | やりたいこと | 欄 | 同じことをするコマンド |
 |---|---|---|
-| 仕様書から始める | 走行 | `swa go <spec> --language <言語>` |
+| 仕様書から始める | 走行 | `swa go <spec> --mode <mode> --language <言語>` |
 | 止まったところから続ける | 走行 | `swa continue` |
 | 止める | 走行 | `swa stop` |
 | 途中で止まったモジュールを最後のコミットに戻す | 走行 | `swa raw reset <module>` |

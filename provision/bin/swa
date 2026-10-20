@@ -107,9 +107,10 @@ work() {
 
   case "$mode" in
     go)
-      local language="$1" framework="${2:-}"
+      local language="$1" framework="${2:-}" run_mode="${3:-}"
       call "仕様書の取り込み" spec import
-      call "基本設計" basic draft --language "$language" ${framework:+--framework "$framework"}
+      call "基本設計" basic draft --language "$language" --mode "$run_mode" \
+        ${framework:+--framework "$framework"}
       finish 0 "基本設計を書いた。docs/basic/ を読み、'swa approve' か 'swa reject <コメント>'" ;;
     redraft-basic)
       call "基本設計の書き直し" basic draft
@@ -160,18 +161,25 @@ start() {
 }
 
 # 人が書いた仕様書を受け渡し口に置き、上流を始める。ファイルはいくつでも渡せる。
+# モードは省けない。新規か既存かで、プランナーに求めるものと下流の単位が変わる。
 cmd_go() {
-  local language="python" framework="" f
+  local language="python" framework="" run_mode="" f
   local -a specs=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --language) [ $# -ge 2 ] || die "--language に値が無い"; language="$2"; shift 2 ;;
       --framework) [ $# -ge 2 ] || die "--framework に値が無い"; framework="$2"; shift 2 ;;
+      --mode) [ $# -ge 2 ] || die "--mode に値が無い"; run_mode="$2"; shift 2 ;;
       -*) die "知らないオプション: $1" ;;
       *) specs+=("$1"); shift ;;
     esac
   done
-  [ ${#specs[@]} -gt 0 ] || die "使い方: swa go <仕様書>... [--language <言語>] [--framework <持ち込む先>]"
+  [ ${#specs[@]} -gt 0 ] || die "使い方: swa go <仕様書>... --mode <new|existing> [--language <言語>] [--framework <持ち込む先>]"
+  case "$run_mode" in
+    new|existing) ;;
+    "") die "--mode を選ぶ。新しいコードを作るなら new、既存のコードに手を入れるなら existing" ;;
+    *) die "知らないモード: $run_mode（new か existing）" ;;
+  esac
   for f in "${specs[@]}"; do
     [ -f "$f" ] || die "ファイルが無い: $f"
   done
@@ -188,7 +196,7 @@ cmd_go() {
     sudo install -o root -g humanw -m 644 "$f" "$SPEC_IN/$(basename "$f")"
   done
   echo "仕様書を置いた: $SPEC_IN"
-  start go "$language" "$framework"
+  start go "$language" "$framework" "$run_mode"
 }
 
 # せきを開けて次の段へ流す。上流なら中段の詳細設計まで、中段なら下流の全モジュールまで。
@@ -340,7 +348,7 @@ cmd_dash() {
     settings) python3 "$DASH_PY" settings "$ROLE_ENV" ;;
     design)   python3 "$DASH_PY" design "$SWA/project" ;;
     model)    python3 "$DASH_PY" set-model "$ROLE_ENV" "${req[@]:1}" ;;
-    go)       cmd_go "$work/spec.md" --language "${req[1]}" --framework "${req[2]}" ;;
+    go)       cmd_go "$work/spec.md" --language "${req[1]}" --framework "${req[2]}" --mode "${req[3]}" ;;
     approve)  cmd_approve ;;
     reject)   cmd_reject "$(cat "$work/comment.md")" ;;
     reopen)   cmd_reopen "${req[@]:1}" ;;
@@ -434,9 +442,10 @@ usage() {
   cat >&2 <<'EOF'
 使い方: swa <コマンド>
 
-  go <仕様書>... [--language <言語>] [--framework <持ち込む先>]
-                    仕様書を置き、プランナーに基本設計を書かせる。持ち込む先を省くと
-                    言語の既定になる
+  go <仕様書>... --mode <new|existing> [--language <言語>] [--framework <持ち込む先>]
+                    仕様書を置き、プランナーに基本設計を書かせる。モードは new（新しい
+                    コードを作る）か existing（既存のコードに手を入れる）で、省けない。
+                    持ち込む先を省くと言語の既定になる
   approve           せきを開ける。上流なら詳細設計と批評まで、中段なら全モジュールの
                     実装までを裏で流す
   reject <コメント> コメントを付けて、今の段の設計をプランナーに書き直させる

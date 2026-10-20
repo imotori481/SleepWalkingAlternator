@@ -925,10 +925,13 @@ function modelRow(role, current, efforts, rows) {
 async function startRun(element) {
   const file = document.querySelector("#spec").files[0];
   if (!file) { alert("仕様書のファイルを選んでください。"); return; }
+  const mode = document.querySelector("#mode");
+  if (!mode.value) { alert("モードを選んでください。"); return; }
   const language = document.querySelector("#language").value;
   const framework = document.querySelector("#framework").value;
-  await act(element, "/api/start", {spec: await file.text(), language, framework},
-    `${file.name} を仕様書にして、${language}${framework ? `（${framework}）` : ""} で基本設計から始めます。よいですか？`);
+  const modeName = mode.options[mode.selectedIndex].text;
+  await act(element, "/api/start", {spec: await file.text(), language, framework, mode: mode.value},
+    `${file.name} を仕様書にして、${modeName}のモードと ${language}${framework ? `（${framework}）` : ""} で基本設計から始めます。よいですか？`);
 }
 
 let pullTimer = null;

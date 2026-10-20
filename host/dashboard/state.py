@@ -43,12 +43,15 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def design_modules(project: Path) -> list[str]:
-    """写しの詳細設計仕様書が述べるモジュールの id。docs/modules/ の下のパスから .md を落としたもの。"""
-    root = project / "docs" / "modules"
-    if not root.is_dir():
-        return []
-    return sorted(path.relative_to(root).with_suffix("").as_posix()
-                  for path in root.rglob("*.md") if path.is_file())
+    """写しの詳細設計仕様書が述べる単位の id。docs/modules/ の下のパスから .md を落としたものと、
+    docs/changes/ の下の変更の名前に changes/ を付けたもの。"""
+    found: list[str] = []
+    for folder, prefix in (("modules", ""), ("changes", "changes/")):
+        root = project / "docs" / folder
+        if root.is_dir():
+            found += [prefix + path.relative_to(root).with_suffix("").as_posix()
+                      for path in root.rglob("*.md") if path.is_file()]
+    return sorted(found)
 
 
 def green_modules(ledger: list[dict[str, Any]]) -> list[str]:

@@ -69,13 +69,25 @@ chmod -R go-w "$P/.venv"
 chown runner:solverw /srv/swa/brief
 chmod 2750 /srv/swa/brief   # setgid: ブリーフはグループ solverw にならなければならない
 
-# planner は src/ を読めるが、書けない。既存のコードの形を読んで設計に使う。
+# planner はリポジトリを読めるが、書けない。既存のコードの構成と書き方を読んで
+# 設計に使う。柵の外の設定や、柵の外にある既存のコードも読む。
 # グループでは渡せない。solverw に入れると src/ と tests/ に書けてしまい、
 # 根の 3770 の `other` を開けると、箱のすべてのアカウントに tests/ が見える。
 # だから planner にだけ ACL で渡す。
 #
-#   根から src/ までの道   --x。通るだけで、並べられない。tests/ にも plan/ にも届かない
-#   src/ の下              r-x。default も付け、ソルバーが後から作るファイルにも継がせる
+#   根                     r-x。並べられる。default は付けない
+#   根の下のもの           r-x。default も付け、後から作るファイルにも継がせる
+#   ランナーだけのもの     付けない。.git、plan、.runner、docs、ac。700 なので届かない
+#   .venv と node_modules  付けない。凍結したツールチェーンで、設計に要らない
+#   テストの柵             付けない。ACL を剥がす。planner は基準を書くので、それを
+#                          満たすテストを見てはならない
+#   テストの柵の祖先       default を剥がす。ランナーが柵を作り直したとき、新しい柵が
+#                          祖先の default を継いで planner に開くのを防ぐ
+#
+# 根に default を付けないのも同じ理由だ。既定の配置では tests/ は根の直下にある。
+#
+# 根の下のランナーだけのものを chmod 700 の後で setfacl に通すと、マスクが計算し
+# 直されて planner に開く。だから最初から通さない。
 #
 # ランナーが src/ を chmod すると ACL のマスクが変わる。柵を閉じた 2755 でも
 # マスクは r-x なので、planner の読み取りは残る。
@@ -83,16 +95,23 @@ if ! command -v setfacl >/dev/null 2>&1; then
   apt-get install -y -q acl >/dev/null
 fi
 if id -u planner >/dev/null 2>&1; then
+  setfacl -m u:planner:r-x "$P"
+  for entry in "$P"/* "$P"/.[!.]*; do
+    [ -e "$entry" ] && [ ! -L "$entry" ] || continue
+    case "$(basename "$entry")" in
+      .git|plan|.runner|docs|ac|.venv|node_modules) continue ;;
+    esac
+    setfacl -R -m u:planner:rX "$entry"
+    [ -d "$entry" ] && find "$entry" -type d -exec setfacl -d -m u:planner:rX {} +
+  done
+  setfacl -R -b "$TESTS"
   dir="$P"
-  setfacl -m u:planner:--x "$dir"
-  rest="$LAYOUT_SRC"
+  rest="$LAYOUT_TESTS"
   while [ "${rest%%/*}" != "$rest" ]; do
     dir="$dir/${rest%%/*}"
     rest="${rest#*/}"
-    setfacl -m u:planner:--x "$dir"
+    setfacl -k "$dir"
   done
-  setfacl -R -m u:planner:rX "$SRC"
-  find "$SRC" -type d -exec setfacl -d -m u:planner:rX {} +
 fi
 
 # ---- 検査。solver の視点で確かめる ------------------------------------
@@ -139,8 +158,8 @@ chk_cannot ls /home/runner
 # してしまうテストを見てはならない。critic はコードも読まない。
 for stranger in planner critic; do
   id -u "$stranger" >/dev/null 2>&1 || continue
-  targets=("$P" "$TESTS" "$P/plan" "$P/docs" "$P/ac" "$P/.runner")
-  [ "$stranger" = critic ] && targets+=("$SRC")
+  targets=("$TESTS" "$P/plan" "$P/docs" "$P/ac" "$P/.runner" "$P/.git")
+  [ "$stranger" = critic ] && targets+=("$P" "$SRC")
   for target in "${targets[@]}"; do
     if sudo -u "$stranger" ls "$target" >/dev/null 2>&1; then
       echo "FAIL: $stranger should NOT be able to: ls $target"
@@ -149,14 +168,16 @@ for stranger in planner critic; do
   done
 done
 
-# planner は src/ を読めるが、書けない。
+# planner はリポジトリを読めるが、書けない。
 if id -u planner >/dev/null 2>&1; then
-  if ! sudo -u planner ls "$SRC" >/dev/null 2>&1; then
-    echo "FAIL: planner should be able to: ls $SRC"; fail=1
-  fi
-  if sudo -u planner test -w "$SRC" 2>/dev/null; then
-    echo "FAIL: planner should NOT be able to: test -w $SRC"; fail=1
-  fi
+  for target in "$P" "$SRC"; do
+    if ! sudo -u planner ls "$target" >/dev/null 2>&1; then
+      echo "FAIL: planner should be able to: ls $target"; fail=1
+    fi
+    if sudo -u planner test -w "$target" 2>/dev/null; then
+      echo "FAIL: planner should NOT be able to: test -w $target"; fail=1
+    fi
+  done
 fi
 # 保守ユーザーのホームには、人間の ssh 鍵とエージェント CLI の資格情報がある。
 # solver が届けば、git の経路とログインを渡すことになる。

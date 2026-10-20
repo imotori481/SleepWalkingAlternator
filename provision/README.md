@@ -428,7 +428,7 @@ sudo -u runner /srv/swa/bin/smoke-critic
 ホストからは `host\swa.cmd` で同じコマンドを呼べる（`host/README.md`）。
 
 ```bash
-swa go <仕様書>.md...               # 言語は --language typescript / csharp / cpp、持ち込む先は --framework
+swa go <仕様書>.md... --mode new    # モードは new か existing で省けない。言語は --language typescript / csharp / cpp、持ち込む先は --framework
 swa approve                         # 今の段の設計を承認し、次の段へ流す
 swa reject <コメント>               # コメントを付けて、今の段の設計を書き直させる
 swa reopen <モジュール>...          # 詳細設計を直すモジュールを選び、中段に戻す
@@ -1016,6 +1016,7 @@ VirtualBox 構成の手順は `c4374f4` から拾える。
 
 ## 更新履歴
 
+- 2026/10/20: `swa go` に `--mode` を追加し、planner の ACL を `src/` からリポジトリに変更
 - 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更し、古い箱を移す `08-rename.sh` を追加
 - 2026/10/15: 箱の中のクローンの場所を `/opt/swa` に変更
 - 2026/10/14: §2-10 の走らせ方を3段（上流、中段、下流）の `loop go`、`approve`、`reject`、`reopen` に変更

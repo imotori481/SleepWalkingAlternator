@@ -73,7 +73,7 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 | プロジェクト | 一覧を見て切り替える | `swa project use` を一時ユニット `swa-switch` で | ローカル |
 | プロジェクト | 今のもの以外を、名前を打って確かめてから箱のディレクトリと走行ログごと消す。走行中と切り替え中は断る | `swa project remove` | ローカル |
 | 役のモデル | 役ごとに `SWA_MODEL` と `SWA_EFFORT` を、planner と solver では `SWA_SUBAGENT_MODEL` も変える | `/etc/swa/<役>.env` の行の書き換え | ローカル |
-| 走行 | 仕様書のファイルと言語を選んで開始 | `swa go` | ローカル |
+| 走行 | 仕様書のファイル、モード、言語を選んで開始。モードを選ばないと開始しない | `swa go` | ローカル |
 | 走行 | 止まったところから続ける | `swa continue` | どこからでも |
 | 走行 | 止める | `swa stop` | どこからでも |
 | 走行 | 緑でないモジュールを選び、作業ツリーを最後の緑に戻す。走行中と切り替え中は断る | `swa raw reset <モジュール>` | どこからでも |
@@ -86,7 +86,7 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 
 | 要求 | 中身 |
 |---|---|
-| `{"action": "go", "spec": <本文>, "language": <言語>, "framework": <持ち込む先>}` | 本文は root だけが入れる一時ディレクトリに書き、そこから `swa go` が `human/in/spec/` に置く。200000 字まで。言語は `swa.py` の `LANGUAGES` のどれか。持ち込む先はその言語の `FRAMEWORKS` のどれかで、空なら言語の既定 |
+| `{"action": "go", "spec": <本文>, "language": <言語>, "framework": <持ち込む先>, "mode": <モード>}` | 本文は root だけが入れる一時ディレクトリに書き、そこから `swa go` が `human/in/spec/` に置く。200000 字まで。言語は `swa.py` の `LANGUAGES` のどれか。持ち込む先はその言語の `FRAMEWORKS` のどれかで、空なら言語の既定。モードは `swa.py` の `MODES`（`new` か `existing`）のどれかで、空なら断る |
 | `{"action": "continue"}` / `{"action": "stop"}` | 引数なし |
 | `{"action": "reset", "module": <id>}` | id は `swa.py` の `MODULE_ID` に合うもの。200 字まで |
 | `{"action": "approve"}` | 引数なし。段が上流か中段で、走っていないときだけ箱が通す |
@@ -207,7 +207,7 @@ SSH は3秒に1回までしか流さない。止めるときは `"live": {"enabl
 3. `origin` から親ブランチを fetch する
 4. 一時的な index の上で、`swa/<branch>` から `plan`、`docs/spec`、
    `conftest.py`、`index.html`、`vitest.config.mjs` を除き、`.gitignore` を親ブランチの版に戻したコミットを作る。
-   プランナーが書いた設計書（`docs/basic`、`docs/modules`）は残す。
+   プランナーが書いた設計書（`docs/basic`、`docs/modules`、`docs/changes`）は残す。
    親ブランチに `.gitignore` が無ければ消す
 5. 出す先のブランチを決める。`<branch>-pr` からの PR が開いていればそれを使う。無く、`<branch>-draft` からの
    下書きの PR が開いていれば、その下書きを使う。どちらも無ければ `<branch>-pr`
@@ -244,7 +244,7 @@ git -C <clone-dir> config branch.<branch>.swaBase <base-branch>
 
 - 承認は求めない。写しの HEAD、つまり最後に緑になったモジュールのコミットを出す。緑の判定には触れない
 - ブランチは `<branch>-draft`。最終確認の承認のとき、この下書きが開いていれば正式な PR になる
-- `gh pr create` に `--draft` を付ける。本文には、写しの `docs/modules/` と台帳から、緑のモジュールと残りのモジュールを並べる。
+- `gh pr create` に `--draft` を付ける。本文には、写しの `docs/modules/` と `docs/changes/` と台帳から、緑の単位と残りの単位を並べる。変更は `changes/<名前>` で並ぶ。
   緑は `GREEN` で付き、後の `REOPEN` で外れる
 - 同じ組の PR が開いていれば、push で中身を更新し、`gh pr edit` で本文のモジュールの一覧を書き直す
 - 緑のモジュールが1つも無ければ断る。全モジュールが緑なら、最終確認の承認に回すよう断る

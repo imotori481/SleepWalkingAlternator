@@ -85,8 +85,14 @@ for d in "$LAYOUT_SRC" "$LAYOUT_TESTS"; do
   esac
 done
 
-# 既存のコードは ACL で読める。書き込みのビットは持たない（40-perms.sh）。
+# リポジトリは ACL で読める。書き込みのビットは持たない（40-perms.sh）。
 # テストには ACL が無く、グループにもいないので届かない。
+root_acl="$(getfacl -p --omit-header /srv/swa/project 2>/dev/null \
+  | grep '^user:planner:' || true)"
+case "$root_acl" in
+  user:planner:r-x*) note "ok: planner reads the project root through its ACL, and cannot write it" ;;
+  *)                 bad "the ACL of the project root for planner is '$root_acl', expected 'user:planner:r-x'" ;;
+esac
 src_acl="$(getfacl -p --omit-header "/srv/swa/project/$LAYOUT_SRC" 2>/dev/null \
   | grep '^user:planner:' || true)"
 case "$src_acl" in

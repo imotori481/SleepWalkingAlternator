@@ -52,6 +52,14 @@ class ReadingState(DashboardFixture):
         (nested / "board.md").write_text("", encoding="utf-8")
         self.assertEqual(self.state.snapshot()["steps"]["ids"], ["S1", "S2", "game/board"])
 
+    def test_a_change_is_counted_under_its_unit_id(self):
+        changes = self.project / "docs" / "changes"
+        changes.mkdir()
+        (changes / "Rate.md").write_text("", encoding="utf-8")
+        self.ledger({"event": "GREEN", "step": "changes/Rate"})
+        self.assertEqual(self.state.snapshot()["steps"],
+                         {"total": 3, "green": 1, "ids": ["S1", "S2", "changes/Rate"]})
+
     def test_the_phase_is_the_stage(self):
         self.assertEqual(self.state.snapshot()["phase"], "not_started")
         self.stage("midstream")

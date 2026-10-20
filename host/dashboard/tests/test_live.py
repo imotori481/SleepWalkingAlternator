@@ -102,10 +102,10 @@ class ActOnTheSandbox(LiveView):
     def test_the_spec_travels_on_stdin_and_never_on_the_command_line(self, run):
         run.return_value = answered("裏で走らせた")
         text = "# 仕様書\n$(rm -rf /)\n"
-        self.live.start_loop(text, "csharp", "unity")
+        self.live.start_loop(text, "csharp", "unity", "existing")
         self.assertEqual(self.dash_request(run),
                          {"action": "go", "spec": text, "language": "csharp",
-                          "framework": "unity"})
+                          "framework": "unity", "mode": "existing"})
         self.assertNotIn("rm -rf", " ".join(run.call_args.args[0]))
 
     @patch("host.dashboard.live.subprocess.run")

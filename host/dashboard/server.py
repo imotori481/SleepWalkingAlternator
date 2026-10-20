@@ -244,7 +244,8 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
                     if path == "/api/start":
                         message = live.start_loop(str(body.get("spec", "")),
                                                   str(body.get("language", "")),
-                                                  str(body.get("framework", "")))
+                                                  str(body.get("framework", "")),
+                                                  str(body.get("mode", "")))
                     elif path == "/api/project":
                         message = live.use_project(str(body.get("project", "")))
                     elif path == "/api/project/remove":

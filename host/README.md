@@ -30,7 +30,7 @@ WSL2 では起動と生存管理がホスト側の責務になった（`RUNNER_S
 （手順は `docs/COMMANDS.md`）。コピーして置くと、pull しても更新が届かない。
 
 ```cmd
-swa go <spec-file>
+swa go <spec-file> --mode <new|existing>
 swa status
 swa log
 ```

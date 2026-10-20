@@ -41,29 +41,36 @@ class Request(unittest.TestCase):
 
     def test_the_specification_goes_to_a_file_and_never_into_a_line(self):
         text = "# 仕様書\n$(rm -rf /)\n"
-        self.assertEqual(self.parse({"action": "go", "spec": text, "language": "csharp"}),
-                         ["go", "csharp", "unity"])
+        self.assertEqual(self.parse({"action": "go", "spec": text, "language": "csharp",
+                                     "mode": "existing"}),
+                         ["go", "csharp", "unity", "existing"])
         self.assertEqual((self.work / "spec.md").read_text(encoding="utf-8"), text)
 
     def test_a_framework_left_empty_becomes_the_language_s_own(self):
         # ダッシュボードは選ばれていない持ち込む先を空で送る。swa には名前で渡す。
         self.assertEqual(self.parse({"action": "go", "spec": "x", "language": "cpp",
-                                     "framework": ""}), ["go", "cpp", "dxlib"])
-        self.assertEqual(self.parse({"action": "go", "spec": "x",
-                                     "language": "typescript", "framework": "dom"}),
-                         ["go", "typescript", "dom"])
+                                     "framework": "", "mode": "new"}),
+                         ["go", "cpp", "dxlib", "new"])
+        self.assertEqual(self.parse({"action": "go", "spec": "x", "language": "typescript",
+                                     "framework": "dom", "mode": "new"}),
+                         ["go", "typescript", "dom", "new"])
 
     def test_a_framework_must_belong_to_the_language(self):
         self.refused({"action": "go", "spec": "x", "language": "csharp",
-                      "framework": "dom"})
+                      "framework": "dom", "mode": "new"})
         self.refused({"action": "go", "spec": "x", "language": "csharp",
                       "framework": "unity\n--from /etc/shadow"})
 
+    def test_a_run_needs_one_of_the_modes(self):
+        # 空はダッシュボードで選ばれていないモード。箱は既定を選ばずに断る。
+        for mode in (None, "", "refactor", "new\n--language cobol", 1):
+            self.refused({"action": "go", "spec": "x", "language": "python", "mode": mode})
+
     def test_a_run_needs_a_known_language_and_a_specification(self):
-        self.refused({"action": "go", "spec": "x", "language": "cobol"})
-        self.refused({"action": "go", "spec": "  \n", "language": "python"})
+        self.refused({"action": "go", "spec": "x", "language": "cobol", "mode": "new"})
+        self.refused({"action": "go", "spec": "  \n", "language": "python", "mode": "new"})
         self.refused({"action": "go", "spec": "x" * (swa_dash.MAX_SPEC + 1),
-                      "language": "python"})
+                      "language": "python", "mode": "new"})
 
     def test_a_project_name_follows_the_rule_of_swa_project(self):
         self.assertEqual(self.parse({"action": "use", "project": "game-2"}), ["use", "game-2"])
@@ -262,6 +269,17 @@ class Design(unittest.TestCase):
         self.assertEqual(value["ac"], {"game/board": {"criteria": []}})
         self.assertEqual(value["failure"], "止まった")
         self.assertIsNone(value["interface"])
+
+    def test_a_change_sits_beside_the_modules_under_its_unit_id(self):
+        self.write("docs/modules/game/report.md", "## 振る舞い\n報告")
+        self.write("docs/changes/Rate.md", "## 振る舞い\n倍率")
+        self.write("ac/changes/Rate.json", '{"criteria": []}')
+        value = swa_dash.design(str(self.root))
+        self.assertEqual(value["modules"], {"game/report": "## 振る舞い\n報告",
+                                            "changes/Rate": "## 振る舞い\n倍率"})
+        self.assertEqual(value["ac"], {"changes/Rate": {"criteria": []}})
+        self.assertEqual(swa_dash.parse({"action": "reopen", "modules": ["changes/Rate"]},
+                                        str(self.root)), ["reopen", "changes/Rate"])
 
     def test_nothing_there_is_an_empty_design(self):
         value = swa_dash.design(str(self.root))

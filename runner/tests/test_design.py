@@ -40,6 +40,7 @@ class Python(unittest.TestCase):
     def setUp(self) -> None:
         for p in (mock.patch.dict(swa.LANGUAGE, swa.LANGUAGES["python"], clear=True),
                   mock.patch.dict(swa.LAYOUT, swa.LAYOUT_DEFAULT),
+                  mock.patch.dict(swa.RUN, {"mode": "new"}),
                   mock.patch.object(swa, "head_files", return_value=set()),
                   mock.patch.object(swa, "existing_declarations", return_value={})):
             p.start()
@@ -145,6 +146,16 @@ class TheShapeOfTheDesign(Python):
                          ["basic/design.md: is not written in Japanese"])
         self.assertIn("not 2", swa.basic_problems({"a": "## 概要\n一。\n",
                                                     "b": "## 概要\n二。\n"})[0])
+
+    def test_the_existing_mode_asks_for_the_three_sections_once_each(self):
+        sections = "## 概要\n放置ゲーム。\n## 現状の構成\n一。\n## 変更の範囲\n二。\n"
+        self.assertEqual(swa.basic_problems({"design": sections}), [])
+        with mock.patch.dict(swa.RUN, {"mode": "existing"}):
+            self.assertEqual(swa.basic_problems({"design": sections}),
+                             ["the basic design needs exactly one `## 守る規約` section "
+                              "across its files, not 0"])
+            self.assertEqual(swa.basic_problems({"design": sections,
+                                                 "rules": "## 守る規約\n三。\n"}), [])
 
     def test_a_module_that_provides_nothing_is_refused(self):
         _, problems = swa.design_problems({"m": doc()}, {"m": ac()})
@@ -286,6 +297,24 @@ class TheDownstreamPlan(Python):
         self.assertIn("放置ゲーム。", context)
         self.assertIn("### game/board\n盤面を持つ。", context)
         self.assertNotIn("ndjson contract", context)
+        self.assertNotIn("The conventions of the existing code", context)
+
+    def test_in_the_existing_mode_every_solver_gets_the_conventions(self):
+        with mock.patch.dict(swa.RUN, {"mode": "existing"}), \
+             mock.patch.object(swa, "basic_section",
+                               side_effect=lambda h: "例外は GameError を投げる。"
+                               if h == swa.CONVENTIONS_HEADING else ""):
+            steps = self.tasks()["steps"]
+        for step in steps:
+            self.assertIn("The conventions of the existing code", step["context"])
+            self.assertIn("例外は GameError を投げる。", step["context"])
+
+    def test_in_the_existing_mode_the_planner_is_told_to_read_the_code_first(self):
+        self.assertNotIn("Before you design anything", swa.planner_reads_note())
+        with mock.patch.dict(swa.RUN, {"mode": "existing"}):
+            self.assertIn("Before you design anything", swa.planner_reads_note())
+            self.assertIn("`## 守る規約`", swa.existing_basic_note())
+        self.assertEqual(swa.existing_basic_note(), "")
 
 
 class Stages(Python):
@@ -336,6 +365,51 @@ class Stages(Python):
         swa.write_texts(swa.DOCS_BASIC, {"design": "## 概要\n放置ゲーム。\n"}, ".md")
         self.assertEqual(swa.cmd_basic_approve(), 0)
         self.assertEqual(swa.read_stage()["stage"], "midstream")
+
+    def draft(self, **arguments) -> int:
+        """basic draft をプランナーを呼ばずに流す。断ったかどうかと、段に刻んだものを見る。"""
+        (self.root / "docs" / "spec").mkdir(parents=True, exist_ok=True)
+        with mock.patch.object(swa, "DOCS_SPEC", self.root / "docs" / "spec"), \
+             mock.patch.object(swa, "spec_text", return_value="仕様。"), \
+             mock.patch.object(swa, "prepare_planner_out"), \
+             mock.patch.object(swa, "draft_with_retry", return_value=["止める"]), \
+             mock.patch("sys.stderr"):
+            return swa.cmd_basic_draft(arguments.get("language"), arguments.get("framework"),
+                                       arguments.get("mode"))
+
+    def test_the_first_draft_needs_a_mode_and_carves_it_into_the_stage(self):
+        self.stage(stage="upstream")
+        self.assertEqual(self.draft(language="python"), 1)
+        self.assertNotIn("language", swa.read_stage())
+        self.assertEqual(self.draft(language="python", mode="existing"), 2)
+        self.assertEqual(swa.read_stage()["mode"], "existing")
+        self.assertEqual(swa.RUN["mode"], "existing")
+
+    def test_the_mode_cannot_change_once_carved(self):
+        self.stage(stage="upstream", language="python", mode="new")
+        self.assertEqual(self.draft(mode="existing"), 1)
+        self.assertEqual(swa.read_stage()["mode"], "new")
+        self.assertEqual(self.draft(), 2)
+
+    def test_a_run_started_before_the_modes_goes_on_as_new(self):
+        self.stage(stage="upstream", language="python")
+        self.assertEqual(self.draft(), 2)
+        self.assertNotIn("mode", swa.read_stage())
+        self.assertEqual(swa.RUN["mode"], "new")
+
+    def test_the_downstream_plan_carries_the_mode(self):
+        self.design()
+        self.stage(stage="midstream", language="python", mode="existing",
+                   critiqued=self.digest())
+        self.assertEqual(swa.cmd_modules_approve(), 0)
+        self.assertEqual(json.loads(swa.TASKS.read_text(encoding="utf-8"))["mode"], "existing")
+
+    def test_the_existing_mode_s_sections_are_checked_at_the_gate_too(self):
+        self.stage(stage="upstream", language="python", mode="existing")
+        swa.write_texts(swa.DOCS_BASIC, {"design": "## 概要\n放置ゲーム。\n"}, ".md")
+        with mock.patch("sys.stderr"):
+            self.assertEqual(swa.cmd_basic_approve(), 2)
+        self.assertEqual(swa.read_stage()["stage"], "upstream")
 
     def test_a_basic_design_without_an_overview_is_not_approved(self):
         self.stage(stage="upstream")

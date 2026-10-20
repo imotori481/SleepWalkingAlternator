@@ -29,7 +29,7 @@ AI に実装させると、**「テストが通りました」が自己申告に
 | 役 | uid | 書けるもの | **見られないもの**（ここが本体） |
 |---|---|---|---|
 | **runner** | 1001 | 全部 | ── ループを駆動する。sudo は持たない |
-| **planner** | 1003 | `planner/out/` | `tests/` `plan/` `ac/`。`src/` は読めるが書けない |
+| **planner** | 1003 | `planner/out/` | `tests/` `plan/` `ac/`。リポジトリのほかの部分は読めるが書けない |
 | **solver** | 1002 | `src/` `tests/`（凍結まで） | `plan/` `docs/` `ac/` `.git/`（設計の全体と受け入れ条件を読めない） |
 | **critic** | 1004 | `critic/out/FINDINGS.json` | `plan/` `ac/` `tests/` `src/` |
 

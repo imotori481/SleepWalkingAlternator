@@ -225,6 +225,8 @@ git clone swa-runner:/srv/swa/repo.git <置き場所>
 同期に失敗した状態でライブを作り直さない。成功済みの独立アーカイブは巻き戻さないが、部分成功を
 「done」と表示してはならない。
 
+ダッシュボードのサーバが動いていれば、段2 は箱のコミットのたびに自動で流れる（`dashboard/README.md` の「写しの更新」）。
+
 ```text
 /srv/swa/projects/<名前>/repo.git  ->  <MIRRORROOT>\projects\<名前>  （remote swa に fetch）
 /srv/swa/repo.runN.git             ->  <MIRRORROOT>\runs\run-NNN      （不変。ff のみ）
@@ -270,6 +272,7 @@ git clone swa-runner:/srv/swa/repo.git <置き場所>
 
 ## 更新履歴
 
+- 2026/10/20: ダッシュボードのサーバが箱のコミットのたびに `swa-pull.cmd` を流すように変更
 - 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更
 - 2026/10/14: 下書きの PR を出す操作をオペレーターGUIの「ホストの写し」タブに追加
 - 2026/10/14: オペレーターGUIの扱うものをエスカレーションと予定レビューから設計のせきと最終確認に変更

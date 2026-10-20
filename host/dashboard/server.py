@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 try:
     from .access import LOCAL, Reach
     from .actions import Launchers
+    from .autopull import AutoPull, settings as auto_pull_settings
     from .importer import Importer, ImportJob
     from .live import Live
     from .mirror import MirrorSync
@@ -26,6 +27,7 @@ try:
 except ImportError:  # 直接実行したとき: python host/dashboard/server.py
     from access import LOCAL, Reach
     from actions import Launchers
+    from autopull import AutoPull, settings as auto_pull_settings
     from importer import Importer, ImportJob
     from live import Live
     from mirror import MirrorSync
@@ -305,12 +307,16 @@ def main() -> int:
     token = secrets.token_urlsafe(32)
     state = DashboardState(args.project, args.data, args.mirrors)
     live = Live(args.config)
+    mirror = MirrorSync()
     server = ThreadingHTTPServer(
         ("127.0.0.1", args.port),
         handler_for(state, Launchers(args.config), Reach(args.config), token, live,
-                    PullRequests(state.project, state.mirrors / "projects"), MirrorSync(),
+                    PullRequests(state.project, state.mirrors / "projects"), mirror,
                     ImportJob(Importer(live))),
     )
+    enabled, interval = auto_pull_settings(args.config)
+    if enabled:
+        AutoPull(live.fetch, mirror, interval).start()
     print(f"SWA dashboard: http://127.0.0.1:{args.port}")
     try:
         server.serve_forever()

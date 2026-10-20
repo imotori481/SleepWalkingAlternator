@@ -735,6 +735,10 @@ async function refreshLive() {
   renderControl(value);
   const seen = JSON.stringify([value.error, value.running, value.last, value.now?.stage]);
   if (seen !== designSeen) { designSeen = seen; await refreshDesign(); }
+  // 箱が送ったコミットをサーバが自分で引き始めたら、その更新も追う。
+  if (session.scope === "local") {
+    try { if ((await api("/api/pull")).started !== pullSeen) await watchPull(); } catch (error) { /* 次の回で見る */ }
+  }
 }
 
 // ---- 操作 -------------------------------------------------------------------
@@ -934,7 +938,8 @@ async function startRun(element) {
     `${file.name} を仕様書にして、${modeName}のモードと ${language}${framework ? `（${framework}）` : ""} で基本設計から始めます。よいですか？`);
 }
 
-let pullTimer = null;
+// pullSeen は画面が最後に追い始めた写しの更新の開始時刻。サーバが自分で引き始めたら変わる。
+let pullTimer = null, pullSeen = null;
 
 function renderPull(value) {
   const state = document.querySelector("#pull-state"), log = document.querySelector("#pull-log");
@@ -952,6 +957,7 @@ async function watchPull() {
   clearTimeout(pullTimer);
   let value;
   try { value = await api("/api/pull"); } catch (error) { value = {error: error.message}; }
+  pullSeen = value.started ?? pullSeen;
   renderPull(value);
   if (value.running) pullTimer = setTimeout(watchPull, 2000);
   else if (value.finished) await refresh();

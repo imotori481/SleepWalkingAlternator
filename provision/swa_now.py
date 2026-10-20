@@ -158,6 +158,22 @@ def head_branch(repo: str) -> str | None:
     return value[len(prefix):] if value and value.startswith(prefix) else None
 
 
+def head_commit(repo: str, branch: str | None) -> str | None:
+    """bare の `branch` の先のコミット。ランナーが送るたびに進む。ホストの写しを引く合図になる。"""
+    if not branch:
+        return None
+    ref = f"refs/heads/{branch}"
+    loose = read(os.path.join(repo, *ref.split("/")), lambda handle: handle.read().strip())
+    if loose:
+        return loose
+    packed = read(os.path.join(repo, "packed-refs"), lambda handle: handle.read().splitlines())
+    for line in packed or []:
+        commit, _, name = line.partition(" ")
+        if name == ref:
+            return commit
+    return None
+
+
 def projects(logs: str, current: str) -> list[dict]:
     """箱のプロジェクトの一覧。swa-project.sh の list と同じ見分け方をする。
 
@@ -176,8 +192,10 @@ def projects(logs: str, current: str) -> list[dict]:
             continue
         state = ("current" if name == current
                  else "parked" if os.path.isdir(os.path.join(path, "parked")) else "new")
-        found.append({"name": name, "state": state,
-                      "branch": head_branch(os.path.join(path, "repo.git"))})
+        repo = os.path.join(path, "repo.git")
+        branch = head_branch(repo)
+        found.append({"name": name, "state": state, "branch": branch,
+                      "head": head_commit(repo, branch)})
     return found
 
 

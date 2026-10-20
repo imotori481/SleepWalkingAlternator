@@ -13,6 +13,10 @@
   "live": {
     "ssh_host": "swa-dev"
   },
+  "mirror": {
+    "auto_pull": true,
+    "interval_seconds": 30
+  },
   "remote": {
     "host": "<machine>.<tailnet>.ts.net:8443",
     "users": [

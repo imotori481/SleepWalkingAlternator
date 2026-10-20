@@ -122,10 +122,23 @@ class Projects(unittest.TestCase):
         self.project("next", branch=None)
         (self.root / "projects" / "CURRENT").write_text("game\n", encoding="utf-8")
         self.assertEqual(swa_now.projects(str(self.logs), "game"), [
-            {"name": "game", "state": "current", "branch": "swa/feature"},
-            {"name": "next", "state": "new", "branch": None},
-            {"name": "old", "state": "parked", "branch": "main"},
+            {"name": "game", "state": "current", "branch": "swa/feature", "head": None},
+            {"name": "next", "state": "new", "branch": None, "head": None},
+            {"name": "old", "state": "parked", "branch": "main", "head": None},
         ])
+
+    def test_each_project_has_the_commit_its_branch_points_at(self):
+        self.project("game", "swa/feature")
+        self.project("old")
+        loose = self.root / "projects" / "game" / "repo.git" / "refs" / "heads" / "swa"
+        loose.mkdir(parents=True)
+        (loose / "feature").write_text("a" * 40 + "\n", encoding="utf-8")
+        (self.root / "projects" / "old" / "repo.git" / "packed-refs").write_text(
+            "# pack-refs with: peeled fully-peeled sorted\n"
+            + "b" * 40 + " refs/heads/main\n" + "c" * 40 + " refs/heads/other\n",
+            encoding="utf-8")
+        heads = {p["name"]: p["head"] for p in swa_now.projects(str(self.logs), "game")}
+        self.assertEqual(heads, {"game": "a" * 40, "old": "b" * 40})
 
     def test_a_box_without_projects_has_an_empty_list(self):
         self.assertEqual(swa_now.projects(str(self.logs), "default"), [])

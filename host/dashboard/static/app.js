@@ -329,8 +329,49 @@ function dependencyGraph(iface) {
     group.append(title, svg("rect", {x: at[id].x, y: at[id].y, width: node.width, height: node.height, rx: 4}), label);
     root.append(group);
   }
-  const plot = document.createElement("div"); plot.className = "plot graph"; plot.append(root);
-  return plot;
+  return zoomable(root, width, height);
+}
+
+// 依存関係の図の倍率。5秒ごとに描き直しても保つ。1 は図の元の大きさ。
+let graphScale = 1;
+
+// 図を枠の中でスクロールさせ、倍率を変えられるようにする。
+// Ctrl とホイールで拡大と縮小、ドラッグで移動、全画面で画面いっぱいに出す。
+function zoomable(root, width, height) {
+  const view = document.createElement("div"); view.className = "plot graph"; view.append(root);
+  const percent = text("span", "", "zoom-level");
+  const apply = scale => {
+    graphScale = Math.min(4, Math.max(0.25, scale));
+    root.setAttribute("width", width * graphScale); root.setAttribute("height", height * graphScale);
+    percent.textContent = `${Math.round(graphScale * 100)}%`;
+  };
+  const button = (label, onClick) => {
+    const element = document.createElement("button"); element.className = "quiet";
+    element.textContent = label; element.onclick = onClick;
+    return element;
+  };
+  const wrap = document.createElement("div"); wrap.className = "graph-wrap";
+  const bar = document.createElement("div"); bar.className = "zoom";
+  bar.append(button("−", () => apply(graphScale / 1.25)), percent, button("＋", () => apply(graphScale * 1.25)),
+             button("幅に合わせる", () => apply(view.clientWidth / width)), button("100%", () => apply(1)),
+             button("全画面", () => document.fullscreenElement ? document.exitFullscreen() : wrap.requestFullscreen()));
+  view.addEventListener("wheel", event => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    apply(graphScale * (event.deltaY < 0 ? 1.1 : 1 / 1.1));
+  }, {passive: false});
+  view.onpointerdown = event => {
+    const start = {x: event.clientX, y: event.clientY, left: view.scrollLeft, top: view.scrollTop};
+    view.setPointerCapture(event.pointerId);
+    view.onpointermove = move => {
+      view.scrollLeft = start.left - (move.clientX - start.x);
+      view.scrollTop = start.top - (move.clientY - start.y);
+    };
+  };
+  view.onpointerup = view.onpointercancel = () => { view.onpointermove = null; };
+  apply(graphScale);
+  wrap.append(bar, view);
+  return wrap;
 }
 
 function renderDesign(value) {

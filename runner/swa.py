@@ -3490,7 +3490,10 @@ OVERVIEW_HEADING = "## 概要"
 CURRENT_HEADING = "## 現状の構成"
 SCOPE_HEADING = "## 変更の範囲"
 CONVENTIONS_HEADING = "## 守る規約"
-EXISTING_HEADINGS = (CURRENT_HEADING, SCOPE_HEADING, CONVENTIONS_HEADING)
+# 仕様書が書いていないことを、プランナーがコードを読んで決めた節。人は基本設計の承認で
+# これを読み、承認したものは中段で仕様書の続きとして扱う。
+DECIDED_HEADING = "## コードから決めたこと"
+EXISTING_HEADINGS = (CURRENT_HEADING, SCOPE_HEADING, CONVENTIONS_HEADING, DECIDED_HEADING)
 BEHAVIOUR_HEADING = "## 振る舞い"
 CONTRACT_HEADING = "## 契約"
 JAPANESE = re.compile(r"[぀-ヿ一-鿿]")
@@ -4005,7 +4008,8 @@ def design_digest(modules: dict[str, dict]) -> str:
 
 def basic_problems(docs: dict[str, str]) -> list[str]:
     """基本設計仕様書の形。概要の節がちょうど1つあり、日本語で書いてある。
-    既存のモードでは、現状の構成、変更の範囲、守る規約の節もちょうど1つずつある。
+    既存のモードでは、現状の構成、変更の範囲、守る規約、コードから決めたことの節も
+    ちょうど1つずつある。
     """
     if not docs:
         return ["there is no basic design: write at least one basic/<name>.md"]
@@ -4544,6 +4548,15 @@ everything except the tests ({{TESTS}}/) and the runner's own plan/, docs/, ac/,
 This run changes code that already exists. Before you design anything, read the
 code the specification touches: the files, how they call one another, and how
 they are written. If you have the scout helper, hand it the wide searches.
+
+The specification may be short. It says what the human wants, not every detail,
+because the code already answers most of the rest. Where the specification is
+silent, find the answer in the code: which data and types already exist, which
+file owns the behaviour, how the code already does something similar, and
+where the new behaviour hooks in. Do not stop at what the specification names;
+follow the calls until you know. Decide nothing that neither the specification
+nor the code supports: where both are silent, pick the smallest choice that
+works and say so.
 """
     return note
 
@@ -4574,6 +4587,12 @@ one of each of these sections across its files:
   into layers, how errors are handled, and the existing helpers to call
   instead of writing new ones. Concrete names from the code belong here. Every
   solver receives this section along with the overview.
+- `{DECIDED_HEADING}` -- every decision the specification did not make and you
+  made from the code, one per line: what you decided, and the file (with the
+  name in it) you read it from. Mark a decision that neither the specification
+  nor the code settled as a guess. The person reads this section to approve
+  the design, so a decision missing from it is one they never saw. If the
+  specification settled everything, write that.
 """
 
 
@@ -4622,6 +4641,9 @@ def existing_modules_note() -> str:
         return ""
     return f"""
 # Changes: this run changes code that already exists
+
+The basic design's `{DECIDED_HEADING}` holds what the specification left open
+and the human approved. Treat it as part of the specification.
 
 The basic design's `{SCOPE_HEADING}` says which work is a module and which is a
 change. A module is a NEW file, written as above; a module whose file already
@@ -4965,10 +4987,14 @@ def brief_critique(spec: str, basic: str, modules: dict[str, dict]) -> str:
     # 変更の id は changes/<名前> で、文書の置き場もその名前になる。
     designs = "\n\n".join(f"--- {mid if is_change(mid) else 'modules/' + mid}.md ---\n{m['doc']}"
                           for mid, m in sorted(modules.items()))
-    changes_note = "" if not existing_mode() else """
+    changes_note = "" if not existing_mode() else f"""
 A design under changes/ is a change to code that already exists: its edits
 lines name the existing files it touches. Behaviour it does not name stays as
 it is, and the tests already in the repository keep it so.
+
+The specification may be short. The basic design's `{DECIDED_HEADING}` holds
+what it left open, decided from the code and approved by the human. Treat it
+as part of the specification.
 """
     return f"""Below are a specification, the basic design made from it, and the detailed
 design of every module. Your role and your task follow after them.

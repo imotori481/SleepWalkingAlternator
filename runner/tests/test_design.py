@@ -147,8 +147,9 @@ class TheShapeOfTheDesign(Python):
         self.assertIn("not 2", swa.basic_problems({"a": "## 概要\n一。\n",
                                                     "b": "## 概要\n二。\n"})[0])
 
-    def test_the_existing_mode_asks_for_the_three_sections_once_each(self):
-        sections = "## 概要\n放置ゲーム。\n## 現状の構成\n一。\n## 変更の範囲\n二。\n"
+    def test_the_existing_mode_asks_for_the_four_sections_once_each(self):
+        sections = ("## 概要\n放置ゲーム。\n## 現状の構成\n一。\n## 変更の範囲\n二。\n"
+                    "## コードから決めたこと\n四。\n")
         self.assertEqual(swa.basic_problems({"design": sections}), [])
         with mock.patch.dict(swa.RUN, {"mode": "existing"}):
             self.assertEqual(swa.basic_problems({"design": sections}),
@@ -319,6 +320,14 @@ class TheDownstreamPlan(Python):
             self.assertIn("Before you design anything", swa.planner_reads_note())
             self.assertIn("`## 守る規約`", swa.existing_basic_note())
         self.assertEqual(swa.existing_basic_note(), "")
+
+    def test_in_the_existing_mode_the_planner_fills_a_short_spec_from_the_code(self):
+        self.assertNotIn("The specification may be short", swa.planner_reads_note())
+        with mock.patch.dict(swa.RUN, {"mode": "existing"}):
+            self.assertIn("The specification may be short", swa.planner_reads_note())
+            self.assertIn("`## コードから決めたこと`", swa.existing_basic_note())
+            self.assertIn("`## コードから決めたこと`", swa.existing_modules_note())
+        self.assertEqual(swa.existing_modules_note(), "")
 
 
 class Stages(Python):

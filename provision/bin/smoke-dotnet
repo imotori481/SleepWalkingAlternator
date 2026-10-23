@@ -23,6 +23,9 @@ version_of() { tr ' ' '\n' <<<"$versions" | sed -n "s/^$1=//p"; }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+# NuGet はフィードより先にキャッシュを見る。HOME のキャッシュに残ったパッケージで
+# restore が通ると、フィードに足りないものを見逃す。ランナーと同じく空のキャッシュで始める。
+export NUGET_PACKAGES="$WORK/packages"
 
 fail=0
 note() { echo "  $1"; }

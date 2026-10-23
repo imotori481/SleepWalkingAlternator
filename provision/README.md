@@ -307,13 +307,14 @@ Vite はインラインのモジュールスクリプトを `/index.html?html-pr
 | Promete の Agent Skill（`SKILL.md` と `references/`） | `/srv/swa/refs/promete/skill`（GitHub の `core-<版>` タグから） | root。誰でも読めて誰も書けない |
 
 - 版はスクリプトの冒頭で固定する。フィードに出るのは版を変えたときだけなので、egress を閉じた後に流し直してもネットワークは要らない
+- フィードは SDK 10 で restore して作り、pruning を切る。SDK 10 がランタイムの持つパッケージとして外すもの（`System.Reflection.Metadata` など）を、SDK 8 の restore は求める
 - NUnit は 3 系にする。Unity の Test Framework の NUnit は 3 系で、4 系は `Assert.AreEqual` を `ClassicAssert` に移した
 - SDK は持ち込む先で選ぶ。Unity は 8、Promete は 10 で、ランナーは `build` に置いた `global.json` でそれを固定し、dotnet を `build` で呼ぶ
 - Promete のスキルはスキルとして入れず、ファイルとして置く。ソルバーは `--safe-mode` と使い捨ての HOME で走り、スキルを読み込めない。ソルバーのブリーフが `skill/SKILL.md` から読むよう伝える。プランナーには渡さない
 - csproj はプロジェクトの根に置かない。取り込んだ Unity のプロジェクトでは、IDE が Unity の生成した csproj と一緒に拾ってしまう
 - `build` はコンパイルしたコードとテストを持つので、planner と critic から見えてはならない（BOOTSTRAP 1-1）
 
-最後に `smoke-dotnet` を流す。ランナーが使う2つの組み合わせを、フィードだけで restore して走らせる。
+最後に `smoke-dotnet` を流す。ランナーが使う2つの組み合わせを、フィードだけで、空の NuGet のキャッシュから restore して走らせる。
 
 - unity: SDK 8 で、netstandard2.1 のコードを net8.0 の NUnit のテストで走らせる
 - promete: SDK 10 で、Promete を参照する net10.0 のコードを net10.0 の NUnit のテストで走らせる

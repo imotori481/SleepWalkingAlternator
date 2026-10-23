@@ -56,14 +56,18 @@ dotnet --list-sdks
 
 # ---- ローカルのフィード -----------------------------------------------------
 # 版が変わったときだけネットワークに出る。egress を閉じた後にこのスクリプトを
-# 流し直しても、版が同じなら何もしない。
-WANT="NUnit=$NUNIT_VERSION NUnit3TestAdapter=$NUNIT_ADAPTER_VERSION Microsoft.NET.Test.Sdk=$TEST_SDK_VERSION JunitXml.TestLogger=$JUNIT_LOGGER_VERSION Promete=$PROMETE_VERSION"
+# 流し直しても、版が同じなら何もしない。取り方を変えたときも取り直すように、
+# pruning=off を印として並べる。
+WANT="NUnit=$NUNIT_VERSION NUnit3TestAdapter=$NUNIT_ADAPTER_VERSION Microsoft.NET.Test.Sdk=$TEST_SDK_VERSION JunitXml.TestLogger=$JUNIT_LOGGER_VERSION Promete=$PROMETE_VERSION pruning=off"
 install -d -o root -g root -m 755 "$TOOLS"
 if [ "$(cat "$FEED/.versions" 2>/dev/null)" != "$WANT" ]; then
   WORK="$(mktemp -d)"
   trap 'rm -rf "$WORK"' EXIT
   # テストのパッケージは net8.0 と net10.0 の両方で、Promete は net10.0 で restore する。
   # 推移的な依存は対象ごとに違いうる。両方を拾うには SDK 10 が要る。
+  # SDK 10 は、ランタイムが持つパッケージを restore から外す（pruning）。SDK 8 は外さず、
+  # Microsoft.NET.Test.Sdk が引く System.Reflection.Metadata をフィードに求める。
+  # pruning を切り、どちらの SDK が求めるものもフィードに入れる。
   cat > "$WORK/global.json" <<EOF
 {"sdk": {"version": "10.0.100", "rollForward": "latestFeature", "allowPrerelease": false}}
 EOF
@@ -71,6 +75,7 @@ EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <RestoreEnablePackagePruning>false</RestoreEnablePackagePruning>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NUnit" Version="$NUNIT_VERSION" />

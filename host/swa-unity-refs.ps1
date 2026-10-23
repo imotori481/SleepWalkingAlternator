@@ -19,7 +19,8 @@
 #    - UNITY_EDITOR* symbols: SWA builds the player's code
 #
 #  The sandbox keeps them under /srv/swa/projects/<project>/unity-refs
-#  (swa project unity-refs), owned by root and frozen.
+#  (swa project unity-refs, through swa dash), owned by root and frozen.
+#  The dashboard runs this same script.
 #
 #  ASCII only: PowerShell 5.1 reads a BOM-less UTF-8 file as ANSI.
 # ---------------------------------------------------------------
@@ -34,14 +35,31 @@ $Distro = "Ubuntu-24.04"
 $SshHost = "swa-dev"
 $Port = 2222
 
+# The same rule as swa-project.sh's valid_name. The name goes into the
+# JSON request to swa dash as it is.
+if ($Name -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}$') { Write-Host "ERROR: not a project name: $Name"; exit 1 }
+$fingerprinted = "ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json"
+
 $projectDir = (Resolve-Path $UnityProject).Path
 $csproj = Join-Path $projectDir "Assembly-CSharp.csproj"
 if (-not (Test-Path $csproj)) {
   Write-Host "ERROR: $csproj is missing."
-  Write-Host "  Open the project in Unity once, set Visual Studio or Rider as the"
-  Write-Host "  external script editor (Preferences > External Tools), and run"
-  Write-Host "  Assets > Open C# Project. Unity writes the file then."
+  Write-Host "  Open the project in Unity once, set Visual Studio, Rider or VS Code as"
+  Write-Host "  the external script editor (Preferences > External Tools), and press"
+  Write-Host "  Regenerate project files. Unity writes the file then."
   exit 1
+}
+# A csproj older than the packages names the DLLs of the packages before
+# the change, while the fingerprint would say the references are new.
+$written = (Get-Item -LiteralPath $csproj).LastWriteTimeUtc
+foreach ($rel in $fingerprinted) {
+  $p = Join-Path $projectDir $rel
+  if ((Test-Path -LiteralPath $p -PathType Leaf) -and (Get-Item -LiteralPath $p).LastWriteTimeUtc -gt $written) {
+    Write-Host "ERROR: Assembly-CSharp.csproj is older than $rel."
+    Write-Host "  In Unity, press Preferences > External Tools > Regenerate project files,"
+    Write-Host "  wait for the compile, and run this again."
+    exit 1
+  }
 }
 $versionFile = Join-Path $projectDir "ProjectSettings\ProjectVersion.txt"
 $match = Select-String -Path $versionFile -Pattern '^m_EditorVersion:\s*(\S+)'
@@ -117,7 +135,7 @@ try {
   $latin1 = [Text.Encoding]::GetEncoding(28591)
   $sha = [Security.Cryptography.SHA256]::Create()
   $fingerprint = @()
-  foreach ($rel in "ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json") {
+  foreach ($rel in $fingerprinted) {
     $p = Join-Path $projectDir $rel
     if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
     $text = $latin1.GetString([IO.File]::ReadAllBytes($p)).Replace("`r`n", "`n")
@@ -143,9 +161,7 @@ try {
   if ($DryRun) { Write-Host "dry run: $tarPath was built and not sent"; exit 0 }
 
   # ---- to the sandbox -----------------------------------------------
-  # Start the distro and wait for sshd, the same way swa.cmd does. Done
-  # here rather than through a `swa` command, which would ask for the
-  # sudo password once more for nothing.
+  # Start the distro and wait for sshd, the same way swa.cmd does.
   & wsl.exe -d $Distro -u root --exec /usr/bin/true
   if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: failed to start distro $Distro"; exit 1 }
   $up = $false
@@ -156,9 +172,11 @@ try {
   if (-not $up) { Write-Host "ERROR: sshd did not come up within 20 seconds"; exit 1 }
   & scp -q $tarPath "${SshHost}:swa-unity-refs.tar"
   if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: could not copy $tarPath to the sandbox"; exit 1 }
-  # The remote shell expands ~ to the maintenance user's home before sudo.
-  & "$PSScriptRoot\swa.cmd" project unity-refs $Name "~/swa-unity-refs.tar"
-  if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: swa project unity-refs failed"; exit 1 }
+  # swa dash places it: the one sudo the maintenance user may run without
+  # a password, so this also works from the dashboard, where nobody types
+  # one. It takes the tar from the maintenance user's home.
+  '{"action": "unity-refs", "project": "' + $Name + '"}' | & ssh $SshHost sudo -n /usr/local/bin/swa dash
+  if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: swa dash unity-refs failed"; exit 1 }
   Remove-Item $tarPath
 }
 finally {

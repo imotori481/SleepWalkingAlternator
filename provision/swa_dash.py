@@ -10,7 +10,7 @@ SWA_SUBAGENT_MODEL の行だけを読み書きする。
 シェルで読み込むので、書く値は使える文字を絞ってから書く。
 
 設計（段、基本設計、詳細設計、受け入れ条件、インターフェースチェック、批評、止まった
-理由）は読むだけで返す。plan/、docs/、ac/ は runner だけが読めるので、root のここで読む。
+理由、Unity の参照の古さ）は読むだけで返す。plan/、docs/、ac/ は runner だけが読めるので、root のここで読む。
 
     python3 swa_dash.py request <作業ディレクトリ>   # 標準入力に要求の JSON
     python3 swa_dash.py settings <ディレクトリ>
@@ -25,6 +25,7 @@ import os
 import re
 import sys
 import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "runner"))
 
@@ -134,7 +135,7 @@ def parse(request: object, work: str) -> list[str]:
         if "subagent" in request:
             lines.append(check_subagent(role, request["subagent"]))
         return lines
-    if action in ("use", "remove"):
+    if action in ("use", "remove", "unity-refs"):
         return [action, check_project(request.get("project"))]
     if action == "reset":
         return ["reset", check_module(request.get("module"))]
@@ -236,8 +237,32 @@ def read_json_file(path: str) -> object:
         return None
 
 
+def unity(project: str, refs: str) -> dict | None:
+    """Unity のプロジェクトなら、箱にある参照と、作業ツリーと比べた古さ。違えば None。
+
+    `stale` は変わったファイルの一覧で、指紋の無い参照なら None。ランナーの
+    unity_problem と同じ比べ方をする。
+    """
+    if not os.path.isfile(os.path.join(project, "ProjectSettings", "ProjectVersion.txt")):
+        return None
+    if not os.path.isdir(os.path.join(refs, "refs")):
+        return {"refs": False}
+    try:
+        with open(os.path.join(refs, "version.txt"), encoding="utf-8") as handle:
+            version = handle.read().strip()
+    except OSError:
+        version = None
+    return {"refs": True, "version": version,
+            "assemblies": len([n for n in os.listdir(os.path.join(refs, "refs"))
+                               if n.endswith(".dll")]),
+            "stale": swa.unity_stale(Path(project), Path(refs))}
+
+
 def design(project: str) -> dict:
-    """人がせきで読むもの。受け入れ条件は読めない JSON なら本文のまま返す。"""
+    """人がせきで読むもの。受け入れ条件は読めない JSON なら本文のまま返す。
+
+    Unity の参照は作業ツリーの隣の unity-refs（/srv/swa/unity-refs）を見る。
+    """
     plan = os.path.join(project, "plan")
     acs = {}
     for key, text in read_tree(os.path.join(project, "ac"), ".json").items():
@@ -260,7 +285,8 @@ def design(project: str) -> dict:
             "ac": acs,
             "interface": read_json_file(os.path.join(plan, "INTERFACE.json")),
             "critique": read_json_file(os.path.join(plan, "CRITIQUE.json")),
-            "failure": failure}
+            "failure": failure,
+            "unity": unity(project, os.path.join(os.path.dirname(project), "unity-refs"))}
 
 
 def set_model(directory: str, role: str, model: str, effort: str,

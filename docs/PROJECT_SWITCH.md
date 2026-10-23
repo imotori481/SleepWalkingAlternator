@@ -68,6 +68,8 @@ git -C C:\dev\roop-engin\projects\<project> push swa-runner:/srv/swa/projects/<p
 swa-unity-refs <project> <unity-project-dir>
 ```
 
+ダッシュボードの「Unity」タブでフォルダを覚え、「送る」を押しても同じだ。
+
 `<unity-project-dir>` は、Unity で一度開いて `Assembly-CSharp.csproj` ができているディレクトリだ。同じリポジトリを
 取り込んだ別のプロジェクトのクローンでもよい。`<base-branch>` で Unity の版やパッケージが変わっているなら、
 新しいクローンを Unity で開いてから、それを渡す。

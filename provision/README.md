@@ -522,7 +522,7 @@ swa project layout <名前> --src <ディレクトリ> --tests <ディレクト�
                                                 # 作ってあるプロジェクトの柵の場所を変える
 swa project use <名前>                         # 切り替える
 swa project remove <名前>                      # ディレクトリと走行ログごと消す。今のものは消せない
-swa project unity-refs <名前> <tar>            # Unity の参照アセンブリを置く（ホストの swa-unity-refs が流す）
+swa project unity-refs <名前> <tar>            # Unity の参照アセンブリを置く（ホストの swa-unity-refs が swa dash で流す）
 ```
 
 書き込みの柵は、ソルバーが書ける2つのディレクトリだ。コードの場所（`--src`）とテストの場所
@@ -1019,6 +1019,7 @@ VirtualBox 構成の手順は `c4374f4` から拾える。
 
 ## 更新履歴
 
+- 2026/10/24: `swa dash` に `unity-refs` を追加
 - 2026/10/24: `unity-refs/` に `fingerprint.txt` を追加
 - 2026/10/20: `swa go` に `--mode` を追加し、planner の ACL を `src/` からリポジトリに変更
 - 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更し、古い箱を移す `08-rename.sh` を追加

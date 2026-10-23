@@ -30,7 +30,7 @@
   最終確認の差し戻し、走行の停止と続行、モジュールのやり直しはどこからでもできる
 - 設計のせきの承認と差し戻し、中段に戻すモジュールの選択はどこからでもできる。
   どれも文書を読んで下す判断で、成果物の画面を見る必要が無い
-- 走行の開始、プロジェクトの切り替え、役のモデルの変更、写しの更新、取り込みはローカルのみ。
+- 走行の開始、プロジェクトの切り替え、役のモデルの変更、Unity の参照、写しの更新、取り込みはローカルのみ。
   利用枠と箱の状態を大きく動かす操作だからだ
 - 箱を書き換える操作は、どれも `sudo -n /usr/local/bin/swa dash` の1本を通る。
   要求は標準入力の JSON で渡し、値は箱の `swa_dash.py` が確かめる
@@ -63,9 +63,9 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 ## 操作
 
 画面のいちばん上の「操作」で、箱の操作を端末なしで済ませる。欄はタブで切り替える。
-タブは作業の順に、取り込み、プロジェクト、役のモデル、走行、ホストの写しと並ぶ。
+タブは作業の順に、取り込み、プロジェクト、Unity、役のモデル、走行、ホストの写しと並ぶ。
 選んだタブはブラウザの localStorage に覚え、次に開いたときもそのタブを出す。覚えたタブが無ければ「走行」を出す。
-リモートでは「ホストの写し」と「取り込み」のタブを出さない。
+リモートでは「ホストの写し」「取り込み」「Unity」のタブを出さない。
 
 | 欄 | できること | 箱で流れるもの | どこから |
 |---|---|---|---|
@@ -73,6 +73,7 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 | 取り込み | 開いている Issue を番号で読み、題、本文、コメントを見る | なし（ホストの `gh issue view`） | ローカル |
 | プロジェクト | 一覧を見て切り替える | `swa project use` を一時ユニット `swa-switch` で | ローカル |
 | プロジェクト | 今のもの以外を、名前を打って確かめてから箱のディレクトリと走行ログごと消す。走行中と切り替え中は断る | `swa project remove` | ローカル |
+| Unity | 今のプロジェクトの Unity のフォルダを覚え、参照アセンブリを確かめて送る | ホストの `swa-unity-refs.ps1` と、`swa project unity-refs` | ローカル |
 | 役のモデル | 役ごとに `SWA_MODEL` と `SWA_EFFORT` を、planner と solver では `SWA_SUBAGENT_MODEL` も変える | `/etc/swa/<役>.env` の行の書き換え | ローカル |
 | 走行 | 仕様書の欄の本文、モード、言語を選んで開始。モードを選ばないと開始しない | `swa go` | ローカル |
 | 走行 | 今のプロジェクトに記録した Issue の題と本文を、仕様書の欄に下書きとして入れる | なし（ホストの `gh issue view`） | ローカル |
@@ -95,8 +96,9 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 | `{"action": "reject", "text": <コメント>}` | コメントは一時ディレクトリに書き、そこから `swa reject` が `human/in/COMMENT.md` に置く。空は断る。20000 字まで |
 | `{"action": "reopen", "modules": [<id>, ...]}` | 1つ以上。どの id も `reset` と同じ規則 |
 | `{"action": "use", "project": <名前>}` / `{"action": "remove", "project": <名前>}` | 名前は `swa-project.sh` と同じ規則 |
+| `{"action": "unity-refs", "project": <名前>}` | 保守ユーザーのホームの `swa-unity-refs.tar` を `swa project unity-refs` に渡す。名前は `use` と同じ規則。tar の場所は要求に載せない。リンクは断る |
 | `{"action": "init", "project": <名前>, "branch": <ブランチ>, "src": <柵>, "tests": <柵>}` | ブランチは英数字で始まり、英数字と `. _ / -` だけ。柵は `swa.py` の `layout_problems` で確かめ、空なら既定 |
-| `{"action": "design"}` | 段、基本設計仕様書、詳細設計仕様書、受け入れ条件、`plan/INTERFACE.json`、`plan/CRITIQUE.json`、`plan/FAILURE.md` を JSON で返す |
+| `{"action": "design"}` | 段、基本設計仕様書、詳細設計仕様書、受け入れ条件、`plan/INTERFACE.json`、`plan/CRITIQUE.json`、`plan/FAILURE.md`、Unity の参照の古さ（`unity`）を JSON で返す |
 | `{"action": "settings"}` | 役ごとの `SWA_MODEL` と `SWA_EFFORT`、planner と solver の `SWA_SUBAGENT_MODEL`（`subagent`）、選べる effort と言語を JSON で返す。資格情報の行は返さない |
 | `{"action": "model", "role": <役>, "model": <名前>, "effort": <effort>, "subagent": <名前>}` | 名前は英数字と `. _ - [ ]` だけ。effort は `low` / `medium` / `high` / `xhigh` / `max` か空。`subagent` は省ける。渡すなら英数字と `. _ -` だけか空で、critic には空しか渡せない |
 
@@ -114,6 +116,29 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 - 切り替えは一時ユニット `swa-switch` で裏に回す。初めてのプロジェクトはプロビジョニングで数分かかる
 - 出力は箱の `/srv/swa/logs/switch.log` に書き、`swa now` の `switch` が末尾20行を返す
 - 走行中と切り替え中は、開始も切り替えもできない。端末の `swa project` も切り替え中は断る
+
+### Unity の参照
+
+Unity のプロジェクトがコンパイルに使う参照アセンブリを、今のプロジェクトの箱へ送る。中身は `unity.py` で、
+ホストの `swa-unity-refs.ps1` をこのサーバのスレッドで流し、出力の末尾60行を画面に出す。同時に流せるのは1つだけ。
+
+- 箱の側の状態は `swa dash` の `design` の `unity` で読む。Unity のプロジェクトでなければ `null`
+  - `refs` が偽なら、参照が無い
+  - `stale` は参照を作った後に作業ツリーで変わったファイル。空なら合っている。`null` なら指紋が無い
+  - 古いか指紋が無いあいだは、ランナーが走るのを拒む（RUNNER_SPEC §7-3）
+- Unity のフォルダは、プロジェクトごとに `.state/unity-projects.json` に覚える。絶対パスで、
+  `ProjectSettings/ProjectVersion.txt` があるディレクトリだけを受け付ける
+- ホストの側は、フォルダの `Assembly-CSharp.csproj` があるか、指紋に入るファイルより古くないかを出す。
+  どちらかなら「確かめる」と「送る」を押せない。スクリプトも同じ理由で断る
+- 「確かめる」は `-DryRun` で流し、何も送らない
+- 「送る」は箱の参照を置き換える。走行中と切り替え中は押せない。箱は `swa dash` の `unity-refs` で置くので、
+  パスワードを訊かれない。終わると箱の側の状態を読み直す
+
+| 要求 | 中身 |
+|---|---|
+| `GET /api/unity?project=<名前>` | 覚えたフォルダ（`folder`）、csproj の状態（`host`）、最後に流したスクリプトの状態と出力 |
+| `POST /api/unity/folder` `{"project", "folder"}` | フォルダを確かめて覚え、`GET` と同じものを返す |
+| `POST /api/unity/send` `{"project", "dry_run"}` | 覚えたフォルダでスクリプトを流す。`dry_run` が `true` のときだけ `-DryRun` を付ける |
 
 ### 取り込み
 

@@ -70,19 +70,24 @@ swa-unity-refs <project> <unity-project-dir>
 DLL が要る。`<unity-project-dir>` の `Assembly-CSharp.csproj` から集めて送る。
 
 - `Assembly-CSharp.csproj` は Unity が外部のコードエディタのために書く。無ければ、Unity で
-  プロジェクトを開き、Preferences > External Tools で Visual Studio か Rider を選び、
-  Assets > Open C# Project を1回流す
+  プロジェクトを開き、Preferences > External Tools で Visual Studio、Rider、VS Code のどれかを選び、
+  Regenerate project files を押す
+- csproj が指紋に入るファイルのどれかより古ければ、送らずに止まる。Regenerate project files を押し、
+  コンパイルを待ってから流し直す
 - 集めるのは、csproj の `HintPath` の DLL と、プロジェクト参照（パッケージ）の
   `Library\ScriptAssemblies\<名前>.dll`。ネイティブの DLL、`NetStandard` の DLL、
   `Assembly-CSharp*` は外す
 - 定義シンボルは `UNITY_EDITOR` の系統を外して送る。C# の版と Unity の版も送る
 - `ProjectSettings/ProjectVersion.txt`、`Packages/manifest.json`、`Packages/packages-lock.json` の
   ハッシュを指紋として送る
-- 箱では `swa project unity-refs` が root の所有で `/srv/swa/projects/<project>/unity-refs/` に置く
+- 箱では `swa dash` の `unity-refs` が `swa project unity-refs` を流し、root の所有で
+  `/srv/swa/projects/<project>/unity-refs/` に置く。パスワードは訊かれない
 - `-DryRun` を付けると、tar を作ったところで止まり、何も送らない
 
 Unity の版やパッケージを変えたら、もう一度送る。送り忘れると、箱は指紋の違いを見つけ、
 変わったファイルを挙げて走るのを拒む。
+
+ダッシュボードの「Unity」タブでも同じことができる（[dashboard/README.md](dashboard/README.md)）。
 
 ## オペレーターGUI
 
@@ -275,6 +280,7 @@ git clone swa-runner:/srv/swa/repo.git <置き場所>
 
 ## 更新履歴
 
+- 2026/10/24: `swa-unity-refs` が `swa dash` で参照を置き、古い csproj を断るように変更
 - 2026/10/24: `swa-unity-refs` が参照を作った元のファイルの指紋を送るように変更
 - 2026/10/20: ダッシュボードのサーバが箱のコミットのたびに `swa-pull.cmd` を流すように変更
 - 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更

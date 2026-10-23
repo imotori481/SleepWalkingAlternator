@@ -25,6 +25,7 @@ try:
     from .mirror import MirrorSync
     from .pullrequest import PullRequestError, PullRequests
     from .state import DashboardState
+    from .unity import UnityRefs
 except ImportError:  # 直接実行したとき: python host/dashboard/server.py
     from access import LOCAL, Reach
     from actions import Launchers
@@ -35,6 +36,7 @@ except ImportError:  # 直接実行したとき: python host/dashboard/server.py
     from mirror import MirrorSync
     from pullrequest import PullRequestError, PullRequests
     from state import DashboardState
+    from unity import UnityRefs
 
 
 STATIC = Path(__file__).with_name("static")
@@ -76,7 +78,8 @@ def send_draft_pull_request(pulls: PullRequests | None) -> dict:
 def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token: str,
                 live: Live | None = None, pulls: PullRequests | None = None,
                 mirror: MirrorSync | None = None, imports: ImportJob | None = None,
-                issues: Issues | None = None, workroot: Path = WORKROOT):
+                issues: Issues | None = None, workroot: Path = WORKROOT,
+                unity: UnityRefs | None = None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args) -> None:
             print("dashboard: " + format % args)
@@ -151,6 +154,18 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
             if path == "/api/import":
                 self._json(imports.status() if imports is not None
                            else {"error": "import is not configured"})
+                return
+            if path == "/api/unity":
+                # ホストのフォルダを読む。送るのと同じく、この機械の前でだけ。
+                try:
+                    if scope != LOCAL:
+                        raise ValueError("Unity references can only be handled at the machine itself")
+                    if unity is None:
+                        raise ValueError("Unity references are not configured")
+                    query = parse_qs(urlparse(self.path).query)
+                    self._json(unity.status(query.get("project", [""])[0]))
+                except ValueError as error:
+                    self._json({"error": str(error)})
                 return
             if path in ("/api/issue", "/api/issue/current"):
                 # ホストの gh で GitHub を読む。取り込みと開始の下ごしらえなので、
@@ -299,6 +314,20 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
                         raise ValueError("import is not configured")
                     self._json(imports.start(body), HTTPStatus.ACCEPTED)
                     return
+                if path in ("/api/unity/folder", "/api/unity/send"):
+                    # ホストのフォルダを覚え、ホストのスクリプトで箱の参照を置き換える。
+                    # 取り込みと同じく、この機械の前でだけ。
+                    if scope != LOCAL:
+                        raise ValueError(
+                            "Unity references can only be handled at the machine itself")
+                    if unity is None:
+                        raise ValueError("Unity references are not configured")
+                    if path == "/api/unity/folder":
+                        self._json(unity.remember(body.get("project"), body.get("folder")))
+                    else:
+                        self._json(unity.start(body.get("project"), body.get("dry_run") is True),
+                                   HTTPStatus.ACCEPTED)
+                    return
                 if path == "/api/launch":
                     # プログラムの起動だけは、画面のある場所でしか意味が無い。
                     # スマホから起動すれば、誰も見ていない窓が開くだけだ。
@@ -335,7 +364,8 @@ def main() -> int:
         ("127.0.0.1", args.port),
         handler_for(state, Launchers(args.config), Reach(args.config), token, live,
                     PullRequests(state.project, state.mirrors / "projects"), mirror,
-                    ImportJob(Importer(live, issues=issues)), issues),
+                    ImportJob(Importer(live, issues=issues)), issues,
+                    unity=UnityRefs(args.data)),
     )
     enabled, interval = auto_pull_settings(args.config)
     if enabled:

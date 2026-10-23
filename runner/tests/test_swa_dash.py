@@ -83,6 +83,13 @@ class Request(unittest.TestCase):
         for name in ("CURRENT", "../etc", "-x", "", None, ".", "a/b"):
             self.refused({"action": "remove", "project": name})
 
+    def test_unity_references_name_only_the_project(self):
+        # tar の置き場は箱が決める。要求にはパスを載せない。
+        self.assertEqual(self.parse({"action": "unity-refs", "project": "thm01", "tar": "/etc"}),
+                         ["unity-refs", "thm01"])
+        for name in ("CURRENT", "../etc", "-x", "", None):
+            self.refused({"action": "unity-refs", "project": name})
+
     def test_a_model_change_passes_only_names_that_are_safe_in_a_shell(self):
         self.assertEqual(
             self.parse({"action": "model", "role": "solver", "model": "claude-opus-5-5[1m]",
@@ -289,6 +296,48 @@ class Design(unittest.TestCase):
     def test_criteria_that_are_not_json_come_back_as_text(self):
         self.write("ac/a.json", "{broken")
         self.assertEqual(swa_dash.design(str(self.root))["ac"], {"a": "{broken"})
+
+
+class UnityReferences(unittest.TestCase):
+    """設計と一緒に返す、箱の Unity の参照の古さ。ランナーと同じ比べ方をする。"""
+
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.project = Path(temp.name) / "project"
+        self.refs = Path(temp.name) / "unity-refs"
+        (self.project / "ProjectSettings").mkdir(parents=True)
+        (self.project / "ProjectSettings" / "ProjectVersion.txt").write_text(
+            "m_EditorVersion: 6000.3.10f1\n", encoding="utf-8")
+
+    def send(self, fingerprint=None):
+        (self.refs / "refs").mkdir(parents=True)
+        (self.refs / "refs" / "UnityEngine.dll").write_bytes(b"MZ")
+        (self.refs / "version.txt").write_text("6000.3.10f1\n", encoding="utf-8")
+        if fingerprint is not None:
+            (self.refs / "fingerprint.txt").write_text(fingerprint, encoding="utf-8")
+
+    def unity(self):
+        return swa_dash.design(str(self.project))["unity"]
+
+    def test_the_design_looks_beside_the_work_tree(self):
+        self.send("ProjectSettings/ProjectVersion.txt\t" + "0" * 64 + "\n")
+        self.assertEqual(self.unity(), {"refs": True, "version": "6000.3.10f1", "assemblies": 1,
+                                        "stale": ["ProjectSettings/ProjectVersion.txt"]})
+
+    def test_references_that_match_have_nothing_stale(self):
+        digest = swa_dash.swa.unity_fingerprint(self.project)["ProjectSettings/ProjectVersion.txt"]
+        self.send(f"ProjectSettings/ProjectVersion.txt\t{digest}\n")
+        self.assertEqual(swa_dash.unity(str(self.project), str(self.refs))["stale"], [])
+
+    def test_references_without_a_fingerprint_are_none(self):
+        self.send()
+        self.assertIsNone(swa_dash.unity(str(self.project), str(self.refs))["stale"])
+
+    def test_missing_references_and_other_projects(self):
+        self.assertEqual(self.unity(), {"refs": False})
+        (self.project / "ProjectSettings" / "ProjectVersion.txt").unlink()
+        self.assertIsNone(self.unity())
 
 
 if __name__ == "__main__":

@@ -1459,18 +1459,19 @@ def unity_fingerprint(root: Path) -> dict[str, str]:
     return out
 
 
-def unity_stale() -> list[str] | None:
+def unity_stale(project: Path | None = None, refs: Path | None = None) -> list[str] | None:
     """参照を作った後に、作業ツリーで変わったファイル。指紋が無ければ None。
 
     指紋は swa-unity-refs が fingerprint.txt に `<パス>\\t<ハッシュ>` で書く。箱に無い
     ファイル（リポジトリに入れていない packages-lock.json など）は比べようがないので飛ばす。
+    既定は今のプロジェクトの作業ツリーと参照。swa_dash.py は root で読むので渡す。
     """
-    path = UNITY_REFS / "fingerprint.txt"
+    path = (refs or UNITY_REFS) / "fingerprint.txt"
     if not path.is_file():
         return None
     sent = dict(line.split("\t", 1) for line in path.read_text(encoding="utf-8").splitlines()
                 if "\t" in line)
-    now = unity_fingerprint(PROJECT)
+    now = unity_fingerprint(project or PROJECT)
     return [rel for rel, digest in sent.items() if rel in now and now[rel] != digest.strip()]
 
 

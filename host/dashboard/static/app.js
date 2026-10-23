@@ -424,6 +424,7 @@ async function refreshDesign() {
   let value;
   try { value = await api("/api/design"); } catch (error) { value = {error: error.message}; }
   renderDesign(value);
+  renderUnityBox(value.unity, value.error);
 }
 
 const CHART = {width: 800, height: 280, top: 12, bottom: 30, left: 56};
@@ -780,6 +781,12 @@ async function refreshLive() {
   // 箱が送ったコミットをサーバが自分で引き始めたら、その更新も追う。
   if (session.scope === "local") {
     try { if ((await api("/api/pull")).started !== pullSeen) await watchPull(); } catch (error) { /* 次の回で見る */ }
+    // Unity の欄は今のプロジェクトのもの。プロジェクトが替わったら読み直す。
+    if (value.project && value.project !== unityProject) {
+      unityProject = value.project; unitySeen = null;
+      document.querySelector("#unity-folder").value = "";
+      await watchUnity();
+    }
   }
 }
 
@@ -814,6 +821,10 @@ function updateRunButtons() {
     !reachable || running || switching || !document.querySelector("#reset-step").options.length;
   // 取り込みの最後は切り替えなので、走行中と切り替え中は箱が断る。
   document.querySelector("#import").disabled = importing || !reachable || running || switching;
+  // 確かめるのはホストだけで済む。置き換えは、走行中と切り替え中は箱が断る。
+  document.querySelector("#unity-check").disabled = unityRunning || !unityReady;
+  document.querySelector("#unity-send").disabled =
+    unityRunning || !unityReady || !reachable || running || switching;
 }
 
 // やり直せるのは緑でないモジュール。選んだものは5秒ごとの更新で変えない。
@@ -1160,7 +1171,72 @@ async function startImport(element) {
   catch (error) { alert(error.message); updateRunButtons(); }
 }
 
-// 操作の5つの欄はタブで切り替える。選んだタブは、この端末のブラウザにだけ覚える。
+// Unity の参照。箱の側の古さは設計と一緒に読み、ホストの側はフォルダと csproj を読む。
+let unityTimer = null, unityProject = "", unityRunning = false, unityReady = false, unitySeen = null;
+
+function renderUnityBox(unity, error) {
+  const box = document.querySelector("#unity-box");
+  const held = unity?.refs ? `箱の参照: Unity ${unity.version || "?"}、DLL ${unity.assemblies} 個。` : "";
+  box.textContent = error ? `箱の参照を読めません: ${error}`
+    : !unity ? "今のプロジェクトは Unity のプロジェクトではありません。"
+    : !unity.refs ? "箱に参照がありません。送るまで、ランナーは走るのを拒みます。"
+    : unity.stale === null ? `${held}指紋が無いので、送り直すまでランナーは走るのを拒みます。`
+    : unity.stale.length ? `${held}古い（${unity.stale.join(", ")} が変わった）。送り直すまで、ランナーは走るのを拒みます。`
+    : `${held}作業ツリーと合っています。`;
+}
+
+function renderUnity(value) {
+  const folder = document.querySelector("#unity-folder");
+  if (value.folder && !folder.value && document.activeElement !== folder) folder.value = value.folder;
+  unityRunning = Boolean(value.running);
+  const host = value.host;
+  unityReady = Boolean(host?.csproj && !host.older_than.length);
+  document.querySelector("#unity-host").textContent = value.error || (!value.folder ? "フォルダを覚えると、確かめて送れます。"
+    : host.error ? host.error
+    : !host.csproj ? "Assembly-CSharp.csproj がありません。Unity の Preferences > External Tools で Regenerate project files を押してください。"
+    : host.older_than.length ? `csproj が ${host.older_than.join(", ")} より古い。Unity で Regenerate project files を押し、コンパイルを待ってください。`
+    : `${value.folder} の csproj は送れる状態です。`);
+  const log = document.querySelector("#unity-log");
+  log.hidden = !value.output?.length;
+  log.textContent = (value.output || []).join("\n");
+  const what = value.dry_run ? "確かめ" : "送り";
+  document.querySelector("#unity-state").textContent = value.running ? `${what}ています（${value.job_project}）`
+    : value.finished ? `${what}: ${value.returncode === 0 ? "済み" : `失敗（${value.returncode}）`} / ${value.finished}` : "";
+  updateRunButtons();
+}
+
+async function watchUnity() {
+  clearTimeout(unityTimer);
+  if (!unityProject) return;
+  let value;
+  try { value = await api(`/api/unity?project=${encodeURIComponent(unityProject)}`); }
+  catch (error) { value = {error: error.message}; }
+  renderUnity(value);
+  if (value.running) { unityTimer = setTimeout(watchUnity, 2000); return; }
+  // 送り終えたら、箱の側の古さを読み直す。開いたときに見えた前の結果では読み直さない。
+  if (unitySeen !== null && value.finished && value.finished !== unitySeen && !value.dry_run) {
+    drawnDesign = ""; designSeen = null; await refreshDesign();
+  }
+  unitySeen = value.finished || "";
+}
+
+async function rememberUnity(element) {
+  element.disabled = true;
+  try {
+    renderUnity(await api("/api/unity/folder", {method: "POST", body: JSON.stringify(
+      {project: unityProject, folder: document.querySelector("#unity-folder").value})}));
+  } catch (error) { alert(error.message); }
+  finally { element.disabled = false; }
+}
+
+async function startUnity(element, dryRun) {
+  if (!dryRun && !confirm(`'${unityProject}' の箱の参照を、${document.querySelector("#unity-folder").value} のもので置き換えます。よいですか？`)) return;
+  element.disabled = true;
+  try { renderUnity(await api("/api/unity/send", {method: "POST", body: JSON.stringify({project: unityProject, dry_run: dryRun})})); watchUnity(); }
+  catch (error) { alert(error.message); updateRunButtons(); }
+}
+
+// 操作の欄はタブで切り替える。選んだタブは、この端末のブラウザにだけ覚える。
 const TAB_KEY = "swa-dashboard-tab";
 
 function selectTab(name) {
@@ -1190,9 +1266,9 @@ function setupControl() {
     for (const element of document.querySelectorAll(".local-only")) element.hidden = true;
     const note = document.querySelector("#control-note");
     note.hidden = false;
-    note.textContent = "リモートからは停止、続行、モジュールのやり直し、設計の承認と差し戻しができます。開始、最終確認の承認、プロジェクトの切り替え、モデルの変更、写しの更新、下書きの PR、取り込みはこの機械の前で。";
+    note.textContent = "リモートからは停止、続行、モジュールのやり直し、設計の承認と差し戻しができます。開始、最終確認の承認、プロジェクトの切り替え、モデルの変更、Unity の参照、写しの更新、下書きの PR、取り込みはこの機械の前で。";
   }
-  // リモートで隠した「ホストの写し」と「取り込み」のタブを選ばないよう、隠したあとで開く。
+  // リモートで隠した「ホストの写し」「取り込み」「Unity」のタブを選ばないよう、隠したあとで開く。
   setupTabs();
   const start = document.querySelector("#start-run");
   start.onclick = () => startRun(start);
@@ -1223,6 +1299,12 @@ function setupControl() {
   specFile.onchange = () => loadSpecFile(specFile);
   const issueDraft = document.querySelector("#issue-draft");
   issueDraft.onclick = () => draftFromIssue(issueDraft);
+  const unityRemember = document.querySelector("#unity-remember");
+  unityRemember.onclick = () => rememberUnity(unityRemember);
+  const unityCheck = document.querySelector("#unity-check");
+  unityCheck.onclick = () => startUnity(unityCheck, true);
+  const unitySend = document.querySelector("#unity-send");
+  unitySend.onclick = () => startUnity(unitySend, false);
   updateRunButtons();
 }
 

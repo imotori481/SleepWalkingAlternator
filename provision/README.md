@@ -508,6 +508,8 @@ swa raw reset <モジュール>
 
 箱には複数のプロジェクトを置ける。走るのは一度に1つだけで、`swa-project.sh` で切り替える。
 `/srv/swa` は root 所有なので、保守ユーザーが `sudo` で流す。runner にはできない。
+`swa project` は中で sudo し、呼んだ保守ユーザーを `ADMIN_USER` として渡す。外に `sudo` を
+付けない。root から呼ぶと `SUDO_USER` を使い、それも無ければ止まる。`swa update` も同じ。
 
 ```bash
 swa project list                              # プロジェクトの一覧。* が今のもの

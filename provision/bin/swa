@@ -51,6 +51,19 @@ latest_log() { echo "$LOGS/$(project_name)-latest.log"; }
 
 as_runner() { sudo -u runner "$@"; }
 
+# プロビジョニングに渡す保守ユーザー。外から sudo で呼ばれると `id -un` は root になり、
+# sudoers と sshd の許可が root 向けに書き換わる。sudo の元のユーザーを使い、それも
+# 分からなければ止める。
+admin_user() {
+  if [ "$(id -u)" -ne 0 ]; then
+    id -un
+  elif [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+    echo "$SUDO_USER"
+  else
+    die "root では流せない。保守ユーザーとして sudo を付けずに流す"
+  fi
+}
+
 # ---- 裏で走る側。runner として動く ------------------------------------------
 
 # swa.py を1つ呼び、終了コードを返す。何を呼んだかをログに残す。
@@ -71,14 +84,20 @@ finish() {
 # swa.py を1つ呼び、0 でなければ走行を終える。`what` は何をしていたか。
 # 利用枠と箱の故障は、設計を差し戻さずに止まったことを伝える。
 call() {
-  local what="$1" rc=0
+  local what="$1" rc=0 hint=""
   shift
   step "$@" || rc=$?
+  # 詳細設計の下書きが検査に落ちると、docs/ には何も書かれない。承認する設計が無いので、
+  # 書き直させる入口を示す。
+  case "$rc:$what" in
+    2:詳細設計|2:詳細設計の書き直し) hint="。設計は書かれていない。'swa reject <コメント>' で書き直させる" ;;
+  esac
   case "$rc" in
     0) return 0 ;;
     5) finish 5 "$what の途中で利用枠が尽きた。枠が戻ったら同じ操作をやり直す。途中のモジュールがあれば先に 'swa raw reset <モジュール>'" ;;
     6) finish 6 "$what の途中で箱が書き込みを拒んだ。設計は差し戻していない。上の INFRA の行のパスの権限を直し、'swa raw reset <モジュール>' のあと 'swa continue'" ;;
-    *) finish "$rc" "$what が失敗した（終了コード $rc）。上の出力を読む" ;;
+    7) finish 7 "$what の途中で箱のツールチェーンが通らなかった。設計は差し戻していない。上の TOOLCHAIN の行を読んで箱を直し、'swa raw reset <モジュール>' のあと 'swa continue'" ;;
+    *) finish "$rc" "$what が失敗した（終了コード $rc）。上の出力を読む$hint" ;;
   esac
 }
 
@@ -90,6 +109,7 @@ run_all() {
     2) finish 2 "モジュールが下流で止まり、中段に戻った。$FAILURE を読み、直すモジュールを 'swa reopen <モジュール>...' で選ぶ" ;;
     5) finish 5 "利用枠が尽きた。枠が戻ったら 'swa continue'。途中のモジュールがあれば先に 'swa raw reset <モジュール>'" ;;
     6) finish 6 "箱が書き込みを拒んだ。設計は差し戻していない。上の INFRA の行のパスの権限を直し、'swa raw reset <モジュール>' のあと 'swa continue'" ;;
+    7) finish 7 "箱のツールチェーンが通らなかった。設計は差し戻していない。上の TOOLCHAIN の行を読んで箱を直し、'swa raw reset <モジュール>' のあと 'swa continue'" ;;
     *) finish "$rc" "run --all が止まった（終了コード $rc）。'swa status' を見る" ;;
   esac
 }
@@ -419,7 +439,7 @@ cmd_stop() {
 # プロビジョニングはこのファイル自身を置き直すので、exec で最後に渡す。bash はスクリプトを
 # 読みながら実行するため、置き直された後の行を読ませない。
 cmd_update() {
-  local force=false head
+  local force=false head admin
   [ $# -le 1 ] || die "使い方: swa update [--force]"
   case "${1:-}" in
     "") ;;
@@ -435,7 +455,8 @@ cmd_update() {
     echo "このコミットはプロビジョニング済み。流し直すなら 'swa update --force'"
     return 0
   fi
-  exec sudo ADMIN_USER="$(id -un)" bash "$ENGINE/provision/provision.sh"
+  admin="$(admin_user)"
+  exec sudo ADMIN_USER="$admin" bash "$ENGINE/provision/provision.sh"
 }
 
 usage() {
@@ -484,7 +505,8 @@ case "${1:-}" in
   project)
     shift
     switching && die "ダッシュボードがプロジェクトを切り替えている。終わるのを待つ"
-    sudo ADMIN_USER="$(id -un)" bash "$PROJECT_SH" "$@" ;;
+    admin="$(admin_user)"
+    sudo ADMIN_USER="$admin" bash "$PROJECT_SH" "$@" ;;
   raw)      shift; as_runner python3 -u "$SWA/runner/swa.py" "$@" ;;
   update)   shift; cmd_update "$@" ;;
   dash)    [ $# -eq 1 ] || usage; cmd_dash ;;

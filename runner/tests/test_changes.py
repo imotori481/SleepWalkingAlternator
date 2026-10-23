@@ -83,6 +83,19 @@ class TheShapeOfAChange(Existing):
         self.assertTrue(any(p.startswith("changes/Bonus.md: edits game/missing, which is not")
                             for p in problems), problems)
 
+    def test_a_missing_edit_names_the_path_looked_for_and_the_file_meant(self):
+        _, problems = self.design(changes={"Bonus": doc({"edits": "board"})})
+        problem = next(p for p in problems if "edits board" in p)
+        self.assertIn("looked for src/board.py", problem)
+        self.assertIn("the last commit has game/board under src/", problem)
+
+    def test_a_file_only_outside_the_fence_is_left_to_a_human(self):
+        with mock.patch.object(swa, "head_files", side_effect=lambda prefix: (
+                self.HEAD | {"Assets/Source/UI/Result.py"} if prefix == "." else self.HEAD)):
+            _, problems = self.design(changes={"Bonus": doc({"edits": "UI/Result"})})
+        problem = next(p for p in problems if "edits UI/Result" in p)
+        self.assertIn("Assets/Source/UI/Result.py is outside the write fence src/", problem)
+
     def test_a_change_names_the_files_it_edits(self):
         _, problems = self.design(changes={
             "Bonus": doc({"requires": "def bonus() -> int", "from": "game/rules"})})

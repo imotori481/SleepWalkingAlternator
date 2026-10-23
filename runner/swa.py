@@ -265,6 +265,16 @@ class InfraBroken(Exception):
         self.evidence = evidence
 
 
+class ToolchainBroken(Exception):
+    """箱のツールチェーンが通らない（dotnet restore が落ちる）。Halt ではないので、
+    中段に戻さない。テストはまだ1つも走っておらず、設計にもソルバーにも直せない。"""
+
+    def __init__(self, phase: str, evidence: str):
+        super().__init__(f"the toolchain failed in the {phase} phase: {evidence}")
+        self.phase = phase
+        self.evidence = evidence
+
+
 # "revisions" は、プランナーが機械の検査に落ちた設計を直す回数の上限だ。
 # プランナーは検査の判定を渡されて直すよう頼まれる。ある違反を別の違反と
 # 取り替えるエージェントは、上限が無ければそれを永遠に続ける。
@@ -1399,6 +1409,27 @@ def unity_refs() -> bool:
     return bool(LANGUAGE.get("unity_refs")) and (UNITY_REFS / "refs").is_dir()
 
 
+def unity_problem() -> str | None:
+    """取り込んだ Unity のプロジェクトを、このままでは走らせられない理由。無ければ None。
+
+    柵が Assets/ の外にあると、既存のコードは柵の外に出て、変更が触れない。参照が
+    無いと、既存のコードは UnityEngine の型を引けずにビルドが落ち、プランナーは
+    UI の無い箱だと伝えられる。どれも設計の誤りに見えるので、書かせる前に止める。
+    """
+    if not (PROJECT / "ProjectSettings" / "ProjectVersion.txt").is_file():
+        return None
+    outside = [f"{key}={LAYOUT[key]}" for key in ("src", "tests")
+               if not LAYOUT[key].startswith("Assets/")]
+    if outside:
+        return (f"refusing: this is a Unity project, and the write fence is outside Assets/ "
+                f"({', '.join(outside)}); move it with `swa project layout <project> "
+                f"--src Assets/<code> --tests Assets/<tests>`")
+    if LANGUAGE.get("unity_refs") and not unity_refs():
+        return (f"refusing: this is a Unity project, and {UNITY_REFS}/refs is missing; send "
+                f"the reference assemblies with swa-unity-refs from the host first")
+    return None
+
+
 def dotnet_global_json() -> str:
     """build に置く global.json。持ち込む先の SDK に固定する。
 
@@ -1908,7 +1939,10 @@ def pytest_run(tag: str, files_test: list[str]) -> TestRun:
     if csharp:
         problem = prepare_dotnet()
         if problem:
-            return TestRun(0, 0, 1, 0, ["<dotnet restore failed>"], [], problem)
+            phase = tag.split("-")[0].upper()
+            ledger("TOOLCHAIN_FAILURE", step=NOW.get("step") or "-", phase=phase,
+                   evidence=problem[-400:])
+            raise ToolchainBroken(phase, problem[-2000:])
     # C# と C++ は走らせる前にビルドする。Unity のプロジェクトでは数十秒かかる。
     seconds = max(TIMEOUTS["test"], LANGUAGE.get("min_test_timeout", 0))
     if cpp:
@@ -3770,6 +3804,28 @@ def head_files(prefix: str) -> set[str]:
     return set(filter(None, listing.stdout.split("\0"))) if listing.returncode == 0 else set()
 
 
+def edit_hint(edit: str, head: set[str]) -> str:
+    """edits に書いた名前と同じ名前のファイルを HEAD から探し、エラー文に足す。
+
+    プランナーは探したパスを知らされないと、柵の名前を付けたり外したりして同じ
+    検査で落ち続ける。柵の外にしか無ければ、柵の場所が誤っていて、直せるのは人だけだ。
+    """
+    name = edit.rstrip("/").rpartition("/")[2]
+    src = LAYOUT["src"]
+    found = sorted(f for f in head_files(".") | head
+                   for s in LANGUAGE["module_suffixes"]
+                   if f == name + s or f.endswith("/" + name + s))
+    inside = sorted({f[len(src) + 1:-len(s)] for f in found if in_layout(f, "src")
+                     for s in LANGUAGE["module_suffixes"] if f.endswith(s)})
+    if inside:
+        return f"; the last commit has {', '.join(inside[:5])} under {src}/, so write that"
+    if found:
+        return (f"; {', '.join(found[:5])} is outside the write fence {src}/, so no unit can "
+                f"edit it; if it is the file meant, the fence is wrong and a human has to "
+                f"move it")
+    return ""
+
+
 def is_change(unit_id: str) -> bool:
     return unit_id.startswith(CHANGE_PREFIX)
 
@@ -3860,8 +3916,9 @@ def design_problems(docs: dict[str, str], acs: dict[str, str],
             if not MODULE_ID.fullmatch(edit) \
                     or not any(f in head for f in module_files(edit)):
                 problems.append(f"{where}: edits {edit}, which is not a file under "
-                                f"{LAYOUT['src']}/ in the last commit; a new file is a "
-                                f"module (modules/<path>.md)")
+                                f"{LAYOUT['src']}/ in the last commit (looked for "
+                                f"{' or '.join(module_files(edit))}); a new file is a "
+                                f"module (modules/<path>.md)" + edit_hint(edit, head))
         for p in provides:
             if p["in"] not in edits:
                 problems.append(f"{where}: provides `{p['sig']}` in {p['in']}, which is not "
@@ -4877,6 +4934,9 @@ def cmd_basic_draft(language: str | None, framework: str | None,
     if mode and not stage.get("mode"):
         stage = write_stage(mode=mode)
     use_stage_language(stage)
+    refused = unity_problem()
+    if refused:
+        return refuse(refused)
     spec = spec_text()
     if not spec:
         return refuse(f"refusing: there is no specification in {DOCS_SPEC}; run spec import")
@@ -4942,6 +5002,9 @@ def cmd_modules_draft() -> int:
         return refuse("refusing: a module failed downstream; choose the modules whose "
                       "design is wrong with `reopen <module>...` first")
     use_stage_language(stage)
+    refused = unity_problem()
+    if refused:
+        return refuse(refused)
     spec = spec_text()
     basic = "\n\n".join(f"--- basic/{name}.md ---\n{text}"
                         for name, text in read_texts(DOCS_BASIC, ".md").items())
@@ -5129,6 +5192,9 @@ def cmd_modules_approve() -> int:
         return refuse("refusing: a module failed downstream; choose the modules whose "
                       "design is wrong with `reopen <module>...` first")
     use_stage_language(stage)
+    refused = unity_problem()
+    if refused:
+        return refuse(refused)
     modules, problems = current_design()
     if not problems:
         problems = interface_problems(modules)
@@ -5233,6 +5299,17 @@ def fail_module(step: dict, halt: Halt, attempt: int, run_: TestRun | None) -> N
     involved = failed_modules(step, run_)
     failed = "\n".join(f"- {k}" for k in (run_.failure_kinds if run_ else [])) \
         or "(記録なし)"
+    # モジュールが書かないファイルのビルドが落ちたなら、設計より先に箱を疑う。
+    # 参照の無い Unity のプロジェクトでは、既存のファイルがすべてここに並ぶ。
+    mine = set(step.get("files_write", []))
+    untouched = [k[len("<build failed: "):-1] for k in (run_.failure_kinds if run_ else [])
+                 if k.startswith("<build failed: ") and k[len("<build failed: "):-1] not in mine]
+    suspect = "" if not untouched else (
+        f"このモジュールが書かないファイル（{', '.join(untouched[:3])}"
+        f"{' ほか' + str(len(untouched) - 3) + '件' if len(untouched) > 3 else ''}）の"
+        f"ビルドが落ちている。設計より先に、箱の参照（Unity なら `swa-unity-refs`）と"
+        f"取り込んだコードを疑う。箱を直したら、`swa reopen {step['id']}` のあと "
+        f"`swa approve` で設計を変えずに流し直す。\n\n")
     FAILURE.write_text(f"""# 下流で止まったモジュール: {step["id"]}
 
 - 位相: {halt.phase}
@@ -5252,7 +5329,7 @@ def fail_module(step: dict, halt: Halt, attempt: int, run_: TestRun | None) -> N
 
 ## 次にすること
 
-詳細設計を直すモジュールを `swa reopen <モジュール>...` で選ぶ。複数選べる。
+{suspect}詳細設計を直すモジュールを `swa reopen <モジュール>...` で選ぶ。複数選べる。
 """, encoding="utf-8")
     FAILURE.chmod(0o644)
     write_stage(stage="midstream", open=[])
@@ -7824,6 +7901,7 @@ def run_step(step_id: str) -> int:
 # 「迷ったら訊く」は訊く頻度をモデルに委ね、習慣ですべてを承認するところで終わる。
 BUDGET_SPENT = "the wall-clock budget is spent"
 INFRA_REFUSED = "the sandbox refused a write"
+TOOLCHAIN_FAILED = "the toolchain failed"
 
 
 def cmd_run_all(budget_minutes: int = 0) -> int:
@@ -7866,6 +7944,9 @@ def cmd_run_all(budget_minutes: int = 0) -> int:
         except InfraBroken as broken:
             print(f"INFRA [{broken.phase}] {broken.evidence}", file=sys.stderr)
             return stop(f"{INFRA_REFUSED} in {step_id}; the design was not sent back", 6)
+        except ToolchainBroken as broken:
+            print(f"TOOLCHAIN [{broken.phase}] {broken.evidence}", file=sys.stderr)
+            return stop(f"{TOOLCHAIN_FAILED} in {step_id}; the design was not sent back", 7)
         return stop(f"{step_id} failed and is back in the midstream; read {FAILURE}", 2)
 
 
@@ -8079,6 +8160,12 @@ def main() -> int:
               f"Fix the modes, then run `reset <module>` and the same command again.",
               file=sys.stderr)
         return 6
+    except ToolchainBroken as broken:
+        print(f"TOOLCHAIN [{broken.phase}] the toolchain failed before any test ran. The "
+              f"design was not sent back.\n{broken.evidence}\n"
+              f"Fix the sandbox (the feed, the references), then run `reset <module>` and "
+              f"the same command again.", file=sys.stderr)
+        return 7
     except FileNotFoundError as missing:
         # ほぼ必ず、下流の計画がまだ無い。トレースバックを出さず、そう言う。
         print(f"missing: {missing.filename}", file=sys.stderr)

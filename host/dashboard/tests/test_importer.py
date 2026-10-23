@@ -203,6 +203,29 @@ class Run(unittest.TestCase):
         self.assertEqual(live.calls, [])
         self.assertFalse((self.workroot / "game").exists())
 
+    def unity_origin(self):
+        (self.origin / "ProjectSettings").mkdir()
+        (self.origin / "ProjectSettings" / "ProjectVersion.txt").write_text(
+            "m_EditorVersion: 6000.3.10f1\n", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-q", "-m", "unity", cwd=self.origin)
+
+    def test_a_unity_project_with_fences_outside_assets_is_refused_before_the_sandbox(self):
+        self.unity_origin()
+        live = FakeLive()
+        with self.assertRaisesRegex(ImportFailed, "Unity project.*--src \\(default\\)"):
+            self.run_import(live)
+        with self.assertRaisesRegex(ImportFailed, "--src Source"):
+            self.run_import(live, src="Source", tests="Assets/Tests")
+        self.assertEqual(live.calls, [])
+
+    def test_a_unity_project_with_fences_under_assets_is_imported(self):
+        self.unity_origin()
+        live = FakeLive()
+        self.run_import(live, src="Assets/Source", tests="Assets/Tests/Editor/Swa")
+        self.assertEqual(live.calls[0],
+                         ("init", "game", "swa/x", "Assets/Source", "Assets/Tests/Editor/Swa"))
+
     def test_a_switch_that_ends_elsewhere_is_a_failure(self):
         with self.assertRaisesRegex(ImportFailed, "current project is 'thm'"):
             self.run_import(FakeLive(ends_on="thm"))

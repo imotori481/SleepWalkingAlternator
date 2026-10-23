@@ -99,6 +99,23 @@ def check(value: dict[str, Any]) -> Request:
     return request
 
 
+def unity_fence_check(dest: Path, request: Request) -> None:
+    """Unity のプロジェクトなら、柵が Assets/ の下にあるか確かめる。無ければ ImportFailed。
+
+    柵を省くと既定の src と tests になり、Unity のコードはすべて柵の外に出る。
+    走行は詳細設計まで進んでから、既存のファイルを1つも触れずに止まる。
+    """
+    if not (dest / "ProjectSettings" / "ProjectVersion.txt").is_file():
+        return
+    outside = [f"--{key} {getattr(request, key) or '(default)'}" for key in ("src", "tests")
+               if not getattr(request, key).startswith("Assets/")]
+    if outside:
+        raise ImportFailed(
+            f"{request.project} is a Unity project, and its write fences must be under "
+            f"Assets/ ({', '.join(outside)}). Pass them, e.g. --src Assets/Source --tests "
+            f"Assets/Tests/Editor/Swa. Nothing was created on the sandbox.")
+
+
 class Importer:
     def __init__(self, live: Live, workroot: Path = WORKROOT, push_host: str = PUSH_HOST,
                  sleep: Callable[[float], None] = time.sleep, issues: Issues | None = None):
@@ -134,6 +151,7 @@ class Importer:
         self._pick_branch(dest, request, say)
         if request.issue:
             self._git(dest, "config", ISSUE_KEY.format(request.branch), request.issue)
+        unity_fence_check(dest, request)
 
         say(f"[3/5] Creating project {request.project} on the sandbox ...")
         try:

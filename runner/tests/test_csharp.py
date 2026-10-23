@@ -180,6 +180,49 @@ class TheProjectsTheRunnerWrites(CSharp):
                     returncode=1, stdout="error NU1101: Unable to find package NUnit", stderr="")):
                 self.assertIn("NU1101", swa.prepare_dotnet())
 
+    def test_a_failed_restore_runs_again_though_it_left_its_assets(self):
+        """失敗した restore も project.assets.json を書く。フィードを直した後に飛ばさない。"""
+        with tempfile.TemporaryDirectory() as t:
+            temp = Path(t)
+            patches = self.tools(temp, unity=False)
+            for p in patches:
+                p.start()
+            self.addCleanup(lambda: [p.stop() for p in patches])
+            results = iter([1, 0])
+
+            def restore(cmd, **_):
+                assets = temp / "dotnet" / "build" / "tests" / "obj" / "project.assets.json"
+                assets.parent.mkdir(parents=True, exist_ok=True)
+                assets.write_text("{}", encoding="utf-8")
+                return SimpleNamespace(returncode=next(results),
+                                       stdout="error NU1101: Unable to find package X", stderr="")
+
+            with mock.patch("swa.run", side_effect=restore) as run:
+                self.assertIn("NU1101", swa.prepare_dotnet())
+                self.assertIsNone(swa.prepare_dotnet())
+            self.assertEqual(run.call_count, 2)
+
+    def test_restore_runs_again_when_the_feed_changes(self):
+        with tempfile.TemporaryDirectory() as t:
+            temp = Path(t)
+            patches = self.tools(temp, unity=False)
+            for p in patches:
+                p.start()
+            self.addCleanup(lambda: [p.stop() for p in patches])
+
+            def restored(cmd, **_):
+                assets = temp / "dotnet" / "build" / "tests" / "obj" / "project.assets.json"
+                assets.parent.mkdir(parents=True, exist_ok=True)
+                assets.write_text("{}", encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with mock.patch("swa.run", side_effect=restored) as run:
+                self.assertIsNone(swa.prepare_dotnet())
+                (temp / "dotnet" / "feed" / ".versions").write_text(
+                    FEED_VERSIONS + " pruning=off", encoding="utf-8")
+                self.assertIsNone(swa.prepare_dotnet())
+            self.assertEqual(run.call_count, 2)
+
 
 class WhenTheBuildFails(CSharp):
     """C# は1つのファイルが壊れると、テストのアセンブリ全体がビルドできない。"""

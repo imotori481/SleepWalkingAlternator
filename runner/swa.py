@@ -1523,19 +1523,29 @@ def prepare_dotnet() -> str | None:
     restore はフィードだけから行う（nuget.config がほかのソースを消す）。csproj が
     変わるのは、柵の場所か持ち込む先か Unity の参照かフィードの版が変わったときだけだ。
     dotnet は build で呼ぶ。そこの global.json が SDK を決める（dotnet_global_json）。
+
+    失敗した restore も project.assets.json を書く。そのファイルの有無では、前の
+    restore が通ったかを決められない。通ったときだけ、csproj とフィードの中身を
+    印（build/restored）に残し、印と合わなければ restore し直す。
     """
     try:
         projects = dotnet_projects()
+        feed = (DOTNET_TOOLS / "feed" / ".versions").read_text(encoding="utf-8")
     except (OSError, KeyError, ValueError) as e:
         return f"cannot write the C# projects: {e}"
-    changed = False
     for path, text in projects.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists() or path.read_text(encoding="utf-8") != text:
             path.write_text(text, encoding="utf-8")
-            changed = True
     tests = DOTNET_BUILD / "tests" / "Tests.csproj"
-    if changed or not (tests.parent / "obj" / "project.assets.json").exists():
+    stamp = DOTNET_BUILD / "restored"
+    key = text_digest("\0".join(projects.values()) + "\0" + feed)
+    try:
+        done = stamp.read_text(encoding="utf-8") == key
+    except OSError:
+        done = False
+    if not done or not (tests.parent / "obj" / "project.assets.json").exists():
+        stamp.unlink(missing_ok=True)
         try:
             proc = run([str(LANGUAGE["test_runner"]), "restore", str(tests),
                         "--configfile", str(DOTNET_TOOLS / "nuget.config")],
@@ -1544,6 +1554,7 @@ def prepare_dotnet() -> str | None:
             return f"dotnet restore did not finish within {TIMEOUTS['test']}s"
         if proc.returncode != 0:
             return (proc.stdout + proc.stderr)[-3000:]
+        stamp.write_text(key, encoding="utf-8")
     return None
 
 

@@ -1427,7 +1427,51 @@ def unity_problem() -> str | None:
     if LANGUAGE.get("unity_refs") and not unity_refs():
         return (f"refusing: this is a Unity project, and {UNITY_REFS}/refs is missing; send "
                 f"the reference assemblies with swa-unity-refs from the host first")
+    if LANGUAGE.get("unity_refs"):
+        changed = unity_stale()
+        if changed is None:
+            return ("refusing: this is a Unity project, and the reference assemblies carry no "
+                    "fingerprint; send them again with swa-unity-refs from the host")
+        if changed:
+            return (f"refusing: this is a Unity project, and the reference assemblies are stale "
+                    f"({', '.join(changed)} changed); send them again with swa-unity-refs "
+                    f"from the host")
     return None
+
+
+# 参照を作った元のファイル。パッケージか Unity の版が変われば、参照も変わる。
+# asmdef は入れない。柵の中の asmdef は SWA の変更で動く。
+UNITY_FINGERPRINTED = ("ProjectSettings/ProjectVersion.txt", "Packages/manifest.json",
+                       "Packages/packages-lock.json")
+
+
+def unity_fingerprint(root: Path) -> dict[str, str]:
+    """`root` の UNITY_FINGERPRINTED のハッシュ。無いファイルは入れない。
+
+    swa-unity-refs.ps1 と同じ計算だ。改行は LF にそろえてから取る。git は
+    ホストと箱で改行を違えてチェックアウトしうる。
+    """
+    out = {}
+    for rel in UNITY_FINGERPRINTED:
+        path = root / rel
+        if path.is_file():
+            out[rel] = hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    return out
+
+
+def unity_stale() -> list[str] | None:
+    """参照を作った後に、作業ツリーで変わったファイル。指紋が無ければ None。
+
+    指紋は swa-unity-refs が fingerprint.txt に `<パス>\\t<ハッシュ>` で書く。箱に無い
+    ファイル（リポジトリに入れていない packages-lock.json など）は比べようがないので飛ばす。
+    """
+    path = UNITY_REFS / "fingerprint.txt"
+    if not path.is_file():
+        return None
+    sent = dict(line.split("\t", 1) for line in path.read_text(encoding="utf-8").splitlines()
+                if "\t" in line)
+    now = unity_fingerprint(PROJECT)
+    return [rel for rel, digest in sent.items() if rel in now and now[rel] != digest.strip()]
 
 
 def dotnet_global_json() -> str:
@@ -5363,6 +5407,11 @@ def cmd_status() -> int:
         print(f"open for the planner: {', '.join(stage['open'])}")
     elif stage.get("open") == []:
         print("waiting: choose the modules to fix with reopen")
+    if stage.get("language"):
+        use_stage_language(stage)
+        refused = unity_problem()
+        if refused:
+            print(refused.replace("refusing: ", "blocked: ", 1))
     for row in steps_now():
         print(f"  {row['state']:8} {row['id']}")
     return 0
@@ -7923,6 +7972,9 @@ def cmd_run_all(budget_minutes: int = 0) -> int:
 
     tasks = json.loads(TASKS.read_text(encoding="utf-8"))
     load_settings({**tasks, **read_settings()})
+    refused = unity_problem()
+    if refused:
+        return refuse(refused)
     ledger("RUN_ALL_START", budget_minutes=budget_minutes or "none")
 
     while True:

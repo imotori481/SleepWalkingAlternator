@@ -552,7 +552,7 @@ cd /tmp && sudo ADMIN_USER=<保守ユーザー> bash /opt/swa/provision/swa-proj
 | `/srv/swa/projects/CURRENT` | 今のプロジェクトの名前 |
 | `/srv/swa/repo.git` | 今のプロジェクトの bare を指すリンク |
 | `/srv/swa/layout.json` | 今のプロジェクトの `layout.json` を指すリンク。無ければ既定の場所。ランナーとプロビジョニングが読む |
-| `/srv/swa/projects/<名前>/unity-refs/` | Unity の参照アセンブリ（`refs/*.dll`）、版、定義シンボル、C# の版。root 所有 |
+| `/srv/swa/projects/<名前>/unity-refs/` | Unity の参照アセンブリ（`refs/*.dll`）、版、定義シンボル、C# の版、元のファイルの指紋（`fingerprint.txt`）。root 所有 |
 | `/srv/swa/unity-refs` | 今のプロジェクトの `unity-refs/` を指すリンク。無ければ Unity を使わないプロジェクト |
 | `/srv/swa/project` | 今のプロジェクトの作業ツリー（実体） |
 
@@ -1019,6 +1019,7 @@ VirtualBox 構成の手順は `c4374f4` から拾える。
 
 ## 更新履歴
 
+- 2026/10/24: `unity-refs/` に `fingerprint.txt` を追加
 - 2026/10/20: `swa go` に `--mode` を追加し、planner の ACL を `src/` からリポジトリに変更
 - 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更し、古い箱を移す `08-rename.sh` を追加
 - 2026/10/15: 箱の中のクローンの場所を `/opt/swa` に変更

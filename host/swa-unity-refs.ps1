@@ -108,11 +108,29 @@ try {
   $node = $xml.SelectSingleNode("//*[local-name()='LangVersion']")
   $langVersion = if ($node) { $node.InnerText.Trim() } else { "9.0" }
 
+  # ---- fingerprint ------------------------------------------------
+  # The files the references were built from. The sandbox hashes the
+  # same files in its work tree and refuses to run when one differs
+  # (swa.py, unity_fingerprint). Line ends are made LF first: git may
+  # check them out differently on each side. Latin-1 maps every byte
+  # to one char and back, so only CRLF changes.
+  $latin1 = [Text.Encoding]::GetEncoding(28591)
+  $sha = [Security.Cryptography.SHA256]::Create()
+  $fingerprint = @()
+  foreach ($rel in "ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json") {
+    $p = Join-Path $projectDir $rel
+    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+    $text = $latin1.GetString([IO.File]::ReadAllBytes($p)).Replace("`r`n", "`n")
+    $hash = [BitConverter]::ToString($sha.ComputeHash($latin1.GetBytes($text))).Replace("-", "").ToLowerInvariant()
+    $fingerprint += "$rel`t$hash"
+  }
+
   $lf = "`n"
   [IO.File]::WriteAllText((Join-Path $stage "version.txt"), $version + $lf)
   [IO.File]::WriteAllText((Join-Path $stage "defines.txt"), (($defines -join $lf) + $lf))
   [IO.File]::WriteAllText((Join-Path $stage "langversion.txt"), $langVersion + $lf)
   [IO.File]::WriteAllText((Join-Path $stage "sources.txt"), (($sources -join $lf) + $lf))
+  [IO.File]::WriteAllText((Join-Path $stage "fingerprint.txt"), (($fingerprint -join $lf) + $lf))
 
   Write-Host "Unity $version, C# $langVersion, $($seen.Count) assemblies ($skipped left out), $($defines.Count) symbols"
 
@@ -120,7 +138,7 @@ try {
   if (Test-Path $tarPath) { Remove-Item $tarPath }
   # Windows's own tar by full path. With Git on PATH, `tar` can be GNU tar,
   # which reads "C:\..." as host "C" and fails.
-  & "$env:SystemRoot\System32\tar.exe" -cf $tarPath -C $stage refs version.txt defines.txt langversion.txt sources.txt
+  & "$env:SystemRoot\System32\tar.exe" -cf $tarPath -C $stage refs version.txt defines.txt langversion.txt sources.txt fingerprint.txt
   if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: tar failed"; exit 1 }
   if ($DryRun) { Write-Host "dry run: $tarPath was built and not sent"; exit 0 }
 

@@ -19,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import swa  # noqa: E402
 
 UNITY = {"src": "Assets/Source", "tests": "Assets/Tests/Editor/Swa"}
+# swa-unity-refs.ps1 が "m_EditorVersion: 6000.3.10f1\n" に付ける値。二つの実装のずれを捕まえる。
+VERSION_HASH = "50570e4db3762bd3504f90d0499b448c5f39880246b466358122c7c9adbbd0ff"
 
 
 class AUnityProjectThatCannotRun(unittest.TestCase):
@@ -47,8 +49,34 @@ class AUnityProjectThatCannotRun(unittest.TestCase):
     def test_missing_references_are_refused(self):
         self.assertIn("swa-unity-refs", self.problem(UNITY))
 
-    def test_with_references_it_runs(self):
+    def send(self, fingerprint: str | None = None) -> None:
         (self.refs / "refs").mkdir(parents=True)
+        if fingerprint is not None:
+            (self.refs / "fingerprint.txt").write_text(fingerprint, encoding="utf-8")
+
+    def test_with_references_it_runs(self):
+        self.send(f"ProjectSettings/ProjectVersion.txt\t{VERSION_HASH}\n")
+        self.assertIsNone(self.problem(UNITY))
+
+    def test_references_without_a_fingerprint_are_refused(self):
+        self.send()
+        self.assertIn("no fingerprint", self.problem(UNITY))
+
+    def test_stale_references_name_the_file_that_changed(self):
+        self.send(f"ProjectSettings/ProjectVersion.txt\t{VERSION_HASH}\n")
+        (self.project / "ProjectSettings" / "ProjectVersion.txt").write_text(
+            "m_EditorVersion: 6000.3.11f1\n", encoding="utf-8")
+        self.assertIn("(ProjectSettings/ProjectVersion.txt changed)", self.problem(UNITY))
+
+    def test_crlf_on_the_host_matches_lf_in_the_sandbox(self):
+        self.send(f"ProjectSettings/ProjectVersion.txt\t{VERSION_HASH}\n")
+        (self.project / "ProjectSettings" / "ProjectVersion.txt").write_bytes(
+            b"m_EditorVersion: 6000.3.10f1\r\n")
+        self.assertIsNone(self.problem(UNITY))
+
+    def test_a_file_the_sandbox_does_not_have_is_skipped(self):
+        self.send(f"ProjectSettings/ProjectVersion.txt\t{VERSION_HASH}\n"
+                  f"Packages/packages-lock.json\t{'0' * 64}\n")
         self.assertIsNone(self.problem(UNITY))
 
     def test_a_project_that_is_not_unity_is_left_alone(self):

@@ -76,10 +76,13 @@ DLL が要る。`<unity-project-dir>` の `Assembly-CSharp.csproj` から集め�
   `Library\ScriptAssemblies\<名前>.dll`。ネイティブの DLL、`NetStandard` の DLL、
   `Assembly-CSharp*` は外す
 - 定義シンボルは `UNITY_EDITOR` の系統を外して送る。C# の版と Unity の版も送る
+- `ProjectSettings/ProjectVersion.txt`、`Packages/manifest.json`、`Packages/packages-lock.json` の
+  ハッシュを指紋として送る
 - 箱では `swa project unity-refs` が root の所有で `/srv/swa/projects/<project>/unity-refs/` に置く
 - `-DryRun` を付けると、tar を作ったところで止まり、何も送らない
 
-Unity の版やパッケージを変えたら、もう一度送る。
+Unity の版やパッケージを変えたら、もう一度送る。送り忘れると、箱は指紋の違いを見つけ、
+変わったファイルを挙げて走るのを拒む。
 
 ## オペレーターGUI
 
@@ -272,6 +275,7 @@ git clone swa-runner:/srv/swa/repo.git <置き場所>
 
 ## 更新履歴
 
+- 2026/10/24: `swa-unity-refs` が参照を作った元のファイルの指紋を送るように変更
 - 2026/10/20: ダッシュボードのサーバが箱のコミットのたびに `swa-pull.cmd` を流すように変更
 - 2026/10/18: コマンド、ファイル、パス、環境変数、git の remote の名前を `loop` から `swa` に変更
 - 2026/10/14: 下書きの PR を出す操作をオペレーターGUIの「ホストの写し」タブに追加

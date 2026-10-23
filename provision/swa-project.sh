@@ -274,6 +274,8 @@ cmd_layout() {
 #   defines.txt      定義シンボル。UNITY_EDITOR の系統は外してある
 #   langversion.txt  C# の版
 #   sources.txt      それぞれの DLL をどこから取ったか。人が読むためのもの
+#   fingerprint.txt  参照を作った元のファイルのハッシュ。ランナーが作業ツリーと
+#                    比べ、違えば走らせない。無い tar も受け付ける
 #
 # ホストから来たものなので、展開の前後で形を確かめる。リンクや、ほかの名前の
 # ファイルが1つでもあれば、何も置き換えずに止まる。
@@ -293,7 +295,7 @@ cmd_unity_refs() {
   bad="$(find "$work" -mindepth 1 ! -type f ! -type d)"
   [ -z "$bad" ] || die "ファイルでもディレクトリでもないものが入っている:
 $bad"
-  bad="$(cd "$work" && find . -type f | grep -vE '^\./(refs/[A-Za-z0-9._+-]+\.dll|(version|defines|langversion|sources)\.txt)$' || true)"
+  bad="$(cd "$work" && find . -type f | grep -vE '^\./(refs/[A-Za-z0-9._+-]+\.dll|(version|defines|langversion|sources|fingerprint)\.txt)$' || true)"
   [ -z "$bad" ] || die "知らないファイルが入っている:
 $bad"
   for f in version.txt defines.txt langversion.txt; do

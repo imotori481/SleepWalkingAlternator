@@ -39,6 +39,7 @@ PowerShell なら `.\host\swa.cmd <args>`、Git Bash なら `./host/swa.cmd <arg
 | `<clone-dir>` | ホストで対象のリポジトリをクローンしたディレクトリ |
 | `<branch>` | SWA に作業させるブランチの名前 |
 | `<base-branch>` | 元にするブランチの名前（`main` など） |
+| `<issue>` | 解く GitHub の Issue の番号。数字だけ |
 | `<pr-branch>` | PR に出すブランチの名前 |
 | `<admin-user>` | 箱の保守ユーザーの名前 |
 | `<src-dir>` | ソルバーがコードを書くディレクトリ。作業ツリーの根からの相対パス（`Assets/Source` など） |
@@ -142,10 +143,14 @@ GitHub とやり取りするのはホストだけだ。箱には GitHub の資�
 ダッシュボードの「取り込み」タブでも同じことができる。
 
 ```bash
-swa-import <project> <repo-url> <branch> [<base-branch>] [--src <src-dir>] [--tests <tests-dir>]
+swa-import <project> <repo-url> <branch> [<base-branch>] [--src <src-dir>] [--tests <tests-dir>] [--issue <issue>]
 ```
 
 `--src` と `--tests` は書き込みの柵の場所で、省くと `src` と `tests`。
+
+`--issue` は解く GitHub の Issue の番号で、開いているものだけを受け付ける。番号はクローンの
+`branch.<branch>.swaIssue` に記録し、PR の本文に `Closes #<issue>` を入れる。仕様書は人が書く。
+ダッシュボードの走行タブの「Issue から下書き」で、題と本文を仕様書の欄に入れられる。
 
 手で打つときは次の順に流す。
 

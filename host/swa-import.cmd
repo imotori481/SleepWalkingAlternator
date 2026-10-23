@@ -5,7 +5,11 @@ REM  swa-import -- put a branch of an existing repository on the
 REM  sandbox as a new project.
 REM
 REM    swa-import <project> <repo-url> <branch> [<base-branch>]
-REM                [--src <dir>] [--tests <dir>]
+REM                [--src <dir>] [--tests <dir>] [--issue <number>]
+REM
+REM  --issue checks that the GitHub issue is open before step 1 and
+REM  records its number as branch.<branch>.swaIssue in step 2. The
+REM  dashboard puts "Closes #<number>" in the pull request.
 REM
 REM  The steps live in host\dashboard\importer.py, which the
 REM  dashboard's import tab runs as well:
@@ -47,5 +51,5 @@ exit /b %errorlevel%
 
 
 :usage
-echo usage: swa-import ^<project^> ^<repo-url^> ^<branch^> [^<base-branch^>] [--src ^<dir^>] [--tests ^<dir^>]
+echo usage: swa-import ^<project^> ^<repo-url^> ^<branch^> [^<base-branch^>] [--src ^<dir^>] [--tests ^<dir^>] [--issue ^<number^>]
 exit /b 2

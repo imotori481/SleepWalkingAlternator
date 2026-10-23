@@ -774,7 +774,8 @@ async function refreshLive() {
   catch (error) { value = {error: error.message}; }
   renderLive(value);
   renderControl(value);
-  const seen = JSON.stringify([value.error, value.running, value.last, value.now?.stage]);
+  refreshIssue(value);
+  const seen =JSON.stringify([value.error, value.running, value.last, value.now?.stage]);
   if (seen !== designSeen) { designSeen = seen; await refreshDesign(); }
   // 箱が送ったコミットをサーバが自分で引き始めたら、その更新も追う。
   if (session.scope === "local") {
@@ -968,15 +969,108 @@ function modelRow(role, current, efforts, rows) {
 }
 
 async function startRun(element) {
-  const file = document.querySelector("#spec").files[0];
-  if (!file) { alert("仕様書のファイルを選んでください。"); return; }
+  const spec = document.querySelector("#spec-text").value;
+  if (!spec.trim()) { alert("仕様書の欄に本文を入れてください。"); return; }
   const mode = document.querySelector("#mode");
   if (!mode.value) { alert("モードを選んでください。"); return; }
   const language = document.querySelector("#language").value;
   const framework = document.querySelector("#framework").value;
   const modeName = mode.options[mode.selectedIndex].text;
-  await act(element, "/api/start", {spec: await file.text(), language, framework, mode: mode.value},
-    `${file.name} を仕様書にして、${modeName}のモードと ${language}${framework ? `（${framework}）` : ""} で基本設計から始めます。よいですか？`);
+  await act(element, "/api/start", {spec, language, framework, mode: mode.value},
+    `仕様書の欄の本文（${spec.length} 字）で、${modeName}のモードと ${language}${framework ? `（${framework}）` : ""} で基本設計から始めます。よいですか？`);
+}
+
+// 仕様書の欄を書き換える。人が書いた本文を黙って消さない。
+function fillSpec(value) {
+  const area = document.querySelector("#spec-text");
+  if (area.value.trim() && area.value !== value && !confirm("仕様書の欄の本文を置き換えます。よいですか？")) return false;
+  area.value = value;
+  return true;
+}
+
+async function loadSpecFile(input) {
+  const file = input.files[0];
+  if (file) fillSpec(await file.text());
+}
+
+// ---- Issue ------------------------------------------------------------------
+// Issue の本文とコメントは他人が書ける。textContent でだけ出し、HTML として描かない。
+
+function renderIssue(box, issue, withBody) {
+  box.replaceChildren(); box.hidden = false;
+  box.append(text("strong", `#${issue.number} ${issue.title}`));
+  if (String(issue.url).startsWith("https://")) {
+    const link = document.createElement("a");
+    link.href = issue.url; link.textContent = issue.url; link.target = "_blank"; link.rel = "noopener";
+    box.append(link);
+  }
+  box.append(text("p", `書いた人: ${issue.author}`, "why"));
+  if (withBody) box.append(text("pre", issue.body || "（本文なし）"));
+  box.append(text("p", issue.comments.length
+    ? `コメント ${issue.comments.length} 件。読むだけで、下書きには入らない` : "コメントなし", "why"));
+  for (const comment of issue.comments) {
+    const item = document.createElement("div"); item.className = "comment";
+    item.append(text("p", `${comment.author} / ${comment.at}`, "why"), text("pre", comment.body));
+    box.append(item);
+  }
+}
+
+function renderIssueError(box, message) {
+  box.replaceChildren(text("p", `Issue を読めません: ${message}`, "why"));
+  box.hidden = false;
+}
+
+async function readImportIssue(element) {
+  const url = document.querySelector("#import-url").value.trim();
+  const number = document.querySelector("#import-issue").value.trim();
+  const box = document.querySelector("#import-issue-view");
+  if (!url || !number) { alert("リポジトリの URL と Issue の番号を入れてください。"); return; }
+  element.disabled = true;
+  try {
+    const value = await api(`/api/issue?${new URLSearchParams({url, number})}`);
+    if (value.error) throw new Error(value.error);
+    renderIssue(box, value.issue, true);
+    const branch = document.querySelector("#import-branch");
+    if (!branch.value.trim()) branch.value = `issue-${value.issue.number}`;
+  } catch (error) { renderIssueError(box, error.message); }
+  finally { element.disabled = false; }
+}
+
+// 今のプロジェクトの作業ブランチに記録された Issue。プロジェクトかブランチが変わったときだけ読む。
+let issueSeen = null;
+
+async function refreshIssue(value) {
+  if (session.scope !== "local") return;
+  const branch = (value.projects || []).find(project => project.name === value.project)?.branch;
+  const key = value.error ? null : JSON.stringify([value.project, branch]);
+  if (key === issueSeen) return;
+  issueSeen = key;
+  const row = document.querySelector("#issue-draft-row"), draft = document.querySelector("#issue-draft");
+  const state = document.querySelector("#issue-draft-state");
+  row.hidden = true; document.querySelector("#issue-comments").hidden = true;
+  if (key === null) return;
+  let result;
+  try { result = await api("/api/issue/current"); } catch (error) { result = {error: error.message}; }
+  if (result.error) {
+    row.hidden = false; draft.hidden = true; state.textContent = `Issue を読めません: ${result.error}`;
+  } else if (result.issue) {
+    row.hidden = false; draft.hidden = false; state.textContent = "";
+    draft.textContent = `Issue #${result.issue.number} から下書き`;
+  }
+}
+
+// Issue を読み直し、題を見出し、本文をその下に入れる。コメントは横の欄に読むだけで出す。
+async function draftFromIssue(element) {
+  element.disabled = true;
+  const comments = document.querySelector("#issue-comments");
+  try {
+    const result = await api("/api/issue/current");
+    if (result.error) throw new Error(result.error);
+    if (!result.issue) throw new Error("今のプロジェクトに Issue の記録がありません");
+    const {title, body} = result.issue;
+    if (fillSpec(`# ${title}\n\n${body.trim()}\n`)) renderIssue(comments, result.issue, false);
+  } catch (error) { renderIssueError(comments, error.message); }
+  finally { element.disabled = false; }
 }
 
 // pullSeen は画面が最後に追い始めた写しの更新の開始時刻。サーバが自分で引き始めたら変わる。
@@ -1032,7 +1126,7 @@ async function sendDraft(element) {
 }
 
 let importTimer = null, importing = false;
-const IMPORT_FIELDS = ["project", "url", "branch", "base", "src", "tests"];
+const IMPORT_FIELDS = ["project", "url", "branch", "base", "src", "tests", "issue"];
 
 function renderImport(value) {
   const state = document.querySelector("#import-state"), log = document.querySelector("#import-log");
@@ -1059,7 +1153,8 @@ async function startImport(element) {
   if (!body.project || !body.url || !body.branch) {
     alert("プロジェクト名、リポジトリの URL、作業用ブランチを入れてください。"); return;
   }
-  if (!confirm(`${body.url} の ${body.branch} を '${body.project}' として取り込み、そこへ切り替えます。今のプロジェクトは退避されます。よいですか？`)) return;
+  const issue = body.issue ? `Issue #${body.issue} を記録して、` : "";
+  if (!confirm(`${body.url} の ${body.branch} を '${body.project}' として${issue}取り込み、そこへ切り替えます。今のプロジェクトは退避されます。よいですか？`)) return;
   element.disabled = true;
   try { renderImport(await api("/api/import", {method: "POST", body: JSON.stringify(body)})); watchImport(); }
   catch (error) { alert(error.message); updateRunButtons(); }
@@ -1122,6 +1217,12 @@ function setupControl() {
   draft.onclick = () => sendDraft(draft);
   const doImport = document.querySelector("#import");
   doImport.onclick = () => startImport(doImport);
+  const readIssue = document.querySelector("#import-read-issue");
+  readIssue.onclick = () => readImportIssue(readIssue);
+  const specFile = document.querySelector("#spec");
+  specFile.onchange = () => loadSpecFile(specFile);
+  const issueDraft = document.querySelector("#issue-draft");
+  issueDraft.onclick = () => draftFromIssue(issueDraft);
   updateRunButtons();
 }
 

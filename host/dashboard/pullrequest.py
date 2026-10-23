@@ -47,6 +47,8 @@ REMOVED = ("plan", "docs/spec", "conftest.py", "index.html", "vitest.config.mjs"
 # .gitignore は箱が行を足している。親ブランチの版に戻し、無ければ消す。
 GITIGNORE = ".gitignore"
 BASE_KEY = "branch.{}.swaBase"
+# 取り込んだ Issue の番号。記録があれば PR の本文に Closes を置く（issue.py）。
+ISSUE_KEY = "branch.{}.swaIssue"
 PR_SUFFIX = "-pr"
 DRAFT_SUFFIX = "-draft"
 # swa-pull のライブの写し。swa-dashboard.cmd の PROJECT と同じ。
@@ -71,8 +73,13 @@ def github_repo(url: str) -> str:
     return match.group("repo")
 
 
-def pr_body(branch: str, modules: list[str], note: str) -> str:
-    lines = ["SWA が全モジュールを緑にし、人が成果物を動かして承認した。", "",
+def closes(issue: str) -> list[str]:
+    """本文の先頭に置く行。マージで Issue が閉じる。"""
+    return [f"Closes #{issue}", ""] if issue else []
+
+
+def pr_body(branch: str, modules: list[str], note: str, issue: str = "") -> str:
+    lines = [*closes(issue), "SWA が全モジュールを緑にし、人が成果物を動かして承認した。", "",
              f"- モジュール: {', '.join(modules) or '-'}",
              f"- 作業ブランチ: `{branch}` から、設計と箱の環境のファイルを除いた版"]
     if note.strip():
@@ -81,8 +88,8 @@ def pr_body(branch: str, modules: list[str], note: str) -> str:
 
 
 def draft_body(branch: str, green: list[str], remaining: list[str],
-               behind: bool | None = False) -> str:
-    lines = ["SWA が途中まで緑にした状態。残りのモジュールは緑になっておらず、人の承認もまだ。", "",
+               behind: bool | None = False, issue: str = "") -> str:
+    lines = [*closes(issue), "SWA が途中まで緑にした状態。残りのモジュールは緑になっておらず、人の承認もまだ。", "",
              f"- 緑のモジュール: {', '.join(green)}",
              f"- 残りのモジュール: {', '.join(remaining)}",
              f"- 作業ブランチ: `{branch}` から、設計と箱の環境のファイルを除いた版"]
@@ -163,16 +170,16 @@ class PullRequests:
     def open(self, modules: list[str], note: str) -> dict[str, Any]:
         """承認した ALL_GREEN を PR にする。下書きが開いていれば、それを正式にする。"""
         with self._lock:
-            return self._open(PR_SUFFIX, lambda branch, behind: (
-                f"{branch}: SWA の成果", pr_body(branch, modules, note)), draft=False)
+            return self._open(PR_SUFFIX, lambda branch, behind, issue: (
+                f"{branch}: SWA の成果", pr_body(branch, modules, note, issue)), draft=False)
 
     def open_draft(self) -> dict[str, Any]:
         """最後に緑になったモジュールまでを、<branch>-draft からの下書きの PR にする。"""
         green, remaining = draft_modules(self.mirror)
         with self._lock:
-            result = self._open(DRAFT_SUFFIX, lambda branch, behind: (
+            result = self._open(DRAFT_SUFFIX, lambda branch, behind, issue: (
                 f"{branch}: SWA の途中の成果",
-                draft_body(branch, green, remaining, behind)), draft=True)
+                draft_body(branch, green, remaining, behind, issue)), draft=True)
         return {**result, "green": green, "remaining": remaining}
 
     def _find(self, clone: Path, repo: str, head_branch: str, base: str) -> str:
@@ -192,7 +199,7 @@ class PullRequests:
         tip = line.split()[0] if line else ""
         return None if not tip else tip != head
 
-    def _open(self, suffix: str, describe: Callable[[str, bool | None], tuple[str, str]],
+    def _open(self, suffix: str, describe: Callable[[str, bool | None, str], tuple[str, str]],
               draft: bool) -> dict[str, Any]:
         clone, branch, head = self.locate()
         branch = safe_ref(branch, "the working branch")
@@ -204,7 +211,9 @@ class PullRequests:
         base = safe_ref(base, BASE_KEY.format(branch))
         repo = github_repo(self._git(clone, "remote", "get-url", "origin"))
         behind = self._behind(clone, branch, head) if draft else False
-        title, body = describe(branch, behind)
+        # 番号は本文にだけ入る。数字でない記録は Closes にしない。
+        issue = self._git(clone, "config", "--get", ISSUE_KEY.format(branch), check=False)
+        title, body = describe(branch, behind, issue if issue.isdigit() else "")
 
         head_branch = branch + suffix
         existing = self._find(clone, repo, head_branch, base)

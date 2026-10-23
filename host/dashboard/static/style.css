@@ -65,6 +65,12 @@ details { margin-top: 14px; } summary { cursor: pointer; color: #9bb7a8; font-si
 .panel input, .panel select { width: 100%; padding: 8px 10px; color: inherit; background: #09110f; border: 1px solid #3d5d51; border-radius: 8px; font: inherit; }
 .panel input[type="file"] { padding: 6px; }
 .form .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form .pair > .actions { align-self: end; }
+textarea.spec { min-height: 220px; font-family: ui-monospace, monospace; font-size: .86rem; }
+.issue { display: grid; gap: 8px; padding: 12px; background: #09110f; border: 1px solid #223a31; border-radius: 8px; }
+.issue[hidden] { display: none; }
+.issue strong { font-size: 1rem; } .issue a { word-break: break-all; }
+.issue .comment { display: grid; gap: 4px; border-top: 1px solid #223a31; padding-top: 8px; }
 .model-row { display: grid; grid-template-columns: 7rem 1fr 7rem 1fr; gap: 8px; align-items: center; }
 .model-row span { letter-spacing: 0; text-transform: none; color: #edf5ef; font-size: .9rem; }
 .table-wrap.flat { padding: 0; border: 0; background: transparent; } .table-wrap.flat td button { padding: 4px 10px; font-size: .82rem; }

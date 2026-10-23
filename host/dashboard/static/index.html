@@ -29,7 +29,10 @@
         <article id="run" class="panel" role="tabpanel">
           <p id="run-state" class="why">読み込み中</p>
           <div id="start-form" class="form local-only">
-            <label><span>仕様書</span><input id="spec" type="file" accept=".md,.markdown,.txt"></label>
+            <label><span>仕様書のファイル（任意）</span><input id="spec" type="file" accept=".md,.markdown,.txt"></label>
+            <div id="issue-draft-row" class="actions" hidden><span id="issue-draft-state"></span><button id="issue-draft" class="quiet">Issue から下書き</button></div>
+            <label><span>仕様書</span><textarea id="spec-text" class="spec" placeholder="ファイルを選ぶと、ここに読み込む。直してから開始する"></textarea></label>
+            <div id="issue-comments" class="issue" hidden></div>
             <label><span>モード</span><select id="mode"><option value="">選ぶ</option><option value="new">新規</option><option value="existing">既存</option></select></label>
             <label><span>言語</span><select id="language"></select></label>
             <label><span>持ち込む先</span><select id="framework"></select></label>
@@ -57,10 +60,15 @@
           <div id="draft-result" class="live" hidden></div>
         </article>
         <article id="import-panel" class="panel" role="tabpanel" hidden>
-          <p class="why">既存リポジトリのブランチを、箱の新しいプロジェクトにする（swa-import と同じ）。ホストにクローンし、箱にプロジェクトを作ってブランチを push し、そこへ切り替える。</p>
+          <p class="why">既存リポジトリのブランチを、箱の新しいプロジェクトにする（swa-import と同じ）。ホストにクローンし、箱にプロジェクトを作ってブランチを push し、そこへ切り替える。Issue を付けると、番号をクローンに記録し、PR の本文に Closes を入れる。</p>
           <div class="form">
             <label><span>プロジェクト名</span><input id="import-project" placeholder="英小文字、数字、. _ -"></label>
             <label><span>リポジトリの URL</span><input id="import-url" placeholder="https://github.com/&lt;owner&gt;/&lt;repo&gt;.git"></label>
+            <div class="pair">
+              <label><span>Issue（任意）</span><input id="import-issue" inputmode="numeric" placeholder="番号だけ。開いている Issue"></label>
+              <div class="actions"><button id="import-read-issue" class="quiet">読む</button></div>
+            </div>
+            <div id="import-issue-view" class="issue" hidden></div>
             <label><span>作業用ブランチ</span><input id="import-branch" placeholder="無ければ親ブランチから作る"></label>
             <label><span>親ブランチ（任意）</span><input id="import-base" placeholder="省くと origin の既定のブランチ。PR の送り先になる"></label>
             <div class="pair">

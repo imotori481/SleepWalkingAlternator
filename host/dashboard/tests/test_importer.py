@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from host.dashboard.importer import ImportFailed, Importer, ImportJob, Request, check
+from host.dashboard.issue import IssueError
 
 
 def git(*args, cwd=None):
@@ -42,11 +43,26 @@ class FakeLive:
                 "switch": {"running": False, "log": ["今のプロジェクト: game"]}}
 
 
+class FakeIssues:
+    """gh の代わり。閉じた Issue は issue.py と同じく断る。"""
+
+    def __init__(self, closed=False):
+        self.closed = closed
+        self.calls = []
+
+    def read(self, url, number):
+        self.calls.append((url, number))
+        if self.closed:
+            raise IssueError(f"issue #{number} is closed")
+        return {"number": int(number), "title": "スコアが0に戻らない"}
+
+
 class LocalImporter(Importer):
     """push の宛先を、swa-runner の代わりに手元の bare にする。"""
 
-    def __init__(self, live, workroot, bare):
-        super().__init__(live, workroot, sleep=lambda seconds: None)
+    def __init__(self, live, workroot, bare, issues=None):
+        super().__init__(live, workroot, sleep=lambda seconds: None,
+                         issues=issues or FakeIssues())
         self.bare = bare
 
     def push_target(self, project):
@@ -84,6 +100,13 @@ class Checks(unittest.TestCase):
         with self.assertRaises(ValueError):
             check({"project": "game", "url": "https://h/r", "branch": "b", "src": 5})
 
+    def test_an_issue_is_a_number_only(self):
+        self.assertEqual(self.ok(issue="12").issue, "12")
+        self.assertEqual(self.ok().issue, "")
+        for issue in ("#12", "0", "12 13", "https://github.com/o/r/issues/12"):
+            with self.assertRaises(ValueError, msg=issue):
+                self.ok(issue=issue)
+
 
 class Run(unittest.TestCase):
     def setUp(self):
@@ -102,10 +125,10 @@ class Run(unittest.TestCase):
         self.workroot = root / "projects"
         self.lines = []
 
-    def run_import(self, live, **fields):
+    def run_import(self, live, issues=None, **fields):
         request = Request(**{"project": "game", "url": str(self.origin), "branch": "swa/x",
                              **fields})
-        LocalImporter(live, self.workroot, self.bare).run(request, self.lines.append)
+        LocalImporter(live, self.workroot, self.bare, issues).run(request, self.lines.append)
 
     def config(self, key):
         proc = subprocess.run(["git", "-C", str(self.workroot / "game"), "config", key],
@@ -155,6 +178,30 @@ class Run(unittest.TestCase):
             self.run_import(live)
         self.assertEqual(git("--git-dir", str(self.bare), "for-each-ref"), "")
         self.assertEqual([call[0] for call in live.calls], ["init"])
+
+    def test_the_issue_is_read_first_and_recorded_on_the_branch(self):
+        issues = FakeIssues()
+        self.run_import(FakeLive(), issues, issue="12")
+        self.assertEqual(issues.calls, [(str(self.origin), "12")])
+        self.assertEqual(self.config("branch.swa/x.swaIssue"), "12")
+        self.assertTrue(self.lines[0].startswith("[0/5] Reading issue #12"))
+
+    def test_the_issue_is_recorded_on_an_existing_branch_too(self):
+        self.run_import(FakeLive(), branch="develop", issue="7")
+        self.assertEqual(self.config("branch.develop.swaIssue"), "7")
+
+    def test_an_import_without_an_issue_records_none(self):
+        issues = FakeIssues()
+        self.run_import(FakeLive(), issues)
+        self.assertEqual(issues.calls, [])
+        self.assertEqual(self.config("branch.swa/x.swaIssue"), "")
+
+    def test_a_closed_issue_stops_the_import_before_anything_is_made(self):
+        live = FakeLive()
+        with self.assertRaisesRegex(ImportFailed, "closed. Nothing was imported"):
+            self.run_import(live, FakeIssues(closed=True), issue="12")
+        self.assertEqual(live.calls, [])
+        self.assertFalse((self.workroot / "game").exists())
 
     def test_a_switch_that_ends_elsewhere_is_a_failure(self):
         with self.assertRaisesRegex(ImportFailed, "current project is 'thm'"):

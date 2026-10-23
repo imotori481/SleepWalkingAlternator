@@ -152,6 +152,23 @@ class Opening(Repositories):
         self.pulls().open(["S1"], "")
         self.assertEqual([call[2] for call in self.gh_calls], ["list", "list", "edit", "view"])
 
+    def test_a_recorded_issue_is_closed_by_the_pr(self):
+        git(self.clone, "config", "branch.feat.swaIssue", "12")
+        self.pulls().open(["S1"], "")
+        create = self.gh_calls[-1]
+        self.assertTrue(create[create.index("--body") + 1].startswith("Closes #12\n\n"))
+
+    def test_without_a_record_the_pr_closes_nothing(self):
+        self.pulls().open(["S1"], "")
+        create = self.gh_calls[-1]
+        self.assertNotIn("Closes", create[create.index("--body") + 1])
+
+    def test_a_record_that_is_not_a_number_closes_nothing(self):
+        git(self.clone, "config", "branch.feat.swaIssue", "#12")
+        self.pulls().open(["S1"], "")
+        create = self.gh_calls[-1]
+        self.assertNotIn("Closes", create[create.index("--body") + 1])
+
     def test_a_branch_without_a_recorded_parent_is_refused(self):
         git(self.clone, "config", "--unset", "branch.feat.swaBase")
         with self.assertRaisesRegex(PullRequestError, "git config branch.feat.swaBase"):
@@ -201,6 +218,12 @@ class Drafting(Repositories):
     def body(self):
         call = self.gh_calls[-1]
         return call[call.index("--body") + 1]
+
+    def test_the_draft_closes_the_recorded_issue_too(self):
+        self.design("S1")
+        git(self.clone, "config", "branch.feat.swaIssue", "12")
+        self.pulls().open_draft()
+        self.assertTrue(self.body().startswith("Closes #12\n\n"))
 
     def test_a_mirror_level_with_the_box_carries_no_mark(self):
         self.design("S1")

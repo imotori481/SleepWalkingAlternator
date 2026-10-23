@@ -9,6 +9,9 @@
     4. swa-runner で <branch> を箱の bare に push する
     5. 箱で swa project use <project>。切り替えが終わるまで待つ
 
+Issue の番号を渡すと、1 の前にその Issue が開いていることを確かめ、2 で番号を
+`branch.<branch>.swaIssue` に記録する。PR の本文の Closes に使う。
+
 GitHub とやり取りするのはホストだけだ。箱は push でブランチを受け取り、GitHub の
 資格情報を持たない。3 と 5 は `swa dash` を通すので、パスワードを訊かれない。
 
@@ -30,8 +33,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 try:
+    from .issue import ISSUE_KEY, Issues, issue_number
     from .live import Live
 except ImportError:  # 直接実行したとき: python host/dashboard/importer.py
+    from issue import ISSUE_KEY, Issues, issue_number
     from live import Live
 
 WORKROOT = Path(r"C:\dev\roop-engin\projects")
@@ -63,6 +68,7 @@ class Request:
     base: str = ""
     src: str = ""
     tests: str = ""
+    issue: str = ""
 
 
 def check(value: dict[str, Any]) -> Request:
@@ -74,7 +80,7 @@ def check(value: dict[str, Any]) -> Request:
         return item.strip()
 
     request = Request(text("project"), text("url"), text("branch"), text("base"),
-                      text("src"), text("tests"))
+                      text("src"), text("tests"), text("issue"))
     if not PROJECT.fullmatch(request.project) or request.project == "CURRENT":
         raise ValueError(f"not a project name: {request.project!r} "
                          "(lower-case letters, digits, '.', '_', '-')")
@@ -88,21 +94,33 @@ def check(value: dict[str, Any]) -> Request:
     for key in ("src", "tests"):
         if not FENCE.fullmatch(getattr(request, key)):
             raise ValueError(f"{key} may use only letters, digits, '.', '_', '-' and '/'")
+    if request.issue:
+        issue_number(request.issue)
     return request
 
 
 class Importer:
     def __init__(self, live: Live, workroot: Path = WORKROOT, push_host: str = PUSH_HOST,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep, issues: Issues | None = None):
         self.live = live
         self.workroot = workroot
         self.push_host = push_host
         self.sleep = sleep
+        self.issues = issues or Issues()
 
     def run(self, request: Request, say: Callable[[str], None]) -> None:
         """5つの手順を順に流す。失敗した手順で ImportFailed を投げ、次に打つものを添える。"""
         dest = self.workroot / request.project
         target = self.push_target(request.project)
+
+        # 閉じた Issue なら、クローンも箱のプロジェクトも作らずに断る。
+        if request.issue:
+            say(f"[0/5] Reading issue #{request.issue} ...")
+            try:
+                issue = self.issues.read(request.url, request.issue)
+            except ValueError as error:
+                raise ImportFailed(f"{error}. Nothing was imported.")
+            say(f"      #{issue['number']} {issue['title']}")
 
         if (dest / ".git").exists():
             self._reuse(dest, request.url, say)
@@ -114,6 +132,8 @@ class Importer:
             self._git(None, "clone", "--quiet", "--", request.url, str(dest))
 
         self._pick_branch(dest, request, say)
+        if request.issue:
+            self._git(dest, "config", ISSUE_KEY.format(request.branch), request.issue)
 
         say(f"[3/5] Creating project {request.project} on the sandbox ...")
         try:
@@ -283,11 +303,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("base", nargs="?", default="")
     parser.add_argument("--src", default="", help="write fence for code (default: src)")
     parser.add_argument("--tests", default="", help="write fence for tests (default: tests)")
+    parser.add_argument("--issue", default="",
+                        help="number of the open GitHub issue the branch resolves")
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.json"))
     args = parser.parse_args(argv)
     try:
         request = check({key: getattr(args, key)
-                         for key in ("project", "url", "branch", "base", "src", "tests")})
+                         for key in ("project", "url", "branch", "base", "src", "tests", "issue")})
         Importer(Live(args.config)).run(request, lambda line: print(line, flush=True))
     except ValueError as error:
         print(f"ERROR: {error}", file=sys.stderr)

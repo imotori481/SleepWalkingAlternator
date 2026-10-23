@@ -13,13 +13,14 @@ import secrets
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 try:
     from .access import LOCAL, Reach
     from .actions import Launchers
     from .autopull import AutoPull, settings as auto_pull_settings
-    from .importer import Importer, ImportJob
+    from .importer import WORKROOT, Importer, ImportJob
+    from .issue import Issues
     from .live import Live
     from .mirror import MirrorSync
     from .pullrequest import PullRequestError, PullRequests
@@ -28,7 +29,8 @@ except ImportError:  # 直接実行したとき: python host/dashboard/server.py
     from access import LOCAL, Reach
     from actions import Launchers
     from autopull import AutoPull, settings as auto_pull_settings
-    from importer import Importer, ImportJob
+    from importer import WORKROOT, Importer, ImportJob
+    from issue import Issues
     from live import Live
     from mirror import MirrorSync
     from pullrequest import PullRequestError, PullRequests
@@ -73,7 +75,8 @@ def send_draft_pull_request(pulls: PullRequests | None) -> dict:
 
 def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token: str,
                 live: Live | None = None, pulls: PullRequests | None = None,
-                mirror: MirrorSync | None = None, imports: ImportJob | None = None):
+                mirror: MirrorSync | None = None, imports: ImportJob | None = None,
+                issues: Issues | None = None, workroot: Path = WORKROOT):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args) -> None:
             print("dashboard: " + format % args)
@@ -149,7 +152,26 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
                 self._json(imports.status() if imports is not None
                            else {"error": "import is not configured"})
                 return
-            files = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
+            if path in ("/api/issue", "/api/issue/current"):
+                # ホストの gh で GitHub を読む。取り込みと開始の下ごしらえなので、
+                # それと同じくこの機械の前でだけ。
+                try:
+                    if scope != LOCAL:
+                        raise ValueError("issues can only be read at the machine itself")
+                    if issues is None:
+                        raise ValueError("issues are not configured")
+                    if path == "/api/issue":
+                        query = parse_qs(urlparse(self.path).query)
+                        self._json({"issue": issues.read(query.get("url", [""])[0],
+                                                         query.get("number", [""])[0])})
+                    else:
+                        if live is None:
+                            raise ValueError("live view is not configured")
+                        self._json(issues.current(workroot, live.fetch()))
+                except ValueError as error:
+                    self._json({"error": str(error)})
+                return
+            files ={"/": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
             name = files.get(path)
             if name is None:
                 self.send_error(HTTPStatus.NOT_FOUND)
@@ -308,11 +330,12 @@ def main() -> int:
     state = DashboardState(args.project, args.data, args.mirrors)
     live = Live(args.config)
     mirror = MirrorSync()
+    issues = Issues()
     server = ThreadingHTTPServer(
         ("127.0.0.1", args.port),
         handler_for(state, Launchers(args.config), Reach(args.config), token, live,
                     PullRequests(state.project, state.mirrors / "projects"), mirror,
-                    ImportJob(Importer(live))),
+                    ImportJob(Importer(live, issues=issues)), issues),
     )
     enabled, interval = auto_pull_settings(args.config)
     if enabled:

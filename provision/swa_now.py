@@ -118,7 +118,7 @@ def current_loop(paths: list[str]) -> dict | None:
         block = None
         for line in lines:
             if block is not None:
-                if not line.startswith(("[", "===", "---")):
+                if not line.startswith(("[", "===", "---", "next:")):
                     block.append(line)
                     continue
                 loop["critique"] = {"at": at, "text": "\n".join(block).strip()}

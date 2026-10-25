@@ -410,7 +410,7 @@ NOW: dict = {"command": None, "step": None, "attempt": None, "key": None, "since
 ROLE_JA = {"planner": "プランナー", "critic": "クリティック",
            "solver": "ソルバー", "runner": "ランナー"}
 
-def describe_now(who: str, phase: str, detail: str = "") -> str:
+def describe_now(who: str, phase: str) -> str:
     """いまの作業を日本語の1文にする。"""
     step = NOW["step"]
     if who == "planner":
@@ -463,7 +463,7 @@ def report_now(who: str | None, phase: str = "", detail: str = "") -> None:
             NOW["key"], NOW["since"] = key, time.strftime("%Y-%m-%dT%H:%M:%S%z")
         activity = {"who": who, "who_ja": ROLE_JA.get(who, who), "phase": phase,
                     "step": NOW["step"], "attempt": NOW["attempt"],
-                    "text_ja": describe_now(who, phase, detail), "since": NOW["since"]}
+                    "text_ja": describe_now(who, phase), "since": NOW["since"]}
     record = {"updated": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "pid": os.getpid(),
               "command": NOW["command"], "stage": read_stage().get("stage"),
               "activity": activity, "steps": steps_now()}
@@ -1679,9 +1679,14 @@ def test_owner(name: str) -> str:
     """junit の classname を、ステップのテストファイルと突き合わせる形にする。
 
     NUnit の classname は "名前空間.クラス" で、クラスはファイル名と同じだ。
+    ビルドの失敗はテストファイルのパスで来るので、ファイル名の stem にする。
     ほかの言語は classname をそのまま使う。
     """
-    return name.rsplit(".", 1)[-1] if LANGUAGE["name"] == "csharp" else name
+    if LANGUAGE["name"] != "csharp":
+        return name
+    if "/" in name or name.endswith(".cs"):
+        return Path(name).stem
+    return name.rsplit(".", 1)[-1]
 
 
 # --------------------------------------------------------------------------
@@ -1857,8 +1862,12 @@ def cpp_build_failure(output: str) -> TestRun | None:
                    failed_files=files)
 
 
-def cpp_build(seconds: int) -> TestRun | None:
-    """CMakeLists.txt を書き、ビルドする。通れば None、通らなければその判定。"""
+def cpp_build(seconds: int, phase: str) -> TestRun | None:
+    """CMakeLists.txt を書き、ビルドする。通れば None、通らなければその判定。
+
+    CMake の設定が通らないのは、GTest が無いなど箱のツールチェーンの問題だ。
+    設計にもソルバーにも直せないので、prepare_dotnet と同じく ToolchainBroken で止める。
+    """
     try:
         text = cpp_cmake_lists()
         CPP_BUILD.mkdir(parents=True, exist_ok=True)
@@ -1882,6 +1891,10 @@ def cpp_build(seconds: int) -> TestRun | None:
                            [], "")
         if proc.returncode != 0:
             output = proc.stdout + proc.stderr
+            if "-S" in argv:
+                ledger("TOOLCHAIN_FAILURE", step=NOW.get("step") or "-", phase=phase,
+                       evidence=output[-400:])
+                raise ToolchainBroken(phase, output[-2000:])
             return cpp_build_failure(output) or TestRun(
                 0, 0, 1, 0, ["<build failed>"], [], output[-3000:])
     return None
@@ -1991,7 +2004,7 @@ def pytest_run(tag: str, files_test: list[str]) -> TestRun:
     # C# と C++ は走らせる前にビルドする。Unity のプロジェクトでは数十秒かかる。
     seconds = max(TIMEOUTS["test"], LANGUAGE.get("min_test_timeout", 0))
     if cpp:
-        failed = cpp_build(seconds)
+        failed = cpp_build(seconds, tag.split("-")[0].upper())
         if failed:
             return failed
     try:
@@ -3653,7 +3666,7 @@ def norm_sig(sig: str) -> str:
 
 def parse_contract(text: str) -> tuple[list[dict], list[dict], list[str]]:
     """モジュールの契約のブロックを読む。(provides, requires, 問題) を返す。"""
-    edits, provides, requires, problems = read_contract(text, change=False)
+    _, provides, requires, problems = read_contract(text, change=False)
     return provides, requires, problems
 
 
@@ -4970,8 +4983,16 @@ def cmd_basic_draft(language: str | None, framework: str | None,
     if not mode and not stage.get("mode") and not stage.get("language"):
         return refuse(f"refusing: name the mode the first time, with --mode "
                       f"({' or '.join(MODES)})")
-    if language or framework:
-        language = language or stage.get("language") or "python"
+    # 言語と持ち込む先も最初の基本設計で刻む。同じ値を渡し直すのは構わない。
+    if stage.get("language"):
+        if language and language != stage["language"]:
+            return refuse(f"refusing: this run is in {stage['language']}, and the language "
+                          f"cannot change; start a new project instead")
+        if framework and framework != stage.get("framework"):
+            return refuse(f"refusing: this run uses {stage.get('framework')}, and the "
+                          f"framework cannot change; start a new project instead")
+    elif language or framework:
+        language = language or "python"
         load_settings({"language": language, "framework": framework})
         stage = write_stage(language=language, framework=LANGUAGE["framework"])
     elif not stage.get("language"):
@@ -5175,6 +5196,9 @@ def cmd_modules_critique() -> int:
     refused = in_stage(stage, "midstream")
     if refused:
         return refuse(refused)
+    if stage.get("open") == []:
+        return refuse("refusing: a module failed downstream; choose the modules whose "
+                      "design is wrong with `reopen <module>...` first")
     use_stage_language(stage)
     modules, problems = current_design()
     if problems:
@@ -5182,7 +5206,7 @@ def cmd_modules_critique() -> int:
             print(problem, file=sys.stderr)
         return 2
     digest = design_digest(modules)
-    basic = "\n\n".join(f"--- basic/{name}.md ---\n{text}"
+    basic ="\n\n".join(f"--- basic/{name}.md ---\n{text}"
                         for name, text in read_texts(DOCS_BASIC, ".md").items())
     ledger("CRITIQUE", digest=digest)
     clear_critique()
@@ -7202,13 +7226,14 @@ the repository run on every module, and a module that breaks one of them is not
 green. That is how unchanged behaviour is kept.
 
 """)
-        if shortened:
-            existing_text += """Members are shown without their parameter and return types:
+    if existing and shortened:
+        existing_text += """Members are shown without their parameter and return types:
 `static Board.Score(board)` is a static method that takes one argument. The
 runner matches requires lines against these by name, and hands the solver the
 full signature from the code.
 
 """
+    if existing:
         existing_text += "\n".join(f"    {line}" for line in existing) + "\n"
     existing_text += existing_tests_text()
 
@@ -7412,10 +7437,6 @@ def render_findings(by_mode: dict[str, list[dict]]) -> str:
     return "\n".join(lines)
 
 
-def text_sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
 def plain_findings(by_mode: dict[str, list[dict]]) -> dict[str, list[dict]]:
     """人に見せて書き換えさせる形。クリティックの書いた余計なキーは落とす。"""
     return {mode: [{"title": str(f.get("title", "")).strip(),
@@ -7540,7 +7561,7 @@ def publish(what: str) -> None:
         print("  " + line.replace("\n", "\n  "), file=sys.stderr)
 
 
-def complete_green(step_id: str, goal: str, attempts: int, design: str = "") -> None:
+def complete_green(step_id: str, attempts: int, design: str = "") -> None:
     """GREEN の証拠を、それが述べるコードと一緒にコミットする。
 
     台帳の事実は、その結果を記録する実装と同じコミットに入れる。GREEN を
@@ -7930,7 +7951,7 @@ def run_step(step_id: str) -> int:
         (contracts_dir / f"{safe_id(step_id)}.json").write_text(
             json.dumps(step["contracts"], ensure_ascii=False, indent=2), encoding="utf-8")
 
-        complete_green(step_id, step["goal"], attempt, step.get("design", ""))
+        complete_green(step_id, attempt, step.get("design", ""))
         print(f"\nmodule {step_id}: GREEN in {attempt} attempt(s)")
         return 0
 

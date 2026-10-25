@@ -386,9 +386,10 @@ class DashboardState:
 
         pending = [review] if review is not None else []
         last = ledger[-1] if ledger else None
-        # 段は写しの plan/stage.json が正。最終確認を記録した後だけ human_reviewed にする。
+        # 段は写しの plan/stage.json が正。最終確認を承認した後だけ human_reviewed にする。
+        # 修正の依頼は、reopen で中段に戻るまで review のまま。
         phase = stage.get("stage") or "not_started"
-        if phase == "review" and all_green is not None and review is None:
+        if phase == "review" and approved is not None:
             phase = "human_reviewed"
 
         return {

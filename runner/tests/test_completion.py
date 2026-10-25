@@ -22,7 +22,7 @@ class GreenCheckpoint(unittest.TestCase):
         run.side_effect = lambda *args, **kwargs: order.append("git")
         publish.side_effect = lambda *args, **kwargs: order.append("publish")
 
-        swa.complete_green("game/state", "finish the game", 1, design="d1")
+        swa.complete_green("game/state", 1, design="d1")
 
         self.assertEqual(order, ["ledger", "git", "git", "git", "publish"])
         ledger.assert_called_once_with("GREEN", step="game/state", attempts=1, design="d1")

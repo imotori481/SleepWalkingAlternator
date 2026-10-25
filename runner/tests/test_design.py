@@ -404,6 +404,16 @@ class Stages(Python):
         self.assertEqual(swa.read_stage()["mode"], "new")
         self.assertEqual(self.draft(), 2)
 
+    def test_the_language_and_framework_cannot_change_once_carved(self):
+        self.stage(stage="upstream", language="csharp", framework="promete", mode="new")
+        self.assertEqual(self.draft(language="python"), 1)
+        self.assertEqual(self.draft(framework="unity"), 1)
+        self.assertEqual((swa.read_stage()["language"], swa.read_stage()["framework"]),
+                         ("csharp", "promete"))
+        # 同じ言語を渡し直しても、持ち込む先は既定に戻らない。
+        self.assertEqual(self.draft(language="csharp"), 2)
+        self.assertEqual(swa.read_stage()["framework"], "promete")
+
     def test_a_run_started_before_the_modes_goes_on_as_new(self):
         self.stage(stage="upstream", language="python")
         self.assertEqual(self.draft(), 2)
@@ -449,9 +459,11 @@ class Stages(Python):
     def test_after_a_failure_the_human_chooses_before_the_planner_runs(self):
         self.design()
         self.stage(stage="midstream", language="python", open=[])
-        with mock.patch("sys.stderr"):
+        with mock.patch("sys.stderr"), mock.patch.object(swa, "call_critic") as critic:
             self.assertEqual(swa.cmd_modules_draft(), 1)
+            self.assertEqual(swa.cmd_modules_critique(), 1)
             self.assertEqual(swa.cmd_modules_approve(), 1)
+        critic.assert_not_called()
 
     def test_reopen_names_the_modules_the_planner_may_change(self):
         self.design()

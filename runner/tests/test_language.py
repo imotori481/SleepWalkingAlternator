@@ -469,7 +469,7 @@ class RewritingACrashedTestFile(Language):
             "frozen_tests_text": lambda step: "",
             "pytest_run": lambda tag, files: self.runs.pop(0),
             "call_solver": call,
-            "complete_green": lambda sid, goal, n, design="": self.greens.append(n),
+            "complete_green": lambda sid, n, design="": self.greens.append(n),
             "fail_module": lambda step, halt, n, run: self.failed.append(halt),
         }
         for name, value in patches.items():

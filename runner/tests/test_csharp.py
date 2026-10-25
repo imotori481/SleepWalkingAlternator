@@ -262,6 +262,11 @@ class TheStepsOwnTests(CSharp):
         self.assertEqual(swa.csharp_test_classes(["tests/BoardTests.cs", "tests"]),
                          ["BoardTests"])
 
+    def test_a_test_file_that_did_not_build_is_matched_by_its_name(self):
+        # ビルドの失敗は classname ではなく、テストファイルのパスで来る。
+        self.assertEqual(swa.test_owner("Assets/Tests/BoardTests.cs"), "BoardTests")
+        self.assertEqual(swa.test_owner("BoardTests.cs"), "BoardTests")
+
     def test_other_languages_keep_the_name(self):
         with mock.patch.dict(swa.LANGUAGE, swa.LANGUAGES["python"], clear=True):
             self.assertEqual(swa.test_owner("tests.test_models"), "tests.test_models")

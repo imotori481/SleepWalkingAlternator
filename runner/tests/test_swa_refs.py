@@ -56,6 +56,16 @@ class TheIndex(unittest.TestCase):
                       "Promete.Windowing.IWindow.Size は変わりません。", members)
         self.assertTrue((out / "Promete.xml").is_file())
 
+    def test_the_newest_target_is_taken_by_its_version(self):
+        # 名前の順なら net8.0 が net10.0 より後に並ぶ。
+        with zipfile.ZipFile(self.package, "a") as archive:
+            archive.writestr("lib/net8.0/Promete.xml", "<doc><members/></doc>")
+            archive.writestr("lib/net48/Promete.xml", "<doc><members/></doc>")
+        out = self.root / "promete"
+        self.assertEqual(swa_refs.main(["swa_refs.py", "xml", str(self.package), "Promete.xml",
+                                         str(out)]), 0)
+        self.assertIn("Promete.Input.MouseButton", (out / "TYPES.txt").read_text(encoding="utf-8"))
+
     def test_a_package_without_the_xml_is_refused(self):
         self.assertEqual(swa_refs.main(["swa_refs.py", "xml", str(self.package), "Other.xml",
                                          str(self.root / "out")]), 1)

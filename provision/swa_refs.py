@@ -56,11 +56,29 @@ def write_lines(path: str, entries: list[tuple[str, str]]) -> None:
         handle.writelines(f"{name}  {summary}".rstrip() + "\n" for name, summary in entries)
 
 
+def target_version(entry: str) -> tuple[int, tuple[int, ...], str]:
+    """`lib/net10.0/X.xml` の対象を、比べられる形にする。`net8.0` は `net10.0` より古い。
+
+    系統を先に比べる。.NET Framework（`net48`）、.NET Standard、.NET Core、.NET 5 以降の順。
+    """
+    target = entry.split("/")[1]
+    if target.startswith("netstandard"):
+        family = 1
+    elif target.startswith("netcoreapp"):
+        family = 2
+    elif re.match(r"net\d+\.\d", target):
+        family = 3
+    else:
+        family = 0
+    return family, tuple(int(n) for n in re.findall(r"\d+", target)), target
+
+
 def from_xml(package: str, name: str, out: str) -> int:
     with zipfile.ZipFile(package) as archive:
-        # 対象の版が複数あれば、名前の順で最後のもの（いちばん新しい対象）を取る。
-        found = sorted(entry for entry in archive.namelist()
-                       if entry.startswith("lib/") and entry.endswith("/" + name))
+        # 対象の版が複数あれば、いちばん新しい対象を取る。版は数として比べる。
+        found = sorted((entry for entry in archive.namelist()
+                        if entry.startswith("lib/") and entry.endswith("/" + name)),
+                       key=target_version)
         if not found:
             print(f"swa_refs: {name} が {package} に無い", file=sys.stderr)
             return 1

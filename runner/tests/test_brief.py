@@ -330,6 +330,12 @@ class WhatTheCodeAlreadyDeclares(unittest.TestCase):
     def test_a_new_project_is_not_told_about_code_it_does_not_have(self):
         self.assertNotIn("What the code already declares", self.facts([]))
 
+    def test_an_imported_project_is_given_the_signatures_too(self):
+        with patch.dict(swa.RUN, {"mode": "existing"}):
+            facts = self.facts(["def f(x: int) -> int -- defined in pkg.mod"])
+        self.assertIn("A file listed here\nis only ever touched by a change", facts)
+        self.assertIn("    def f(x: int) -> int -- defined in pkg.mod", facts)
+
 
 class TheSolverIsShownTheFilesItWillEdit(unittest.TestCase):
     """既存のファイルを書き換える IMPL は、ファイルを Read するたびにそれまでの

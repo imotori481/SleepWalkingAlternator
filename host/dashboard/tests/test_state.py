@@ -251,6 +251,13 @@ class Decisions(DashboardFixture):
         snapshot = self.state.snapshot()
         self.assertEqual((snapshot["pending"], snapshot["phase"]), ([], "human_reviewed"))
 
+    def test_a_revision_keeps_the_review_until_the_module_is_reopened(self):
+        self.all_green()
+        request = self.state.snapshot()["pending"][0]
+        self.state.decide("review", request["id"], "revise", "窓が開かない")
+        snapshot = self.state.snapshot()
+        self.assertEqual((snapshot["pending"], snapshot["phase"]), ([], "review"))
+
     def test_a_stale_or_invented_request_is_refused(self):
         with self.assertRaisesRegex(ValueError, "no longer pending"):
             self.state.decide("review", "invented", "approve", "")

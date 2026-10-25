@@ -79,6 +79,7 @@ class CurrentLoop(unittest.TestCase):
                  "1. second",
                  "   NO GATE WOULD CATCH THIS",
                  "",
+                 "next: modules approve, or write a comment and run modules draft again",
                  "=== swa 終了 (2026-01-02 00:30:00): 詳細設計を書き、クリティックが読んだ")
         critique = self.loop()["critique"]
         self.assertTrue(critique["at"].startswith("2026-01-02T00:15:00"))

@@ -158,12 +158,24 @@ class WhatIsBuiltInTheBox(AProject):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with mock.patch("swa.run", side_effect=built) as run:
-            self.assertIsNone(swa.cpp_build(600))
-            self.assertIsNone(swa.cpp_build(600))
+            self.assertIsNone(swa.cpp_build(600, "RED"))
+            self.assertIsNone(swa.cpp_build(600, "RED"))
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual(sum("-S" in c for c in commands), 1)
         self.assertEqual(sum("--build" in c for c in commands), 2)
         self.assertTrue((self.root / "build" / "CMakeLists.txt").is_file())
+
+    def test_a_configure_that_fails_stops_on_the_toolchain_not_the_design(self):
+        # GTest が無いと CMake の設定が通らない。設計を中段に戻しても直らない。
+        self.write("tests/BoardTest.cpp", "")
+        failed = SimpleNamespace(returncode=1, stdout="",
+                                 stderr="Could NOT find GTest (missing: GTEST_LIBRARY)")
+        with mock.patch("swa.run", return_value=failed), mock.patch("swa.ledger") as ledger:
+            with self.assertRaises(swa.ToolchainBroken) as caught:
+                swa.cpp_build(600, "RED")
+        self.assertEqual(caught.exception.phase, "RED")
+        self.assertIn("Could NOT find GTest", caught.exception.evidence)
+        self.assertEqual(ledger.call_args.args[0], "TOOLCHAIN_FAILURE")
 
 
 class WhenTheBuildFails(AProject):

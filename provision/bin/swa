@@ -129,8 +129,8 @@ work() {
     go)
       local language="$1" framework="${2:-}" run_mode="${3:-}"
       call "仕様書の取り込み" spec import
-      call "基本設計" basic draft --language "$language" --mode "$run_mode" \
-        ${framework:+--framework "$framework"}
+      call "基本設計" basic draft --mode "$run_mode" \
+        ${language:+--language "$language"} ${framework:+--framework "$framework"}
       finish 0 "基本設計を書いた。docs/basic/ を読み、'swa approve' か 'swa reject <コメント>'" ;;
     redraft-basic)
       call "基本設計の書き直し" basic draft
@@ -183,7 +183,7 @@ start() {
 # 人が書いた仕様書を受け渡し口に置き、上流を始める。ファイルはいくつでも渡せる。
 # モードは省けない。新規か既存かで、プランナーに求めるものと下流の単位が変わる。
 cmd_go() {
-  local language="python" framework="" run_mode="" f
+  local language="" framework="" run_mode="" f
   local -a specs=()
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -205,8 +205,10 @@ cmd_go() {
   done
   [ -d "$(dirname "$SPEC_IN")" ] || die "$(dirname "$SPEC_IN") が無い。プロジェクトは作ってある？"
   running && die "もう走っている。先に 'swa stop'"
+  # 言語は最初の基本設計で刻む。省いたら、最初だけ Python にし、後は段の言語のまま流す。
   case "$(stage_now)" in
-    ""|upstream) ;;
+    "") language="${language:-python}" ;;
+    upstream) ;;
     *) die "上流はもう終わっている。仕様書を差し替えて作り直すなら、新しいプロジェクトで始める" ;;
   esac
 

@@ -48,13 +48,16 @@ class BackgroundJob:
             for name, value in fields.items():
                 setattr(self, f"_{name}", value)
 
-    def _run_command(self, argv: list[str], name: str) -> None:
-        """コマンドを流し、出力を末尾に足す。終わりに returncode を置く。起動できなければ -1。"""
+    def _run_command(self, argv: list[str], name: str, encoding: str | None = None) -> None:
+        """コマンドを流し、出力を末尾に足す。終わりに returncode を置く。起動できなければ -1。
+
+        `encoding` は出力の文字コード。None ならホストの既定で読む。
+        """
         returncode = -1
         try:
             process = subprocess.Popen(
                 argv, shell=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True, errors="replace")
+                stderr=subprocess.STDOUT, text=True, encoding=encoding, errors="replace")
             for line in process.stdout:
                 self._say(line.rstrip())
             returncode = process.wait()

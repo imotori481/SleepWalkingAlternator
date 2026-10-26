@@ -161,6 +161,10 @@ try {
   if ($DryRun) { Write-Host "dry run: $tarPath was built and not sent"; exit 0 }
 
   # ---- to the sandbox -----------------------------------------------
+  # The sandbox answers in UTF-8. Pass it on as UTF-8, both to a console
+  # and to the dashboard, which reads this output as UTF-8.
+  $consoleEncoding = [Console]::OutputEncoding
+  [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
   # Start the distro and wait for sshd, the same way swa.cmd does.
   & wsl.exe -d $Distro -u root --exec /usr/bin/true
   if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: failed to start distro $Distro"; exit 1 }
@@ -180,5 +184,6 @@ try {
   Remove-Item $tarPath
 }
 finally {
+  if ($consoleEncoding) { [Console]::OutputEncoding = $consoleEncoding }
   Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 }

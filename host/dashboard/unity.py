@@ -112,7 +112,8 @@ class UnityRefs(BackgroundJob):
         path = check_folder(folder)
         argv = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-File", str(self.script), name, str(path)] + (["-DryRun"] if dry_run else [])
+        # スクリプトは箱の返事を UTF-8 のまま出す。
         self._launch("swa-unity-refs is already running", self._run_command,
-                     argv, "swa-unity-refs",
+                     argv, "swa-unity-refs", "utf-8",
                      project=name, dry_run=bool(dry_run), returncode=None)
         return self.status(name)

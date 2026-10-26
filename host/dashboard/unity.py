@@ -12,18 +12,18 @@ Unity のプロジェクトのフォルダは、プロジェクトごとに `<da
 from __future__ import annotations
 
 import json
-import re
-import subprocess
-import threading
-import time
-from collections import deque
 from pathlib import Path
 from typing import Any
 
+try:
+    from .importer import PROJECT
+    from .job import BackgroundJob
+except ImportError:  # 直接実行したとき
+    from importer import PROJECT
+    from job import BackgroundJob
+
 SCRIPT = Path(__file__).resolve().parents[1] / "swa-unity-refs.ps1"
 TAIL_LINES = 60
-# swa-project.sh の valid_name と同じ規則。
-PROJECT = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 # swa-unity-refs.ps1 が指紋に入れるファイル。csproj がこれより古ければ、スクリプトが断る。
 FINGERPRINTED = ("ProjectSettings/ProjectVersion.txt", "Packages/manifest.json",
                  "Packages/packages-lock.json")
@@ -62,18 +62,14 @@ def host_state(folder: Path) -> dict[str, Any]:
                            if (folder / rel).is_file() and (folder / rel).stat().st_mtime > written]}
 
 
-class UnityRefs:
+class UnityRefs(BackgroundJob):
     def __init__(self, data: Path, script: Path = SCRIPT):
+        super().__init__(TAIL_LINES)
         self.folders_path = data / "unity-projects.json"
         self.script = script
-        self._lock = threading.Lock()
-        self._running = False
         self._project: str | None = None
         self._dry_run = False
-        self._started: str | None = None
-        self._finished: str | None = None
         self._returncode: int | None = None
-        self._output: deque[str] = deque(maxlen=TAIL_LINES)
 
     def _folders(self) -> dict[str, str]:
         try:
@@ -104,11 +100,9 @@ class UnityRefs:
             except ValueError as error:
                 host = {"error": str(error)}
         with self._lock:
-            return {"project": name, "folder": folder, "host": host,
-                    "running": self._running, "job_project": self._project,
-                    "dry_run": self._dry_run, "started": self._started,
-                    "finished": self._finished, "returncode": self._returncode,
-                    "output": list(self._output)}
+            return {"project": name, "folder": folder, "host": host, **self._state(),
+                    "job_project": self._project, "dry_run": self._dry_run,
+                    "returncode": self._returncode}
 
     def start(self, project: object, dry_run: bool) -> dict[str, Any]:
         name = check_project(project)
@@ -116,35 +110,9 @@ class UnityRefs:
         if not folder:
             raise ValueError(f"no Unity project folder is remembered for '{name}'")
         path = check_folder(folder)
-        with self._lock:
-            if self._running:
-                raise ValueError("swa-unity-refs is already running")
-            self._running, self._project, self._dry_run = True, name, bool(dry_run)
-            self._started, self._finished, self._returncode = _now(), None, None
-            self._output.clear()
         argv = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-File", str(self.script), name, str(path)] + (["-DryRun"] if dry_run else [])
-        self.thread = threading.Thread(target=self._run, args=(argv,), daemon=True)
-        self.thread.start()
+        self._launch("swa-unity-refs is already running", self._run_command,
+                     argv, "swa-unity-refs",
+                     project=name, dry_run=bool(dry_run), returncode=None)
         return self.status(name)
-
-    def _run(self, argv: list[str]) -> None:
-        returncode = -1
-        try:
-            process = subprocess.Popen(
-                argv, shell=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True, errors="replace")
-            for line in process.stdout:
-                with self._lock:
-                    self._output.append(line.rstrip())
-            returncode = process.wait()
-        except OSError as error:
-            with self._lock:
-                self._output.append(f"could not start swa-unity-refs: {error}")
-        finally:
-            with self._lock:
-                self._running, self._finished, self._returncode = False, _now(), returncode
-
-
-def _now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S%z")

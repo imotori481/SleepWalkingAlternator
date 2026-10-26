@@ -25,18 +25,18 @@ import argparse
 import re
 import subprocess
 import sys
-import threading
 import time
-from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 try:
     from .issue import ISSUE_KEY, Issues, issue_number
+    from .job import BackgroundJob
     from .live import Live
 except ImportError:  # 直接実行したとき: python host/dashboard/importer.py
     from issue import ISSUE_KEY, Issues, issue_number
+    from job import BackgroundJob
     from live import Live
 
 WORKROOT = Path(r"C:\dev\roop-engin\projects")
@@ -46,7 +46,7 @@ TAIL_LINES = 60
 SWITCH_POLL_SECONDS = 3.0
 SWITCH_LIMIT_SECONDS = 30 * 60
 
-# 箱の swa_dash.py と同じ規則。箱でも確かめるが、クローンする前に断る。
+# 箱の swa_dash.py と同じ規則。箱でも確かめるが、クローンする前に断る。unity.py も使う。
 PROJECT = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 FENCE = re.compile(r"[A-Za-z0-9._/-]{0,200}")
@@ -258,40 +258,24 @@ class Importer:
         return proc.stdout
 
 
-class ImportJob:
+class ImportJob(BackgroundJob):
     """ダッシュボードから取り込みを1つだけ裏のスレッドで流し、進みを返す。"""
 
     def __init__(self, importer: Importer):
+        super().__init__(TAIL_LINES)
         self.importer = importer
-        self._lock = threading.Lock()
-        self._running = False
         self._project: str | None = None
-        self._started: str | None = None
-        self._finished: str | None = None
         self._ok: bool | None = None
-        self._output: deque[str] = deque(maxlen=TAIL_LINES)
 
     def status(self) -> dict[str, Any]:
         with self._lock:
-            return {"running": self._running, "project": self._project,
-                    "started": self._started, "finished": self._finished, "ok": self._ok,
-                    "output": list(self._output)}
+            return {**self._state(), "project": self._project, "ok": self._ok}
 
     def start(self, value: dict[str, Any]) -> dict[str, Any]:
         request = check(value)
-        with self._lock:
-            if self._running:
-                raise ValueError("an import is already running")
-            self._running, self._project = True, request.project
-            self._started, self._finished, self._ok = _now(), None, None
-            self._output.clear()
-        self.thread = threading.Thread(target=self._run, args=(request,), daemon=True)
-        self.thread.start()
+        self._launch("an import is already running", self._run, request,
+                     project=request.project, ok=None)
         return self.status()
-
-    def _say(self, line: str) -> None:
-        with self._lock:
-            self._output.extend(line.splitlines() or [""])
 
     def _run(self, request: Request) -> None:
         ok = False
@@ -303,12 +287,7 @@ class ImportJob:
         except Exception as error:  # スレッドの外へは何も届かない。画面に残す
             self._say(f"ERROR: {type(error).__name__}: {error}")
         finally:
-            with self._lock:
-                self._running, self._finished, self._ok = False, _now(), ok
-
-
-def _now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S%z")
+            self._end(ok=ok)
 
 
 def main(argv: list[str]) -> int:

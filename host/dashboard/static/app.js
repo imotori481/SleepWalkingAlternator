@@ -186,20 +186,18 @@ function toggle(selector, onChange) {
 // 中身が変わったときだけ描き直す。
 let drawnCritique = "";
 
-// クリティックの指摘。箱の CRITIQUE.json があれば指摘ごとに出し、無ければログの段落を出す。
+// クリティックの指摘。箱の CRITIQUE.json を指摘ごとに出す。
 // 指摘はプランナーに戻らない。直させたいことは、設計の欄の差し戻しのコメントに書く。
 function renderCritique(value) {
   const findings = value.findings;
-  const key = JSON.stringify([findings, findings ? null : value.loop?.critique]);
+  const key = JSON.stringify(findings);
   if (key === drawnCritique) return;
   drawnCritique = key;
   const box = document.querySelector("#critique"); box.replaceChildren();
   const at = document.querySelector("#critique-at");
   if (!findings) {
-    const critique = value.loop?.critique;
-    at.textContent = critique?.at || "";
-    box.append(critique ? text("pre", critique.text)
-                        : text("p", "今の回にクリティックの指摘はありません。", "why"));
+    at.textContent = "";
+    box.append(text("p", "今の回にクリティックの指摘はありません。", "why"));
     return;
   }
   at.textContent = findings.at || "";

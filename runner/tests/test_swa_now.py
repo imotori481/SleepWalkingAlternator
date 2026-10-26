@@ -1,7 +1,7 @@
-"""`swa now` が、ログから今の回のトークン数とクリティックの指摘を読むこと。
+"""`swa now` が、ログから今の回のトークン数を読むこと。
 
 台帳は runner だけが読め、写しに届くのはコミットのときだけだ。計画づくりの途中や
-refine で止まったときの消費と指摘は、保守ユーザーが読めるログにしか無い。
+refine で止まったときの消費は、保守ユーザーが読めるログにしか無い。
 
     python3 -m unittest discover -s runner/tests
 """
@@ -61,30 +61,6 @@ class CurrentLoop(unittest.TestCase):
                          {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0})
         self.assertEqual(loop["tokens"]["critic"], 185)
         self.assertAlmostEqual(loop["usd"]["critic"], 0.03)
-
-    def test_the_last_critique_is_kept_with_the_time_of_its_command(self):
-        self.log("game-20260102-000000.log",
-                 "=== swa go 開始 (2026-01-02 00:00:00) プロジェクト=game",
-                 "--- swa.py modules draft (2026-01-02 00:05:00)",
-                 "=== critique of the module design ===",
-                 "## modules",
-                 "1. first",
-                 "",
-                 "=== swa 終了 (2026-01-02 00:10:00): 詳細設計を書き、クリティックが読んだ")
-        self.log("game-20260102-001500.log",
-                 "=== swa redraft-modules 開始 (2026-01-02 00:15:00) プロジェクト=game",
-                 "--- swa.py modules draft (2026-01-02 00:15:00)",
-                 "=== critique of the module design ===",
-                 "## modules",
-                 "1. second",
-                 "   NO GATE WOULD CATCH THIS",
-                 "",
-                 "next: modules approve, or write a comment and run modules draft again",
-                 "=== swa 終了 (2026-01-02 00:30:00): 詳細設計を書き、クリティックが読んだ")
-        critique = self.loop()["critique"]
-        self.assertTrue(critique["at"].startswith("2026-01-02T00:15:00"))
-        self.assertEqual(critique["text"], "=== critique of the module design ===\n"
-                                           "## modules\n1. second\n   NO GATE WOULD CATCH THIS")
 
     def test_other_projects_and_the_latest_link_are_not_read(self):
         self.log("game-latest.log", "=== swa go 開始 (2026-01-03 00:00:00) プロジェクト=game")

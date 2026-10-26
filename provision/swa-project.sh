@@ -35,8 +35,9 @@ die() { echo "swa-project: $*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "sudo で流す"
 
+# 規則は swa_dash.py の PROJECT に1つだけ置く。
 valid_name() {
-  [[ "$1" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] && [ "$1" != "CURRENT" ] \
+  python3 "$HERE/swa_dash.py" project-name "$1" 2>/dev/null \
     || die "プロジェクト名に使えない: '$1'（英小文字、数字、. _ - だけで、64 字まで）"
 }
 

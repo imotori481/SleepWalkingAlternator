@@ -177,10 +177,10 @@ AI の3役は、Windows 側（以下、ホスト）から切り離した WSL2 �
     ├── layout.sh         # 柵の場所を読む
     ├── swa_now.py       # swa now の JSON を組み立てる
     ├── swa_dash.py      # ダッシュボードからの要求を確かめて流す
-    ├── swa_findings.py  # クリティックの指摘を読み書きする
+    ├── swa_findings.py  # クリティックの指摘を読む
     ├── bin/              # 隔離環境内に置く実行ファイル
     │                     #   swa / solver-run / solver-claude / planner-run /
-    │                     #   critic-run / probe-unity / smoke-*
+    │                     #   critic-run / agent-common.sh / probe-unity / smoke-*
     └── *.sh              # 隔離、ユーザー、配置、ランナー本体、Python、Node、
                           #   .NET、C++、権限、エージェント起動、egress の設定
 ```

@@ -16,6 +16,7 @@ SWA_SUBAGENT_MODEL の行だけを読み書きする。
     python3 swa_dash.py settings <ディレクトリ>
     python3 swa_dash.py set-model <ディレクトリ> <役> <モデル> <effort> [<助手のモデル>]
     python3 swa_dash.py design <作業ツリー>
+    python3 swa_dash.py project-name <名前>         # 使える名前なら 0。swa-project.sh が使う
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,99}")
 SUBAGENT_ROLES = ("planner", "solver")
 # 助手のモデル。planner-run と solver-claude が受け付ける英数字と . _ - だけを通す。
 SUBAGENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
-# swa-project.sh の valid_name と同じ規則。
+# プロジェクト名。箱の規則はここだけに置き、swa-project.sh も project-name で引く。
 PROJECT = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 # 取り込むブランチ。行にもオプションにもならない文字だけを通す。git の規則
 # （check-ref-format）は swa-project.sh の init が確かめる。
@@ -215,20 +216,6 @@ def settings(directory: str) -> dict:
             "frameworks": frameworks}
 
 
-def read_tree(root: str, suffix: str) -> dict[str, str]:
-    """root の下の suffix のファイルを、root からのパスから suffix を落とした名前で読む。"""
-    found = {}
-    for directory, _, names in os.walk(root):
-        for name in sorted(names):
-            if not name.endswith(suffix):
-                continue
-            path = os.path.join(directory, name)
-            key = os.path.relpath(path, root)[:-len(suffix)].replace(os.sep, "/")
-            with open(path, encoding="utf-8", errors="replace") as handle:
-                found[key] = handle.read()
-    return dict(sorted(found.items()))
-
-
 def read_json_file(path: str) -> object:
     try:
         with open(path, encoding="utf-8") as handle:
@@ -264,8 +251,9 @@ def design(project: str) -> dict:
     Unity の参照は作業ツリーの隣の unity-refs（/srv/swa/unity-refs）を見る。
     """
     plan = os.path.join(project, "plan")
+    docs = Path(project) / "docs"
     acs = {}
-    for key, text in read_tree(os.path.join(project, "ac"), ".json").items():
+    for key, text in swa.read_texts(Path(project) / "ac", ".json").items():
         try:
             acs[key] = json.loads(text)
         except ValueError:
@@ -276,11 +264,11 @@ def design(project: str) -> dict:
     except OSError:
         failure = None
     # 変更は単位の id（changes/<名前>）でモジュールと並べる。受け入れ条件も同じ id だ。
-    units = read_tree(os.path.join(project, "docs", "modules"), ".md")
+    units = swa.read_texts(docs / "modules", ".md")
     units.update({swa.CHANGE_PREFIX + name: text for name, text
-                  in read_tree(os.path.join(project, "docs", "changes"), ".md").items()})
+                  in swa.read_texts(docs / "changes", ".md").items()})
     return {"stage": read_json_file(os.path.join(plan, "stage.json")) or {},
-            "basic": read_tree(os.path.join(project, "docs", "basic"), ".md"),
+            "basic": swa.read_texts(docs / "basic", ".md"),
             "modules": units,
             "ac": acs,
             "interface": read_json_file(os.path.join(plan, "INTERFACE.json")),
@@ -348,6 +336,9 @@ def main(argv: list[str]) -> int:
             set_model(*argv[2:])
             print(f"{argv[3]} の設定を書き換えた。次の呼び出しから効く")
             return 0
+        if len(argv) == 3 and argv[1] == "project-name":
+            check_project(argv[2])
+            return 0
     except Refused as error:
         print(f"swa dash: {error}", file=sys.stderr)
         return 1
@@ -355,7 +346,7 @@ def main(argv: list[str]) -> int:
         print(f"swa dash: {error}", file=sys.stderr)
         return 1
     print("使い方: swa_dash.py request <dir> | settings <dir> | design <dir>"
-          " | set-model <dir> <役> <モデル> <effort> [<助手のモデル>]",
+          " | set-model <dir> <役> <モデル> <effort> [<助手のモデル>] | project-name <名前>",
           file=sys.stderr)
     return 2
 

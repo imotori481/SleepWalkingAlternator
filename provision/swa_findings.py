@@ -1,14 +1,12 @@
-"""`swa findings` の中身。クリティックの指摘の、人が直す写しを見せ、書き換える。
+"""`swa findings` の中身。クリティックの指摘の、人が読む写しを見せる。
 
-保守ユーザーが sudo なしで流す。ホストのダッシュボードも SSH でこれを呼ぶ。
+保守ユーザーが sudo なしで流す。
 写し（/srv/swa/human/in/CRITIQUE.json）は、modules critique が批評のたびに書く。
-グループ humanw に書き込みを許してあり、プランナーとクリティックは読めない。
+グループ humanw が読め、プランナーとクリティックは読めない。
 
-指摘はプランナーに戻らない。書き直させるかは人が決め、コメントで伝える。だから
-写しの "waiting" はいつも偽で、`set` は断る。
+指摘はプランナーに戻らない。書き直させるかは人が決め、コメントで伝える。
 
     python3 swa_findings.py show <写し>
-    python3 swa_findings.py set <写し>   # 標準入力に {"mode", "index", "title", "evidence"}
 """
 
 from __future__ import annotations
@@ -17,8 +15,6 @@ import json
 import sys
 
 MODE_JA = {"modules": "詳細設計の批評（modules）"}
-# 1つの欄の上限。ダッシュボードの入力欄と合わせる。
-MAX_CHARS = 4000
 
 
 def load(path: str) -> dict | None:
@@ -35,8 +31,7 @@ def show(path: str) -> int:
     if value is None:
         print("今の回にクリティックの指摘は無い")
         return 0
-    state = "直せる。直したら 'swa continue'" if value.get("waiting") else "直せない"
-    print(f"批評 {value.get('round')}回目（{value.get('at', '')}）: {state}")
+    print(f"批評（{value.get('at', '')}）: 直させるなら 'swa reject <コメント>'")
     for mode, findings in value["modes"].items():
         print()
         print(f"## {MODE_JA.get(mode, mode)}")
@@ -51,59 +46,11 @@ def show(path: str) -> int:
     return 0
 
 
-def rewrite(value: dict, request: object) -> str | None:
-    """指摘1件の title と evidence を書き換える。断る理由を返す。"""
-    if not value.get("waiting"):
-        return "この指摘はプランナーに戻らない。直させるなら 'swa reject <コメント>'"
-    if not isinstance(request, dict):
-        return "JSON のオブジェクトを渡す"
-    mode, index = request.get("mode"), request.get("index")
-    title, evidence = request.get("title"), request.get("evidence")
-    findings = value["modes"].get(mode)
-    if not isinstance(findings, list):
-        return f"知らないモード: {mode}"
-    if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(findings):
-        return f"{mode} に {index} 番の指摘は無い"
-    if not isinstance(title, str) or not title.strip():
-        return "title が空"
-    if not isinstance(evidence, str):
-        return "evidence が文字列ではない"
-    if len(title) > MAX_CHARS or len(evidence) > MAX_CHARS:
-        return f"長すぎる。1つの欄は {MAX_CHARS} 字まで"
-    findings[index] = {**findings[index], "title": title.strip(), "evidence": evidence.strip()}
-    return None
-
-
-def set_finding(path: str, text: str) -> int:
-    value = load(path)
-    if value is None:
-        print("swa findings: 直す指摘が無い", file=sys.stderr)
-        return 1
-    try:
-        request = json.loads(text)
-    except ValueError as error:
-        print(f"swa findings: JSON として読めない: {error}", file=sys.stderr)
-        return 1
-    refused = rewrite(value, request)
-    if refused:
-        print(f"swa findings: {refused}", file=sys.stderr)
-        return 1
-    # 置き換えずに中身を書き直す。human/in は sticky で、ランナーが作ったファイルを
-    # 保守ユーザーは置き換えられない。書き込みはグループ humanw に許してある。
-    with open(path, "r+", encoding="utf-8") as handle:
-        handle.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
-        handle.truncate()
-    print("直した")
-    return 0
-
-
 def main(argv: list[str]) -> int:
-    if len(argv) != 3 or argv[1] not in ("show", "set"):
-        print("使い方: swa_findings.py show|set <写し>", file=sys.stderr)
+    if len(argv) != 3 or argv[1] != "show":
+        print("使い方: swa_findings.py show <写し>", file=sys.stderr)
         return 2
-    if argv[1] == "show":
-        return show(argv[2])
-    return set_finding(argv[2], sys.stdin.read())
+    return show(argv[2])
 
 
 if __name__ == "__main__":

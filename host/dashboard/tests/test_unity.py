@@ -66,7 +66,7 @@ class TheCsproj(UnityProject):
 
 
 class TheScript(UnityProject):
-    @patch("host.dashboard.unity.subprocess.Popen")
+    @patch("host.dashboard.job.subprocess.Popen")
     def test_it_runs_the_script_with_an_argument_array_and_no_shell(self, popen):
         popen.return_value.stdout = iter(["Unity 6000.3.10f1, C# 9.0\n"])
         popen.return_value.wait.return_value = 0
@@ -82,7 +82,7 @@ class TheScript(UnityProject):
                          (False, 0, True))
         self.assertEqual(status["output"], ["Unity 6000.3.10f1, C# 9.0"])
 
-    @patch("host.dashboard.unity.subprocess.Popen")
+    @patch("host.dashboard.job.subprocess.Popen")
     def test_a_send_has_no_dry_run_flag(self, popen):
         popen.return_value.stdout = iter([])
         popen.return_value.wait.return_value = 0
@@ -91,7 +91,7 @@ class TheScript(UnityProject):
         self.unity.thread.join(5)
         self.assertNotIn("-DryRun", popen.call_args.args[0])
 
-    @patch("host.dashboard.unity.subprocess.Popen")
+    @patch("host.dashboard.job.subprocess.Popen")
     def test_without_a_remembered_folder_nothing_runs(self, popen):
         with self.assertRaises(ValueError):
             self.unity.start("thm01", True)

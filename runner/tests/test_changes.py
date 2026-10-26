@@ -401,5 +401,53 @@ class CommittingADesignWithoutChanges(unittest.TestCase):
                                         capture_output=True, text=True).stdout.strip())
 
 
+class SourceThatIsNotUtf8(unittest.TestCase):
+    """既存のモードで、柵の中に UTF-8 で読めないソースがあれば、設計を書かせる前に断る。"""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        for args in (["init", "-q"], ["config", "user.email", "runner@example.com"],
+                     ["config", "user.name", "runner"]):
+            subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
+        run = swa.run
+        for p in (mock.patch.dict(swa.LANGUAGE, swa.LANGUAGES["cpp"], clear=True),
+                  mock.patch.dict(swa.LAYOUT, swa.LAYOUT_DEFAULT),
+                  mock.patch.dict(swa.RUN, {"mode": "existing"}),
+                  mock.patch.object(swa, "PROJECT", self.root),
+                  mock.patch.object(swa, "run",
+                                    lambda cmd, **kw: run(cmd, **{"cwd": self.root, **kw}))):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def commit(self, files: dict[str, bytes]) -> None:
+        for name, data in files.items():
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_bytes(data)
+        for args in (["add", "-A"], ["commit", "-q", "-m", "x"]):
+            subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
+
+    def test_a_shift_jis_header_is_named(self):
+        self.commit({"src/Board.h": "// 盤面\n".encode("utf-8"),
+                     "src/Player.h": "// 自機\n".encode("shift_jis"),
+                     "tests/BoardTest.cpp": "// 試験\n".encode("shift_jis"),
+                     "README.md": "説明\n".encode("shift_jis")})
+        problem = swa.encoding_problem()
+        self.assertIn("src/Player.h", problem)
+        self.assertIn("tests/BoardTest.cpp", problem)
+        self.assertNotIn("src/Board.h", problem)
+        self.assertNotIn("README.md", problem)
+
+    def test_utf8_with_a_bom_passes(self):
+        self.commit({"src/Board.h": "﻿// 盤面\n".encode("utf-8")})
+        self.assertIsNone(swa.encoding_problem())
+
+    def test_the_new_mode_is_not_checked(self):
+        self.commit({"src/Player.h": "// 自機\n".encode("shift_jis")})
+        with mock.patch.dict(swa.RUN, {"mode": "new"}):
+            self.assertIsNone(swa.encoding_problem())
+
+
 if __name__ == "__main__":
     unittest.main()

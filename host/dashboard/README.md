@@ -211,13 +211,12 @@ Unity のプロジェクトがコンパイルに使う参照アセンブリを�
   プランナーには戻らない。直させたいことは、設計の欄の差し戻しのコメントに書く
 - 各モジュールの状態（完了、作業中、未着手、中断）
 
-指摘は箱の `/srv/swa/human/in/CRITIQUE.json` から、`swa now` の `findings` として届く。それが無い
-回は、走行ログの最後の `=== critique` の段落をそのまま出す。
+指摘は箱の `/srv/swa/human/in/CRITIQUE.json` から、`swa now` の `findings` として届く。
 
 箱ではランナーが `/srv/swa/logs/now.json` を書き、`swa now` がそれに走行中かどうか、
 最後の結果、今の回を足す。今の回は、最後の `swa go` から後の走行ログを読んで作る。
-`[USAGE]` の行を役割ごとに足したトークン数、種類別のトークン数、USD と、最後の
-`=== critique` の段落を持つ。`human/in/CRITIQUE.json` があれば `findings` として足す。
+`[USAGE]` の行を役割ごとに足したトークン数、種類別のトークン数、USD を持つ。
+`human/in/CRITIQUE.json` があれば `findings` として足す。
 組み立ては `provision/swa_now.py`。`/srv/swa/logs` は runner と保守ユーザーだけが読める。
 台帳のある `plan/` は runner だけが読めるので、`swa now` はログしか読まない。
 

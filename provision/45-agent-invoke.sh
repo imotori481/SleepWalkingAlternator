@@ -22,6 +22,8 @@ install -o root -g root -m 755 bin/critic-run   /srv/swa/bin/critic-run
 # solver-run が名前 `claude` で呼ぶ実体。ランナーは名前しか渡せないので、
 # バックエンドを増やせるのは root がここで置いたときだけ。
 install -o root -g root -m 755 bin/solver-claude /srv/swa/bin/solver-claude
+# planner-run、critic-run、solver-claude が source する共通の前置き。実行はしない。
+install -o root -g root -m 644 bin/agent-common.sh /srv/swa/bin/agent-common.sh
 install -o root -g root -m 755 bin/smoke-solver /srv/swa/bin/smoke-solver
 install -o root -g root -m 755 bin/smoke-pytest /srv/swa/bin/smoke-pytest
 install -o root -g root -m 755 bin/smoke-planner /srv/swa/bin/smoke-planner

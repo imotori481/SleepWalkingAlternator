@@ -718,6 +718,24 @@ RED_KINDS = re.compile(r"^(AssertionError|Failed)\b")
 # 取り違えないためだ。
 ANNOTATION = re.compile(r"(?:->|:)\s*([A-Za-z_][\w.]*)\s*([\[<]?)")
 
+# 型を名前の前に書く言語の、裸のコンテナ型。shape_pattern をここから作る。
+CSHARP_SHAPELESS = frozenset({
+    "List", "IList", "IReadOnlyList", "Dictionary", "IDictionary",
+    "IReadOnlyDictionary", "HashSet", "ISet", "IEnumerable", "ICollection",
+    "IReadOnlyCollection", "Queue", "Stack", "Tuple", "ArrayList", "Hashtable",
+    "object", "dynamic",
+})
+CPP_SHAPELESS = frozenset({
+    "vector", "map", "unordered_map", "set", "unordered_set", "multimap",
+    "multiset", "list", "deque", "array", "pair", "tuple", "any", "function",
+})
+
+
+def word_shape_pattern(before: str, names: frozenset[str]) -> re.Pattern:
+    """`names` のどれかを語の境目で探す。組は (名前, 直後の開き括弧か空)。"""
+    alternatives = "|".join(sorted(names, key=lambda name: (-len(name), name)))
+    return re.compile(rf"{before}({alternatives})\b\s*(<?)")
+
 
 # --------------------------------------------------------------------------
 # 計画を書く言語
@@ -890,11 +908,7 @@ and before an index, assert that the length is large enough.
             r"|([A-Za-z_]\w*\.[A-Za-z_]\w*)\s*(?:\(|\{|;|=|$|--|<)"),
         # 型の後ろ、名前の前に型を書くので、":" や "->" の後ろを見る ANNOTATION は
         # 使えない。語の境目で、裸のコンテナ型を探す。
-        "shape_pattern": re.compile(
-            r"(?<![\w.])(List|IList|IReadOnlyList|Dictionary|IDictionary|"
-            r"IReadOnlyDictionary|HashSet|ISet|IEnumerable|ICollection|"
-            r"IReadOnlyCollection|Queue|Stack|Tuple|ArrayList|Hashtable|object|dynamic)"
-            r"\b\s*(<?)"),
+        "shape_pattern": word_shape_pattern(r"(?<![\w.])", CSHARP_SHAPELESS),
         # junit の type は常に "failure" で、例外の型を持たない（smoke-dotnet の
         # 実測）。failure_kind が message から読み、アサーションをこの名前にする。
         # スタブは値を返さず、印の付いた例外を投げる（CSHARP_STUB_BODY）。
@@ -906,12 +920,7 @@ and before an index, assert that the length is large enough.
         # C# には「ディレクトリそのもの」を表すファイルが無い。
         "index_name": "",
         "module_separator": "/",
-        "shapeless": frozenset({
-            "List", "IList", "IReadOnlyList", "Dictionary", "IDictionary",
-            "IReadOnlyDictionary", "HashSet", "ISet", "IEnumerable", "ICollection",
-            "IReadOnlyCollection", "Queue", "Stack", "Tuple", "ArrayList", "Hashtable",
-            "object", "dynamic",
-        }),
+        "shapeless": CSHARP_SHAPELESS,
         "shape_bracket": "<",
         "shape_example": "List<Cell>, Dictionary<string, int>, (Board board, int score)",
         "name_boundary": r"[\w]",
@@ -970,9 +979,7 @@ assertions -- write `ASSERT_GE(v.size(), n)`, and index with `.at()`.
             r"|\b([A-Za-z_]\w*)\s*\("),
         # 型の後ろ、名前の前に型を書くので、C# と同じく語の境目で探す。`std::` は
         # あってもなくてもよい。
-        "shape_pattern": re.compile(
-            r"(?<![\w])(?:std::)?(vector|map|unordered_map|set|unordered_set|multimap|"
-            r"multiset|list|deque|array|pair|tuple|any|function)\b\s*(<?)"),
+        "shape_pattern": word_shape_pattern(r"(?<![\w])(?:std::)?", CPP_SHAPELESS),
         # GoogleTest の junit は例外の型を持たない。cpp_failure_kind が message から
         # 読み、アサーションとスタブの例外をこの名前にする。
         "red_kinds": re.compile(r"^(?:AssertionFailure|StubNotImplemented)$"),
@@ -982,10 +989,7 @@ assertions -- write `ASSERT_GE(v.size(), n)`, and index with `.at()`.
         "min_test_timeout": 600,
         "index_name": "",
         "module_separator": "/",
-        "shapeless": frozenset({
-            "vector", "map", "unordered_map", "set", "unordered_set", "multimap",
-            "multiset", "list", "deque", "array", "pair", "tuple", "any", "function",
-        }),
+        "shapeless": CPP_SHAPELESS,
         "shape_bracket": "<",
         "shape_example": "std::vector<Cell>, std::map<std::string, int>, std::pair<Board, int>",
         "name_boundary": r"[\w]",
@@ -1027,6 +1031,22 @@ nothing in it compiles or runs here. So no criterion can check how the program
 starts -- what `Main` or `Program.cs` does, or what it calls first. The entry
 file may be a module of its own; the person checks it by hand after the run.
 Keep it thin, and put the behaviour it starts in classes the tests can call.
+
+"""
+
+# Unity と Promete の layout_note に共通の、ファイルと名前空間の決まり。
+CSHARP_NAMESPACE_NOTE = """A new file's namespace follows its folder under {SRC}/
+(`{SRC}/Logic/Board.cs` -> `namespace Logic`). A file that already exists keeps
+the namespace it has: a declaration read from it ends in `-- namespace <name>`,
+and code that uses it writes `using <name>;`.
+
+"""
+
+CSHARP_TEST_NOTE = """Tests use NUnit 3: `using NUnit.Framework;`, a public class with `[Test]`
+methods, and `Assert.AreEqual(expected, actual)` or `Assert.That(actual,
+Is.EqualTo(expected))`. Every test class is inside a namespace, and its name
+is the file's name (`{TESTS}/BoardTests.cs` holds `BoardTests`): the runner
+selects a step's tests by that class name.
 
 """
 
@@ -1082,18 +1102,8 @@ uses the code through `using <its namespace>;` -- there are no file imports.
 
 One public type per file, and the file is named after the type
 (`Board.cs` holds `Board`). Unity requires this of every MonoBehaviour and it
-costs nothing elsewhere. A new file's namespace follows its folder under {SRC}/
-(`{SRC}/Logic/Board.cs` -> `namespace Logic`). A file that already exists keeps
-the namespace it has: a declaration read from it ends in `-- namespace <name>`,
-and code that uses it writes `using <name>;`.
-
-""" + CSHARP_LIBRARY_NOTE + """Tests use NUnit 3: `using NUnit.Framework;`, a public class with `[Test]`
-methods, and `Assert.AreEqual(expected, actual)` or `Assert.That(actual,
-Is.EqualTo(expected))`. Every test class is inside a namespace, and its name
-is the file's name (`{TESTS}/BoardTests.cs` holds `BoardTests`): the runner
-selects a step's tests by that class name.
-
-C# 9 is the ceiling: no `record struct`, no file-scoped `namespace X;`, no
+costs nothing elsewhere.
+""" + CSHARP_NAMESPACE_NOTE + CSHARP_LIBRARY_NOTE + CSHARP_TEST_NOTE + """C# 9 is the ceiling: no `record struct`, no file-scoped `namespace X;`, no
 `global using`, no `required` members. They do not compile here or in Unity.
 """,
             "facts": lambda: ("Runtime: .NET 8 for the tests; the code is built as netstandard2.1",
@@ -1120,18 +1130,8 @@ the code, so a test uses the code through `using <its namespace>;` -- there are
 no file imports.
 
 One public type per file, and the file is named after the type
-(`Board.cs` holds `Board`). A new file's namespace follows its folder under
-{SRC}/ (`{SRC}/Logic/Board.cs` -> namespace `Logic`). A file that already exists
-keeps the namespace it has: a declaration read from it ends in
-`-- namespace <name>`, and code that uses it writes `using <name>;`.
-
-""" + CSHARP_LIBRARY_NOTE + """Tests use NUnit 3: `using NUnit.Framework;`, a public class with `[Test]`
-methods, and `Assert.AreEqual(expected, actual)` or `Assert.That(actual,
-Is.EqualTo(expected))`. Every test class is inside a namespace, and its name
-is the file's name (`{TESTS}/BoardTests.cs` holds `BoardTests`): the runner
-selects a step's tests by that class name.
-
-Promete here is version 2, and older examples show version 1. A scene takes the
+(`Board.cs` holds `Board`).
+""" + CSHARP_NAMESPACE_NOTE + CSHARP_LIBRARY_NOTE + CSHARP_TEST_NOTE + """Promete here is version 2, and older examples show version 1. A scene takes the
 plugins it uses through its constructor (`public class MainScene(Keyboard
 keyboard) : Scene`) and reads the screen through `View` and the clock through
 `Time`. A scene reaches the app through `App`. The window is
@@ -1650,10 +1650,22 @@ def dotnet_build_failure(output: str) -> TestRun | None:
     errors = DOTNET_ERROR.findall(output)
     if not errors:
         return None
+    kinds, lines, files = build_errors(
+        [(path, f": error {code}: {text}") for path, code, text in errors])
+    return TestRun(0, 0, len(kinds), 0, kinds, [], chr(10).join(lines),
+                   failed_files=files)
+
+
+def build_errors(errors: list[tuple[str, str]]) -> tuple[list[str], list[str], list[str]]:
+    """エラーの (パス, パスの後ろの文) を、種類、出す行、ファイルにする。重なりは落とす。
+
+    テストファイルのエラーは「コンパイルできなかった」、コードの側のエラーは
+    「ビルドできなかった」にする。
+    """
     kinds: list[str] = []
     lines: list[str] = []
     files: list[str] = []
-    for path, code, text in errors:
+    for path, rest in errors:
         try:
             rel = Path(path).relative_to(PROJECT).as_posix()
         except ValueError:
@@ -1663,11 +1675,10 @@ def dotnet_build_failure(output: str) -> TestRun | None:
         if kind not in kinds:
             kinds.append(kind)
             files.append(rel)
-        line = f"{rel}: error {code}: {text}"
+        line = rel + rest
         if line not in lines:
             lines.append(line)
-    return TestRun(0, 0, len(kinds), 0, kinds, [], chr(10).join(lines),
-                   failed_files=files)
+    return kinds, lines, files
 
 
 def csharp_test_classes(files_test: list[str]) -> list[str]:
@@ -1833,25 +1844,10 @@ CPP_UNDEFINED = re.compile(r"undefined reference to [`'](.+?)'\s*$", re.M)
 def cpp_build_failure(output: str) -> TestRun | None:
     """ビルドが通らなかった出力を読む。エラーの行が無ければ None。
 
-    dotnet_build_failure と同じく、テストファイルのエラーは「コンパイルできなかった」、
-    コードの側とリンクのエラーは「ビルドできなかった」にする。
+    分け方は build_errors。リンクのエラーは「ビルドできなかった」にする。
     """
-    kinds: list[str] = []
-    lines: list[str] = []
-    files: list[str] = []
-    for path, number, text in CPP_ERROR.findall(output):
-        try:
-            rel = Path(path).relative_to(PROJECT).as_posix()
-        except ValueError:
-            rel = path
-        kind = (f"<did not compile: {rel}>" if in_layout(rel, "tests")
-                else f"<build failed: {rel}>")
-        if kind not in kinds:
-            kinds.append(kind)
-            files.append(rel)
-        line = f"{rel}:{number}: error: {text}"
-        if line not in lines:
-            lines.append(line)
+    kinds, lines, files = build_errors(
+        [(path, f":{number}: error: {text}") for path, number, text in CPP_ERROR.findall(output)])
     undefined = list(dict.fromkeys(CPP_UNDEFINED.findall(output)))
     if undefined:
         kinds.append("<build failed: undefined reference>")
@@ -2117,25 +2113,17 @@ def parse_junit(xml_path: Path, output: str = "") -> TestRun:
             if case.get("name") == case.get("classname")
             for f in case.findall("failure"))
         output = (output + chr(10) + detail).strip()
-        return TestRun(
-            tests=max(0, total("tests") - len(uncompiled)),
-            failures=max(0, total("failures") - len(uncompiled)),
-            errors=total("errors") + len(uncompiled),
-            skipped=total("skipped"),
-            failure_kinds=kinds, failure_details=details,
-            passed_names=passed, output=output,
-            failed_files=sorted(set(broken + uncompiled)), skipped_names=no_verdict)
 
     return TestRun(
-        tests=total("tests"),
-        failures=total("failures"),
-        errors=total("errors"),
+        tests=max(0, total("tests") - len(uncompiled)),
+        failures=max(0, total("failures") - len(uncompiled)),
+        errors=total("errors") + len(uncompiled),
         skipped=total("skipped"),
         failure_kinds=kinds,
         failure_details=details,
         passed_names=passed,
         output=output,
-        failed_files=sorted(set(broken)),
+        failed_files=sorted(set(broken + uncompiled)),
         skipped_names=no_verdict,
     )
 
@@ -2361,9 +2349,19 @@ def existing_requirements(step: dict, provided: set[str]) -> list[str]:
     return [line for line in existing_contracts() if declared_name(line) in wanted]
 
 
-def dep_contract_lines(step: dict, *, existing: bool = True) -> list[str]:
+def provided_lines(text: str) -> list[str]:
+    """契約のファイルの provides の行。読めなければ空。"""
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    provides = value.get("provides") if isinstance(value, dict) else value
+    return [str(p) for p in provides] if isinstance(provides, list) else []
+
+
+def dep_contract_lines(step: dict) -> list[str]:
     """このステップが依存するすべてのステップの provides の行を、平らに並べる。
-    `existing` なら、requires が名指しする既存の宣言の行も足す。
+    requires が名指しする既存の宣言の行も足す。
 
     dep_contracts は同じものをブリーフ用に描く。そこではステップごとのまとまりに
     価値がある。スタブの生成に要るのは名前と置き場だけなので、行で渡す。
@@ -2371,29 +2369,22 @@ def dep_contract_lines(step: dict, *, existing: bool = True) -> list[str]:
     lines: list[str] = []
     for dep in step.get("depends_on", []):
         path = STATE / "contracts" / f"{safe_id(dep)}.json"
-        if not path.exists():
-            continue
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            continue
-        provides = value.get("provides") if isinstance(value, dict) else value
-        if isinstance(provides, list):
-            lines.extend(str(p) for p in provides)
-    if existing:
-        lines += existing_requirements(step, {declared_name(line) for line in lines})
-    return lines
+        if path.exists():
+            lines += provided_lines(path.read_text(encoding="utf-8"))
+    return lines + existing_requirements(step, {declared_name(line) for line in lines})
 
 
 def dep_contracts(step: dict) -> str:
     parts = []
+    provided: set[str] = set()
     for dep in step.get("depends_on", []):
         path = STATE / "contracts" / f"{safe_id(dep)}.json"
         if not path.exists():
             raise Halt("PLAN_LOAD", f"module {step['id']} depends on {dep}, which has no contract yet")
-        parts.append(f"From {dep}:\n{path.read_text(encoding='utf-8')}")
-    found = existing_requirements(step, {declared_name(line) for line
-                                         in dep_contract_lines(step, existing=False)})
+        text = path.read_text(encoding="utf-8")
+        parts.append(f"From {dep}:\n{text}")
+        provided |= {declared_name(line) for line in provided_lines(text)}
+    found = existing_requirements(step, provided)
     if found:
         parts.append("From the code already in the repository:\n" + "\n".join(found))
     return "\n\n".join(parts) if parts else "(none -- this module depends on nothing)"
@@ -2940,8 +2931,9 @@ def generate_csharp_stub(step: dict, requires: list[str],
                 entry["members"] += [m if m.endswith("}") else m + ";"
                                      for m in csharp_members(body)]
             else:
-                entry["members"] += [csharp_stub_member(m) for m in csharp_members(body)]
-                entry["specs"] += csharp_members(body)
+                members = csharp_members(body)
+                entry["members"] += [csharp_stub_member(m) for m in members]
+                entry["specs"] += members
             if name not in order:
                 order.append(name)
             continue
@@ -3200,10 +3192,7 @@ def brief_stub(step: dict, existing: list[str] | None = None) -> str:
     # 運ぶものがここにあると、それは忠実に実装され、それが覆う条件は一度も落ちる
     # のを見られないまま RED_GATE を通る（2026-08-18 にステップ S1 で痛い目を見て
     # 分かった）。
-    if LANGUAGE["name"] == "csharp":
-        # C# は番兵の値を使わない（CSHARP_STUB_BODY）。下の本文の半分は、値を
-        # 選ぶことの難しさについてで、ここでは要らない。
-        return f"""Create stubs only.
+    head = f"""Create stubs only.
 
 # Signatures to provide
 {render_provides(step)}
@@ -3211,7 +3200,11 @@ def brief_stub(step: dict, existing: list[str] | None = None) -> str:
 # Files you may create or modify
 {chr(10).join(step["files_write"])}
 {existing_files_section(existing or [])}
-Write each declaration with exactly the signature above. The body of every
+"""
+    if LANGUAGE["name"] == "csharp":
+        # C# は番兵の値を使わない（CSHARP_STUB_BODY）。下の本文の半分は、値を
+        # 選ぶことの難しさについてで、ここでは要らない。
+        return head + f"""Write each declaration with exactly the signature above. The body of every
 method, constructor and property accessor you write is exactly this one
 statement and nothing else:
 
@@ -3232,15 +3225,7 @@ whatsoever.
 """
     if LANGUAGE["name"] == "cpp":
         # C++ も番兵の値を使わない。C# と同じ理由で、印の付いた例外を投げる。
-        return f"""Create stubs only.
-
-# Signatures to provide
-{render_provides(step)}
-
-# Files you may create or modify
-{chr(10).join(step["files_write"])}
-{existing_files_section(existing or [])}
-Declare each name in its header with exactly the signature above, and define
+        return head + f"""Declare each name in its header with exactly the signature above, and define
 it in the `.cpp` of the same name. The body of every function and constructor
 you write is exactly this one statement and nothing else:
 
@@ -3258,15 +3243,7 @@ that a test could pass against by chance.
 Every header starts with `#pragma once` and includes the headers its
 signatures need. Implement no behaviour whatsoever.
 """
-    return f"""Create stubs only.
-
-# Signatures to provide
-{render_provides(step)}
-
-# Files you may create or modify
-{chr(10).join(step["files_write"])}
-{existing_files_section(existing or [])}
-Each function must have exactly the signature above and must return a
+    return head + f"""Each function must have exactly the signature above and must return a
 CONSPICUOUS SENTINEL: a value of the declared return type that no correct
 implementation would produce for any input. For a str return a marker such as
 "__stub__"; for an int something like -999999; for a list a list holding one
@@ -3888,6 +3865,29 @@ def is_change(unit_id: str) -> bool:
     return unit_id.startswith(CHANGE_PREFIX)
 
 
+def doc_problems(where: str, text: str) -> list[str]:
+    """モジュールと変更の仕様書に共通の見出しと、日本語で書かれているか。"""
+    problems = [f"{where}: needs exactly one `{heading}` section"
+                for heading in (BEHAVIOUR_HEADING, CONTRACT_HEADING)
+                if heading_count(text, heading) != 1]
+    if not is_japanese(text):
+        problems.append(f"{where}: is not written in Japanese")
+    return problems
+
+
+def shape_problems(unit_id: str, provides: list[dict]) -> list[str]:
+    """中身の形を書かずに渡す型。後のモジュールはこの1行しか渡されない。"""
+    problems = []
+    for p in provides:
+        bare = shapeless_types(p["sig"])
+        if bare:
+            problems.append(
+                f"形: {unit_id} provides `{p['sig']}` with {', '.join(bare)} left "
+                f"unparameterised; a later module is handed this line and nothing "
+                f"else, so the contents have to be in it ({LANGUAGE['shape_example']})")
+    return problems
+
+
 def design_problems(docs: dict[str, str], acs: dict[str, str],
                     changes: dict[str, str] | None = None) -> tuple[dict[str, dict], list[str]]:
     """詳細設計仕様書と受け入れ条件を読み、形を確かめる。(単位, 問題) を返す。
@@ -3924,21 +3924,10 @@ def design_problems(docs: dict[str, str], acs: dict[str, str],
                                 f"new file; change an existing file with a change "
                                 f"(changes/<name>.md) instead of rewriting it")
         provides, requires, bad = parse_contract(text)
-        problems += [f"{where}: {b}" for b in bad]
-        for heading in (BEHAVIOUR_HEADING, CONTRACT_HEADING):
-            if heading_count(text, heading) != 1:
-                problems.append(f"{where}: needs exactly one `{heading}` section")
-        if not is_japanese(text):
-            problems.append(f"{where}: is not written in Japanese")
+        problems += [f"{where}: {b}" for b in bad] + doc_problems(where, text)
         if not bad and not provides:
             problems.append(f"{where}: the contract provides nothing")
-        for p in provides:
-            bare = shapeless_types(p["sig"])
-            if bare:
-                problems.append(
-                    f"形: {mid} provides `{p['sig']}` with {', '.join(bare)} left "
-                    f"unparameterised; a later module is handed this line and nothing "
-                    f"else, so the contents have to be in it ({LANGUAGE['shape_example']})")
+        problems += shape_problems(mid, provides)
         criteria, bad_ac = parse_ac(acs.get(mid), f"ac/{mid}.json")
         problems += bad_ac
         if any(c["kind"] == "integration" for c in criteria) and not requires:
@@ -3960,12 +3949,7 @@ def design_problems(docs: dict[str, str], acs: dict[str, str],
                             f"'_', starting with a letter; it names the change's tests")
             continue
         edits, provides, requires, bad = parse_change_contract(text)
-        problems += [f"{where}: {b}" for b in bad]
-        for heading in (BEHAVIOUR_HEADING, CONTRACT_HEADING):
-            if heading_count(text, heading) != 1:
-                problems.append(f"{where}: needs exactly one `{heading}` section")
-        if not is_japanese(text):
-            problems.append(f"{where}: is not written in Japanese")
+        problems += [f"{where}: {b}" for b in bad] + doc_problems(where, text)
         if not bad and not edits:
             problems.append(f"{where}: the contract names no file it edits; add an "
                             f'{{"edits": <file>}} line for each existing file it touches')
@@ -3981,12 +3965,7 @@ def design_problems(docs: dict[str, str], acs: dict[str, str],
             if p["in"] not in edits:
                 problems.append(f"{where}: provides `{p['sig']}` in {p['in']}, which is not "
                                 f"one of the files it edits")
-            bare = shapeless_types(p["sig"])
-            if bare:
-                problems.append(
-                    f"形: {cid} provides `{p['sig']}` with {', '.join(bare)} left "
-                    f"unparameterised; a later module is handed this line and nothing "
-                    f"else, so the contents have to be in it ({LANGUAGE['shape_example']})")
+        problems += shape_problems(cid, provides)
         criteria, bad_ac = parse_ac(acs.get(cid), f"ac/{cid}.json", every_case=False)
         problems += bad_ac
         modules[cid] = {
@@ -4230,13 +4209,13 @@ tests -- stay in English.
 """
 
 
-def module_context(module: dict, modules: dict[str, dict], overview: str) -> str:
+def module_context(module: dict, modules: dict[str, dict], deps: list[str],
+                   overview: str) -> str:
     """ソルバーに渡す背景。システムの目的、置き方、自分の設計、依存先の振る舞い。
 
     ソルバーは docs/ を読めないので、要る部分だけをランナーが渡す。署名は契約の
     節から別に渡す（dep_contracts と render_provides）。
     """
-    deps = module_deps(modules)[module["id"]]
     behaviours = "\n\n".join(
         f"### {dep}\n{section(modules[dep]['doc'], BEHAVIOUR_HEADING) or '(not written)'}"
         for dep in deps) or "(none -- this module uses no other module of this design)"
@@ -4302,7 +4281,7 @@ def build_tasks(modules: dict[str, dict], stage: dict) -> dict:
             "expected_tests": len(module["criteria"]),
             "max_attempts": 3,
             "design": module["design"],
-            "context": module_context(module, modules, overview),
+            "context": module_context(module, modules, deps[mid], overview),
         })
     return {"version": 2, "language": stage.get("language") or LANGUAGE["name"],
             "framework": stage.get("framework") or LANGUAGE["framework"],
@@ -5000,7 +4979,7 @@ def cmd_basic_draft(language: str | None, framework: str | None,
     if mode and not stage.get("mode"):
         stage = write_stage(mode=mode)
     use_stage_language(stage)
-    refused = unity_problem()
+    refused = unity_problem() or encoding_problem()
     if refused:
         return refuse(refused)
     spec = spec_text()
@@ -5217,11 +5196,10 @@ def cmd_modules_critique() -> int:
     CRITIQUE.write_text(json.dumps({"digest": digest, "findings": findings["modules"]},
                                    ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     CRITIQUE.chmod(0o644)
-    write_critique_for_human(1, findings, waiting=False)
+    write_critique_for_human(findings)
     write_stage(critiqued=digest)
     commit_paths([CRITIQUE, STAGE_FILE, LEDGER], "plan: critique the module design",
                  "the critique")
-    # 行頭の `=== critique ` は、swa_now.py が走行ログから指摘を探す目印。
     print("=== critique of the module design ===")
     print(render_findings(findings))
     print("next: modules approve, or write a comment and run modules draft again")
@@ -5813,6 +5791,41 @@ A design that changes behaviour one of these tests checks cannot go green while
 that test stands. Say so in the basic design, so the person can remove or
 change the test before the modules are built.
 """
+
+
+def encoding_problem() -> str | None:
+    """既存のモードで、柵の中に UTF-8 で読めないソースがあれば断る文。無ければ None。
+
+    ランナーは git の出力もファイルも UTF-8 で読み、読めなければ途中で落ちる。
+    DXライブラリの既存のプロジェクトは Shift_JIS のことが多い。設計を書かせる前に
+    ファイルを挙げて止める。
+    """
+    if not existing_mode():
+        return None
+    suffixes = set(LANGUAGE["module_suffixes"]) | set(LANGUAGE["test_suffixes"])
+    try:
+        listing = run(["git", "ls-tree", "-r", "-z", "--name-only", "HEAD", "--",
+                       LAYOUT["src"], LAYOUT["tests"]])
+    except OSError:
+        return None
+    if listing.returncode != 0:
+        return None
+    unreadable = []
+    for path in listing.stdout.split("\0"):
+        if Path(path).suffix not in suffixes:
+            continue
+        shown = subprocess.run(["git", "show", f"HEAD:{path}"], cwd=str(PROJECT),
+                               capture_output=True)
+        try:
+            shown.stdout.decode("utf-8")
+        except UnicodeDecodeError:
+            unreadable.append(path)
+    if not unreadable:
+        return None
+    more = f" and {len(unreadable) - 10} more" if len(unreadable) > 10 else ""
+    return (f"refusing: these source files are not UTF-8: {', '.join(unreadable[:10])}{more}; "
+            f"the runner and the agents read source as UTF-8. Convert them to UTF-8 (with a "
+            f"BOM if the IDE needs one), commit, and run again")
 
 
 def head_sources(paths: list[str]) -> dict[str, str]:
@@ -7188,41 +7201,30 @@ write a criterion about the text of index.html.
     if shortened:
         existing = [csharp_short_declaration(line) for line in existing]
     existing_text = ""
-    if existing and existing_mode():
-        existing_text = layout_text("""
-# What the code already declares
-
-The repository already has code under {SRC}/. These are its public
-declarations, read from the last commit. They exist before the first module is
-built.
-
-A module or change that uses one of these writes a requires line for it, with
-`from` naming its file under {SRC}/ without the extension. A file listed here
-is only ever touched by a change, never rewritten by a module.
-
-Do not write criteria to show that the rest still works. The tests already in
-the repository run on every module and change, and one that breaks any of them
-is not green. That is how unchanged behaviour is kept.
-
-""")
-    elif existing:
-        existing_text = layout_text("""
-# What the code already declares
-
-The repository already has code under {SRC}/. These are its public
-declarations, read from the last commit. They exist before the first module is
-built.
-
-A module that uses one of these writes a requires line for it, with `from`
-naming its file under {SRC}/ without the extension. A module of this design
+    if existing:
+        # 既存のモードでは、既存のファイルは変更だけが触る。新規のモードでは、
+        # 同じパスのモジュールが書き直す。
+        unit = "module or change" if existing_mode() else "module"
+        touched = ("""A file listed here
+is only ever touched by a change, never rewritten by a module.""" if existing_mode() else
+                   """A module of this design
 whose path is that file rewrites it: its stub replaces only the names it
 provides, and every other declaration in the file keeps its real, working code
 while the tests first run. So a criterion that is already true because of code
 the module does not change passes against the stub, and RED_GATE stops the
-module (R4). Write each criterion so that it calls a name the module provides.
+module (R4). Write each criterion so that it calls a name the module provides.""")
+        existing_text = layout_text(f"""
+# What the code already declares
+
+The repository already has code under {{SRC}}/. These are its public
+declarations, read from the last commit. They exist before the first module is
+built.
+
+A {unit} that uses one of these writes a requires line for it, with
+`from` naming its file under {{SRC}}/ without the extension. {touched}
 
 Do not write criteria to show that the rest still works. The tests already in
-the repository run on every module, and a module that breaks one of them is not
+the repository run on every {unit}, and one that breaks any of them is not
 green. That is how unchanged behaviour is kept.
 
 """)
@@ -7427,8 +7429,6 @@ def render_findings(by_mode: dict[str, list[dict]]) -> str:
             evidence = str(finding.get("evidence", "")).strip()
             unseen = finding.get("machine_would_notice") is False
             lines.append(f"{n}. {title}")
-            if finding.get("rewritten"):
-                lines.append("   REWRITTEN BY THE HUMAN")
             if unseen:
                 lines.append("   NO GATE WOULD CATCH THIS")
             if evidence:
@@ -7438,7 +7438,7 @@ def render_findings(by_mode: dict[str, list[dict]]) -> str:
 
 
 def plain_findings(by_mode: dict[str, list[dict]]) -> dict[str, list[dict]]:
-    """人に見せて書き換えさせる形。クリティックの書いた余計なキーは落とす。"""
+    """人に見せる形。クリティックの書いた余計なキーは落とす。"""
     return {mode: [{"title": str(f.get("title", "")).strip(),
                     "evidence": str(f.get("evidence", "")).strip(),
                     "machine_would_notice": f.get("machine_would_notice")}
@@ -7446,19 +7446,17 @@ def plain_findings(by_mode: dict[str, list[dict]]) -> dict[str, list[dict]]:
             for mode, findings in by_mode.items()}
 
 
-def write_critique_for_human(round_no: int, by_mode: dict[str, list[dict]],
-                             waiting: bool) -> None:
-    """人が読んで直す写しを書く。waiting なら、人が直してよい。
+def write_critique_for_human(by_mode: dict[str, list[dict]]) -> None:
+    """人が読む写しを書く。
 
     一時ファイルから置き換える。human/in は sticky だが、ランナーはディレクトリの
-    所有者なので、保守ユーザーが作り直したファイルでも置き換えられる。
+    所有者なので、保守ユーザーが作ったファイルでも置き換えられる。
     """
-    value = {"round": round_no, "waiting": waiting,
-             "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "modes": by_mode}
+    value = {"at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "modes": by_mode}
     temporary = CRITIQUE_FOR_HUMAN.with_name(CRITIQUE_FOR_HUMAN.name + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n",
                          encoding="utf-8")
-    temporary.chmod(0o660)
+    temporary.chmod(0o640)
     os.replace(temporary, CRITIQUE_FOR_HUMAN)
 
 

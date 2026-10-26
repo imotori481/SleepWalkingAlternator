@@ -420,15 +420,12 @@ cmd_refs() {
   esac
 }
 
-# クリティックの指摘を見せ、直す。sudo を使わない。写しはグループ humanw に
-# 書き込みを許してある。中身は swa_findings.py。
+# クリティックの指摘を見せる。sudo を使わない。写しはグループ humanw が読める。
+# 中身は swa_findings.py。
 cmd_findings() {
   case "${1:-show}" in
     show) python3 "$ENGINE/provision/swa_findings.py" show "$CRITIQUE" ;;
-    set)
-      running && die "走っている間は直せない"
-      python3 "$ENGINE/provision/swa_findings.py" set "$CRITIQUE" ;;
-    *) die "使い方: swa findings [show | set]" ;;
+    *) die "使い方: swa findings [show]" ;;
   esac
 }
 

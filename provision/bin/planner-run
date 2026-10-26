@@ -22,40 +22,9 @@ LIMIT="${2:-900}"
 
 OUT=/srv/swa/planner/out
 
-# 資格情報。CLAUDE_CODE_OAUTH_TOKEN は `claude setup-token` で作るサブスクリプション
-# のトークン。ANTHROPIC_API_KEY_CONSOLE は予備に置く従量課金の Console クレジット。
-# export するのはちょうど1つなので、どちらが代金を払ったかが曖昧にならない。
-# トークンが無いときは、分かりにくい認証エラーではなく課金に切り替わる。
-if [ -r /etc/swa/planner.env ]; then
-  set -a
-  . /etc/swa/planner.env
-  set +a
-fi
-if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-  if [ -n "${ANTHROPIC_API_KEY_CONSOLE:-}" ]; then
-    export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY_CONSOLE"
-    echo "planner-run: サブスクリプションのトークンが無いので、Console のクレジットを使う" >&2
-  else
-    echo "planner-run: /etc/swa/planner.env に資格情報が無い" >&2
-    echo "    サブスクリプション（推奨）: sudo -u planner -H claude setup-token で発行して書く" >&2
-    exit 3
-  fi
-fi
-unset ANTHROPIC_API_KEY_CONSOLE
-
-# モデルと effort。planner.env の SWA_MODEL を --model で、SWA_EFFORT を
-# --effort で渡す。空ならアカウントの既定。effort の値が間違っていたら、claude を
-# 呼ぶ前に止める。claude 側で落ちると、ランナーはそれを設計の失敗と扱う。
-role_args=()
-if [ -n "${SWA_MODEL:-}" ]; then
-  role_args+=(--model "$SWA_MODEL")
-fi
-if [ -n "${SWA_EFFORT:-}" ]; then
-  case "$SWA_EFFORT" in
-    low|medium|high|xhigh|max) role_args+=(--effort "$SWA_EFFORT") ;;
-    *) echo "planner-run: bad SWA_EFFORT in planner.env: $SWA_EFFORT" >&2; exit 5 ;;
-  esac
-fi
+# 資格情報、モデルと effort、使い捨ての HOME。中身は agent-common.sh。
+. /srv/swa/bin/agent-common.sh
+agent_setup planner-run planner
 
 # サブエージェント。planner.env の SWA_SUBAGENT_MODEL が空でなければ、そのモデルで
 # 動く読むだけの助手 scout を --agents で定義し、Agent ツールで呼ばせる。空なら何も
@@ -66,12 +35,7 @@ agent_tools=""
 agent_allow=""
 agent_args=()
 agent_note=""
-if [ -n "${SWA_SUBAGENT_MODEL:-}" ]; then
-  if ! [[ "$SWA_SUBAGENT_MODEL" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "planner-run: bad SWA_SUBAGENT_MODEL in planner.env: $SWA_SUBAGENT_MODEL" >&2
-    exit 5
-  fi
-  export CLAUDE_CODE_SUBAGENT_MODEL="$SWA_SUBAGENT_MODEL"
+if agent_subagent_model planner-run planner; then
   agent_tools=",Agent"
   agent_allow=" Agent(scout)"
   agent_args=(--agents "$(cat <<EOF
@@ -87,15 +51,6 @@ EOF
 )")
   agent_note=" A read-only helper on a smaller model, scout, is available through the Agent tool. Delegate wide searches of the existing code to it. Write the design yourself."
 fi
-
-# 呼び出しごとに使い捨ての HOME を作る。Claude Code は設定、ポリシー、
-# バックアップの状態を HOME に書く。毎回新しくすれば、ある計画の呼び出しから次へ
-# 何も持ち越せない。`--bare` なら1つのフラグで済むが、--bare は OAuth を拒む。
-# サブスクリプションのトークンはまさに OAuth だ（2026-08-18 に実測）。残された
-# ものを監査する手もあるが、残す場所そのものが無いほうがよい。
-HOME="$(mktemp -d)"
-export HOME
-trap 'rm -rf "$HOME"' EXIT
 
 # 書いたファイルをグループ plannerw で書けるようにする。ランナーは次の呼び出しの
 # 前に out/ を空にする。プランナーが作ったディレクトリが 755 だと、その中を

@@ -27,46 +27,11 @@ LIMIT="${2:-900}"
 
 OUT=/srv/swa/critic/out
 
-# 自分の資格情報を、自分のファイルに置き、1つの uid だけが読める。プランナーと
-# 同じ理屈で、利用枠を使い切った役が別の役の実行を止められてはならず、1つが
-# 破られても別の役の資格情報が渡ってはならない。
-if [ -r /etc/swa/critic.env ]; then
-  set -a
-  . /etc/swa/critic.env
-  set +a
-fi
-if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-  if [ -n "${ANTHROPIC_API_KEY_CONSOLE:-}" ]; then
-    export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY_CONSOLE"
-    echo "critic-run: サブスクリプションのトークンが無いので、Console のクレジットを使う" >&2
-  else
-    echo "critic-run: /etc/swa/critic.env に資格情報が無い" >&2
-    echo "    サブスクリプション（推奨）: sudo -u critic -H claude setup-token で発行して書く" >&2
-    exit 3
-  fi
-fi
-unset ANTHROPIC_API_KEY_CONSOLE
-
-# モデルと effort。critic.env の SWA_MODEL を --model で、SWA_EFFORT を
-# --effort で渡す。空ならアカウントの既定。effort の値が間違っていたら、claude を
-# 呼ぶ前に止める。
-role_args=()
-if [ -n "${SWA_MODEL:-}" ]; then
-  role_args+=(--model "$SWA_MODEL")
-fi
-if [ -n "${SWA_EFFORT:-}" ]; then
-  case "$SWA_EFFORT" in
-    low|medium|high|xhigh|max) role_args+=(--effort "$SWA_EFFORT") ;;
-    *) echo "critic-run: bad SWA_EFFORT in critic.env: $SWA_EFFORT" >&2; exit 5 ;;
-  esac
-fi
-
-# planner-run と同じく、呼び出しごとに使い捨ての HOME を作る。ここでは2つ目の
-# 意味もある。同じ計画への2つの批評が、覚えていることで互いに合わせられては
-# ならない。どれもブリーフだけから始める。
-HOME="$(mktemp -d)"
-export HOME
-trap 'rm -rf "$HOME"' EXIT
+# 資格情報、モデルと effort、使い捨ての HOME。中身は agent-common.sh。
+# 使い捨ての HOME には、ここでは2つ目の意味もある。同じ計画への2つの批評が、
+# 覚えていることで互いに合わせられてはならない。どれもブリーフだけから始める。
+. /srv/swa/bin/agent-common.sh
+agent_setup critic-run critic
 
 cd "$OUT"
 

@@ -4,8 +4,8 @@
 パスワードを訊けない。台帳のある plan/ は runner だけが読めるので、ここで読むのは
 /srv/swa/logs だけだ。ここは humanw 経由で保守ユーザーが読める。
 
-今の回のトークン数も、クリティックの指摘も、ログから読む。写しの台帳に届くのは
-コミットのときだけで、設計を書いている途中や、批評の前に止まったときには届かない。
+今の回のトークン数は、ログから読む。写しの台帳に届くのはコミットのときだけで、
+設計を書いている途中や、批評の前に止まったときには届かない。
 """
 
 from __future__ import annotations
@@ -19,14 +19,11 @@ import time
 
 ROLES = ("planner", "critic", "solver")
 
-# 行の形は swa（finish と step）と swa.py（record_usage と cmd_modules_critique）が決める。
-# 変えるときはここも合わせる。
+# 行の形は swa（finish）と swa.py（record_usage）が決める。変えるときはここも合わせる。
 SWA_HEADER = re.compile(r"^=== swa (\w+) 開始 \((\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)\)")
-STEP_HEADER = re.compile(r"^--- swa\.py .* \((\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)\)$")
 USAGE = re.compile(r"^\[USAGE\] who=(\w+) ")
 FIELD = re.compile(r"(\w+)=(\S+)")
 KINDS = ("input", "cache_write", "cache_read", "output")
-CRITIQUE_HEADER = "=== critique "
 ALL_GREEN = "全モジュールが緑"
 
 
@@ -94,7 +91,7 @@ def add_usage(loop: dict, line: str) -> None:
 
 
 def current_loop(paths: list[str]) -> dict | None:
-    """最後の `swa go` から後のログを足し、今の回のトークン数と最後の指摘を返す。
+    """最後の `swa go` から後のログを足し、今の回のトークン数を返す。
 
     1回は `swa go` から完了まで。途中の承認、差し戻し、`swa continue` は同じ回に入る。
     `swa go` のログが無ければ None。
@@ -111,27 +108,12 @@ def current_loop(paths: list[str]) -> dict | None:
             loop = {"started": stamp(header.group(2), header.group(3)), "calls": 0,
                     "tokens": dict.fromkeys(ROLES, 0),
                     "kinds": {role: dict.fromkeys(KINDS, 0) for role in ROLES},
-                    "usd": dict.fromkeys(ROLES, 0.0), "critique": None}
+                    "usd": dict.fromkeys(ROLES, 0.0)}
         if loop is None:
             continue
-        at = None
-        block = None
         for line in lines:
-            if block is not None:
-                if not line.startswith(("[", "===", "---", "next:")):
-                    block.append(line)
-                    continue
-                loop["critique"] = {"at": at, "text": "\n".join(block).strip()}
-                block = None
-            step = STEP_HEADER.match(line)
-            if step:
-                at = stamp(step.group(1), step.group(2))
             if USAGE.match(line):
                 add_usage(loop, line)
-            if line.startswith(CRITIQUE_HEADER):
-                block = [line]
-        if block is not None:
-            loop["critique"] = {"at": at, "text": "\n".join(block).strip()}
     return loop
 
 

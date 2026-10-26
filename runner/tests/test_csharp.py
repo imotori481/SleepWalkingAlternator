@@ -470,6 +470,46 @@ namespace Logic
             {"files_write": ["src/Game-Logic/Board.cs"],
              "contracts": {"provides": ["src/Game-Logic/Board.cs: class Board { }"]}}, [], {}))
 
+    def beside(self, files: dict[str, str], step: dict) -> dict[str, str]:
+        """作業ツリーに `files` を置いて、スタブを書く。"""
+        with tempfile.TemporaryDirectory() as t:
+            for rel, text in files.items():
+                (Path(t) / rel).parent.mkdir(parents=True, exist_ok=True)
+                (Path(t) / rel).write_text(text, encoding="utf-8")
+            with mock.patch.object(swa, "PROJECT", Path(t)):
+                return swa.generate_stub(step, [], {})
+
+    RULES = {"files_write": ["src/Core/Rules.cs"],
+             "contracts": {"provides": ["src/Core/Rules.cs: static int Rules.Level(int saved)"]}}
+
+    def test_a_new_file_beside_global_files_has_no_namespace(self):
+        # thm02 の Core/ はグローバルに書かれ、フォルダから作った namespace Core の
+        # スタブがテストから見えず、CS0103 で落ちていた。
+        text = self.beside({
+            "src/Core/Define.cs": "namespace Constant { public static class cst { } }\n"
+                                  "public enum GameMode { A }\n",
+            "src/Core/SaveManager.cs": "public class SaveManager { }\n",
+            "src/Core/GameDataManager.cs": "public class GameDataManager { }\n",
+        }, self.RULES)["src/Core/Rules.cs"]
+        self.assertNotIn("namespace", text)
+        self.assertIn("public class Rules\n{\n", text)
+
+    def test_a_new_file_takes_the_namespace_most_files_beside_it_use(self):
+        text = self.beside({
+            "src/Core/A.cs": "namespace Game.Core { public class A { } }\n",
+            "src/Core/B.cs": "namespace Game.Core { public class B { } }\n",
+            "src/Core/C.cs": "public class C { }\n",
+        }, self.RULES)["src/Core/Rules.cs"]
+        self.assertIn("namespace Game.Core\n", text)
+
+    def test_an_even_split_or_an_empty_folder_follows_the_folder(self):
+        for files in ({"src/Core/A.cs": "namespace X { public class A { } }\n",
+                       "src/Core/B.cs": "public class B { }\n"},
+                      {"src/Core/Notes.cs": "// no type\n"}, {}):
+            with self.subTest(files=sorted(files)):
+                text = self.beside(files, self.RULES)["src/Core/Rules.cs"]
+                self.assertIn("namespace Core\n", text)
+
     def test_the_marked_exception_is_red_and_an_unmarked_one_is_not(self):
         marked = swa.failure_kind(self.failure("System.NotImplementedException : __stub__"))
         self.assertEqual(marked, "StubNotImplemented")

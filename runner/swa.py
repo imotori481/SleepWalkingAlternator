@@ -1035,10 +1035,15 @@ Keep it thin, and put the behaviour it starts in classes the tests can call.
 """
 
 # Unity と Promete の layout_note に共通の、ファイルと名前空間の決まり。
-CSHARP_NAMESPACE_NOTE = """A new file's namespace follows its folder under {SRC}/
-(`{SRC}/Logic/Board.cs` -> `namespace Logic`). A file that already exists keeps
-the namespace it has: a declaration read from it ends in `-- namespace <name>`,
-and code that uses it writes `using <name>;`.
+CSHARP_NAMESPACE_NOTE = """A new file takes the namespace that most `.cs` files already in its
+folder use, counting the namespace of each file's first type. When those
+files declare no namespace, the new file declares none either: it is in the
+global namespace, and code uses it without a `using`. In a folder with no
+`.cs` file yet, or one whose files are split evenly, the namespace follows
+the folder under {SRC}/ (`{SRC}/Logic/Board.cs` -> `namespace Logic`). A
+file that already exists keeps the namespace it has: a declaration read from
+it ends in `-- namespace <name>`, and code that uses it writes
+`using <name>;`.
 
 """
 
@@ -2878,17 +2883,50 @@ def csharp_type_block(entry: dict) -> str:
 
 
 def csharp_namespace(path: str) -> str | None:
-    """新しいファイルの名前空間。柵の中のフォルダから作る（layout_note の決まり）。
+    """新しいファイルの名前空間（layout_note の決まり）。
 
+    同じフォルダの既存の .cs が多く使う名前空間に合わせる（csharp_folder_namespace）。
+    Unity のプロジェクトは名前空間を持たずに書かれることが多く、フォルダから作ると
+    グローバルの既存のコードから見えない。決まらなければ柵の中のフォルダから作る。
     根にあれば空文字（グローバル名前空間）。識別子にならないフォルダ名なら None。
     """
     prefix = LAYOUT["src"] + "/"
     if not path.startswith(prefix):
         return None
+    beside = csharp_folder_namespace(path)
+    if beside is not None:
+        return beside
     folders = path[len(prefix):].split("/")[:-1]
     if not all(re.fullmatch(r"[A-Za-z_]\w*", f) for f in folders):
         return None
     return ".".join(folders)
+
+
+def csharp_folder_namespace(path: str) -> str | None:
+    """作業ツリーで `path` と同じフォルダにある .cs が、いちばん多く使う名前空間。
+
+    ファイルの名前空間は最初の型のもの（csharp_file_namespace と同じ）。`path` 自身、
+    型の無いファイル、読めないファイルは数えない。数えるファイルが無いか、いちばんが
+    並べば None。
+    """
+    target = PROJECT / path
+    if not target.parent.is_dir():
+        return None
+    counts: dict[str, int] = {}
+    for other in sorted(target.parent.glob("*.cs")):
+        if other == target:
+            continue
+        try:
+            outline = csharp_outline(other.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+        if outline and outline["types"]:
+            ns = outline["types"][0]["namespace"]
+            counts[ns] = counts.get(ns, 0) + 1
+    ranked = sorted(counts.values(), reverse=True)
+    if not ranked or (len(ranked) > 1 and ranked[0] == ranked[1]):
+        return None
+    return max(counts, key=counts.get)
 
 
 def generate_csharp_stub(step: dict, requires: list[str],
@@ -3219,9 +3257,11 @@ with a cast throws InvalidCastException, which the runner rejects. Fields and
 auto-properties (`{{ get; set; }}`) stay as declared: they hold values and have
 no behaviour to stub.
 
-Put each type in the namespace that follows its folder under {LAYOUT["src"]}/,
-and add the `using` directives the signatures need. Implement no behaviour
-whatsoever.
+Put each type of a new file in the namespace that most `.cs` files already in
+its folder use (none declared: no `namespace` at all). With no such file, or
+an even split, use the namespace that follows its folder under
+{LAYOUT["src"]}/. A file that already exists keeps its namespace. Add the
+`using` directives the signatures need. Implement no behaviour whatsoever.
 """
     if LANGUAGE["name"] == "cpp":
         # C++ も番兵の値を使わない。C# と同じ理由で、印の付いた例外を投げる。

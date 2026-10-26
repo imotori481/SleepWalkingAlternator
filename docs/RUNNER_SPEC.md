@@ -802,8 +802,10 @@ TEST_WRITE と IMPL のブリーフは同じ本文（`solver_material`）で始�
   `throw new System.NotImplementedException("__stub__");` にし、フィールドと自動プロパティは
   宣言のまま残す。bool には誤った値が無く、文字列をキャストして押し込む手は
   `InvalidCastException` になる（実測）。R5 はこの印の付いた例外（`StubNotImplemented`）と
-  アサーションだけを赤と認め、印の無い `NotImplementedException` は拒む。名前空間は柵の中の
-  フォルダから作り、ほかのフォルダの型は `using` で持ち込む。契約に Unity の型が現れ、Unity の
+  アサーションだけを赤と認め、印の無い `NotImplementedException` は拒む。新しいファイルの
+  名前空間は、同じフォルダの既存の .cs がいちばん多く使うものにする（各ファイルの最初の型の
+  名前空間で数える。名前空間を持たないファイルが多ければグローバル）。数えるファイルが無いか
+  票が並べば、柵の中のフォルダから作る。ほかの名前空間の型は `using` で持ち込む。契約に Unity の型が現れ、Unity の
   参照があれば `using UnityEngine;` を足す。TEST_WRITE のブリーフは、スタブのフィールドが既定値
   （参照型なら null）であることを伝え、使う前に `Assert.IsNotNull` を置かせる
 - **C# の入れ子の型もランナーが書く。** 契約の `class Board.Cursor` と `int Board.Cursor.Position` は、

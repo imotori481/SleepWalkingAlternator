@@ -55,8 +55,8 @@ class WhichLanguage(Language):
         with self.assertRaises(SystemExit):
             self.speak("js")
 
-    def test_the_four_are_the_whole_list(self):
-        self.assertEqual(sorted(LANGUAGES), ["cpp", "csharp", "python", "typescript"])
+    def test_the_five_are_the_whole_list(self):
+        self.assertEqual(sorted(LANGUAGES), ["cpp", "csharp", "python", "rust", "typescript"])
 
 
 class WhereTheCodeGoes(Language):

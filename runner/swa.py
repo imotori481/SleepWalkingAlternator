@@ -37,6 +37,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -102,6 +103,8 @@ def layout_text(text: str) -> str:
     プランナーに渡す場所は、書き写さずに、ランナーが実際に強制するものから取る。
     """
     from_tests = os.path.relpath(LAYOUT["src"], LAYOUT["tests"]).replace(os.sep, "/")
+    if "{CRATE}" in text:
+        text = text.replace("{CRATE}", rust_import_name())
     return (text.replace("{SRC_FROM_TESTS}", from_tests)
             .replace("{SRC}", LAYOUT["src"]).replace("{TESTS}", LAYOUT["tests"]))
 
@@ -674,8 +677,11 @@ def assert_touched(phase: str, allowed: list[str]) -> None:
     git が答え、solver は git に届かない（.git は 0700 runner）。
     """
     allowed_set = set(allowed)
+    # Rust のクレートの根の宣言はランナーが書く。区画の中だけが変わったファイルは数えない。
+    rust_write_mods()
     actual = touched_paths() | tests_changed(TESTS_BEFORE)
-    stray = sorted(actual - allowed_set)
+    stray = sorted(p for p in actual - allowed_set
+                   if not (LANGUAGE["name"] == "rust" and rust_only_mods_changed(p)))
     if stray:
         raise Halt(
             phase,
@@ -741,6 +747,26 @@ CSHARP_SHAPELESS = frozenset({
 CPP_SHAPELESS = frozenset({
     "vector", "map", "unordered_map", "set", "unordered_set", "multimap",
     "multiset", "list", "deque", "array", "pair", "tuple", "any", "function",
+})
+
+# Rust のツールチェーンと置き場。説明は下の「Rust」の節。
+RUST_HOME = Path("/opt/swa/rust")
+RUSTUP_HOME = RUST_HOME / "rustup"
+RUST_BIN = RUST_HOME / "cargo" / "bin"
+CARGO = RUST_BIN / "cargo"
+# 箱に入っている版。38-rust.sh が書く。{"stable": "1.97.0", "nightly": "nightly-2026-11-01",
+# "toolchains": [...]}。
+RUST_TOOLCHAINS = RUST_HOME / "toolchains.json"
+# ビルドの成果物と nextest の設定。runner だけが入れる。プロジェクトごとに分ける。
+RUST_BUILD = SWA / "rust"
+# swa-fetch-crates が置く、プロジェクトごとのクレートのソース。root のもので、runner は読むだけ。
+RUST_VENDOR = SWA / "rust-vendor"
+RUST_FETCH = Path("/usr/local/sbin/swa-fetch-crates")
+RUST_EDITION = "2024"
+RUST_STUB_BODY = 'unimplemented!("__stub__")'
+RUST_SHAPELESS = frozenset({
+    "Vec", "VecDeque", "HashMap", "HashSet", "BTreeMap", "BTreeSet", "BinaryHeap",
+    "LinkedList", "Box", "Rc", "Arc", "Any",
 })
 
 
@@ -1016,6 +1042,82 @@ function:
 The names are `Board`, `Board::score` and `countLines`; requires and provides
 match on those names.""",
     },
+    # Rust は、ライブラリのクレートを cargo-nextest の結合テストで確かめる。テストは
+    # tests/ の直下のファイル1つが1つのバイナリで、クレートを `use` で使う。
+    # Cargo.toml はクレートの根に置き、人が Windows 側でも同じ cargo でビルドする。
+    #
+    # 契約の名前は、型（`Board`）、メソッド（`Board::score`）、自由関数（`count_lines`）の
+    # 3つの単位を持つ。メソッドは `pub fn Board::score(&self) -> u32` と型を前に書く。
+    "rust": {
+        "name": "rust",
+        "label": "Rust",
+        "default_framework": "none",
+        "test_runner": CARGO,
+        "wiring": None,
+        "environment_files": frozenset({"Cargo.toml", "Cargo.lock", "rust-toolchain.toml"}),
+        "naming_note": """
+A test is a function with `#[test]`, and its name is an identifier in
+snake_case (`score_counts_every_row`). Do not copy the criterion's prose into it.
+""",
+        "stub_shape": "a stub whose functions panic",
+        "stub_note": f"""
+THE STUB, IN RUST. Every function and method this step provides panics with
+`{RUST_STUB_BODY}`, and a test that dies on that panic counts as red. The
+fields of a struct this step provides are declared as they are, so a test can
+build one with a struct literal, but every method on it panics.
+
+A test that indexes past the end of a Vec, or unwraps a None, is not red, it is
+broken: the panic says nothing about the code. So build the values a test needs
+itself, check a length with `assert!(v.len() >= n)` before indexing, and match
+on an Option instead of unwrapping it.
+""",
+        "fixable_crashes": re.compile(r"^(?:IndexOutOfBounds|UnwrapNone|UnwrapErr)$"),
+        "provides_pattern": re.compile(
+            r"\b(?:struct|enum|trait|type|union)\s+([A-Za-z_]\w*)"
+            r"|\bfn\s+([A-Za-z_]\w*::[A-Za-z_]\w*)\s*[<(]"
+            r"|\bfn\s+([A-Za-z_]\w*)\s*[<(]"
+            r"|\b(?:const|static)\s+([A-Za-z_]\w*)\s*:"),
+        "shape_pattern": word_shape_pattern(r"(?<![\w:])(?:std::collections::)?",
+                                            RUST_SHAPELESS),
+        "red_kinds": re.compile(r"^(?:AssertionFailure|StubNotImplemented)$"),
+        "source_suffix": ".rs",
+        "test_suffixes": (".rs",),
+        # テストの前にビルドする。初回はクレートをすべてコンパイルする。
+        "min_test_timeout": 900,
+        "index_name": "mod",
+        "module_separator": "/",
+        "shapeless": RUST_SHAPELESS,
+        "shape_bracket": "<",
+        "shape_example": "Vec<Cell>, HashMap<String, u32>, (Board, u32)",
+        "name_boundary": r"[\w]",
+        "module_suffixes": (".rs",),
+        "layout_note": """Every source file is `.rs` under {SRC}/, e.g. `{SRC}/game/board.rs`. The crate is
+a library, and the runner writes every `mod` declaration: `{SRC}/lib.rs` and
+each folder's `mod.rs` get a `pub mod` line for every `.rs` file under them,
+inside a block marked `swa:mods`. Never write a `mod` line and never edit that
+block. A module's path is its file's path: `{SRC}/game/board.rs` is
+`{CRATE}::game::board`.
+
+Every test file is `.rs` directly in {TESTS}/, with no folders: cargo builds
+each one as its own test binary, and the runner selects a module's tests by
+the file's name. A test uses the crate as a library -- `use
+{CRATE}::game::board::Board;` -- so it reaches only what is `pub`. Write tests
+with `#[test]`, `assert_eq!(expected, actual)`, `assert!` and `matches!`; there
+is no other test framework.
+
+Write every file in UTF-8. Do not use `unsafe`. Crates other than the standard
+library are only the ones the basic design names.
+
+""",
+        "contract_note": """A provides line is the declaration as Rust writes it, without its body. A method
+is written with its type in front of its name:
+    {"provides": "pub struct Board { pub width: u32, pub height: u32 }"}
+    {"provides": "pub fn Board::score(&self) -> u32"}
+    {"provides": "pub fn count_lines(board: &Board) -> usize"}
+    {"provides": "pub enum Stone { Black, White }"}
+The names are `Board`, `Board::score`, `count_lines` and `Stone`; requires and
+provides match on those names.""",
+    },
 }
 
 # --------------------------------------------------------------------------
@@ -1209,6 +1311,13 @@ suite, named after the file (`{TESTS}/BoardTest.cpp` holds `TEST(BoardTest,
                               *cpp_facts()),
         },
     },
+    "rust": {
+        # 普通のライブラリのクレート。stable のツールチェーンで、ホストでテストする。
+        "none": {
+            "rust_channel": "stable",
+            "facts": lambda: rust_facts(),
+        },
+    },
 }
 
 
@@ -1279,6 +1388,8 @@ def failure_kind(failure: ET.Element) -> str:
         return csharp_failure_kind(failure)
     if LANGUAGE["name"] == "cpp":
         return cpp_failure_kind(failure)
+    if LANGUAGE["name"] == "rust":
+        return rust_failure_kind(failure)
     declared = (failure.get("type") or "").strip()
     if declared:
         return declared
@@ -1711,6 +1822,12 @@ def test_owner(name: str) -> str:
     ビルドの失敗はテストファイルのパスで来るので、ファイル名の stem にする。
     ほかの言語は classname をそのまま使う。
     """
+    if LANGUAGE["name"] == "rust":
+        # nextest の classname は "<クレート>::<テストのバイナリ>"。バイナリは tests/ の
+        # ファイルの名前だ。ビルドの失敗はファイルのパスで来る。
+        if "/" in name or name.endswith(".rs"):
+            return Path(name).stem
+        return name.rsplit("::", 1)[-1]
     if LANGUAGE["name"] != "csharp":
         return name
     if "/" in name or name.endswith(".cs"):
@@ -1946,6 +2063,547 @@ def cpp_failure_kind(failure: ET.Element) -> str:
     return "AssertionFailure" if message.strip() else "<no type>"
 
 
+
+# --------------------------------------------------------------------------
+# Rust
+# --------------------------------------------------------------------------
+#
+# ツールチェーンは 38-rust.sh が /opt/swa/rust に入れて凍結する。stable と、日付で
+# 固定した nightly の両方があり、どちらを使うかはリポジトリの rust-toolchain.toml が
+# 決める（新規のモードではランナーが書く）。テストは cargo-nextest で走らせ、junit を
+# 作業ツリーの外に書かせる。
+#
+# クレートは基本設計の承認の後に1回だけ取りに行く（crates fetch）。root の
+# swa-fetch-crates が cargo vendor で RUST_VENDOR に置き、後のビルドとテストはそこだけを
+# 見て、外に出ない。
+#
+# クレートの根の `pub mod` の行は、ランナーが柵の中のファイルから書く（rust_write_mods）。
+# 中身が1つに決まる行で、設計の判断が入らない。だから設計の単位は1ファイルのまま保つ。
+# 基本設計の、使うクレートの節。中の ```toml crates のブロックが [dependencies] の表になる。
+CRATES_HEADING = "## 使うクレート"
+CRATES_BLOCK = re.compile(r"```toml\s+crates\s*\n(.*?)```", re.S)
+CRATE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+CRATE_VERSION = re.compile(r"[=^~<>]*\s*\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?"
+                           r"(?:\s*,\s*[=^~<>]*\s*\d+(?:\.\d+){0,2})?")
+# 依存の表で許すキー。path と git は vendor の外を指すので許さない。
+CRATE_KEYS = {"version", "features", "default-features", "optional", "package"}
+RUST_MODS_BEGIN = ("// swa:mods begin -- the runner writes this block from the files "
+                   "under the fence; do not edit")
+RUST_MODS_END = "// swa:mods end"
+RUST_MODS_BLOCK = re.compile(re.escape(RUST_MODS_BEGIN) + r".*?" + re.escape(RUST_MODS_END)
+                             + r"\n?", re.S)
+RUST_MOD_LINE = re.compile(r"^[ \t]*(?:#\[[^\]\n]*\][ \t]*)*(?:pub(?:\([^)\n]*\))?[ \t]+)?"
+                           r"mod[ \t]+(r#)?([A-Za-z_]\w*)[ \t]*;", re.M)
+# クレートの根と、ディレクトリそのものを表すファイル。モジュールの子にはならない。
+RUST_ROOT_NAMES = ("lib.rs", "main.rs", "mod.rs")
+# rustc のエラーの行と、その場所の行。
+RUST_ERROR = re.compile(r"^error(?:\[E\d+\])?: (.+)\n(?:[ \t]*\n)*[ \t]*--> ([^:\n]+):(\d+):\d+",
+                        re.M)
+RUST_PANIC = re.compile(r"panicked at ([^:\n]+):\d+:\d+:\n(.*)", re.S)
+# スタブの panic と、テストの書き手の誤りで起きる panic。
+RUST_RUNTIME_PANICS = (
+    (re.compile(r"^not implemented: __stub__\s*$"), "StubNotImplemented"),
+    (re.compile(r"^index out of bounds"), "IndexOutOfBounds"),
+    (re.compile(r"^called `Option::unwrap\(\)` on a `None` value"), "UnwrapNone"),
+    (re.compile(r"^called `Result::unwrap\(\)` on an `Err` value"), "UnwrapErr"),
+    (re.compile(r"^attempt to .* with overflow"), "Overflow"),
+    (re.compile(r"^attempt to divide by zero|^attempt to calculate the remainder"),
+     "DivideByZero"),
+    (re.compile(r"^not implemented|^not yet implemented"), "NotImplemented"),
+)
+
+
+def rust_crate_dir() -> Path:
+    """Cargo.toml を置くディレクトリ。柵のコードの場所の親。"""
+    parent = Path(LAYOUT["src"]).parent
+    return PROJECT if str(parent) in ("", ".") else PROJECT / parent
+
+
+def rust_problem() -> str | None:
+    """Rust の走行を始められない理由。Rust でなければ None。
+
+    cargo は結合テストを、Cargo.toml の隣の tests/ からしか拾わない。
+    """
+    if LANGUAGE["name"] != "rust":
+        return None
+    crate = rust_crate_dir()
+    want = (crate / "tests").relative_to(PROJECT).as_posix()
+    if LAYOUT["tests"] != want or Path(LAYOUT["src"]).name != "src":
+        return (f"refusing: a Rust crate keeps its code in <crate>/src and its tests in "
+                f"<crate>/tests; the fences are {LAYOUT['src']} and {LAYOUT['tests']}, so "
+                f"the tests fence has to be {want}")
+    if existing_mode():
+        manifest = crate / "Cargo.toml"
+        if not manifest.is_file():
+            return f"refusing: there is no {manifest.relative_to(PROJECT)} for the crate"
+        try:
+            value = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as error:
+            return f"refusing: {manifest.relative_to(PROJECT)} is not readable TOML: {error}"
+        if "package" not in value:
+            return ("refusing: the Cargo.toml has no [package]; a workspace of several "
+                    "crates is not supported yet")
+    return None
+
+
+def rust_toolchains() -> dict:
+    try:
+        value = json.loads(RUST_TOOLCHAINS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def rust_channel() -> str | None:
+    """新規のモードで rust-toolchain.toml に書く版。持ち込む先が nightly を求めれば nightly。"""
+    return rust_toolchains().get(LANGUAGE.get("rust_channel", "stable"))
+
+
+def rust_crate_name() -> str:
+    """新規のモードのクレートの名前。プロジェクトの名前から作る。"""
+    try:
+        name = (SWA / "projects" / "CURRENT").read_text(encoding="utf-8").strip()
+    except OSError:
+        name = ""
+    name = re.sub(r"[^a-z0-9_]", "_", name.lower()) or "swa_crate"
+    return name if name[0].isalpha() else "swa_" + name
+
+
+def rust_import_name() -> str:
+    """テストが `use` で書くクレートの名前。Cargo.toml の [package] の名前の - を _ に。"""
+    try:
+        value = tomllib.loads((rust_crate_dir() / "Cargo.toml").read_text(encoding="utf-8"))
+        name = value.get("package", {}).get("name")
+    except (OSError, tomllib.TOMLDecodeError):
+        name = None
+    return (name or rust_crate_name()).replace("-", "_")
+
+
+def rust_design_crates(docs: dict[str, str]) -> tuple[dict[str, object], list[str]]:
+    """基本設計の使うクレートの節から、[dependencies] の表と問題。節が無ければ空。"""
+    found = [(name, section(text, CRATES_HEADING)) for name, text in sorted(docs.items())]
+    found = [(name, body) for name, body in found if body is not None]
+    if not found:
+        return {}, []
+    if len(found) > 1:
+        return {}, [f"the basic design needs at most one `{CRATES_HEADING}` section"]
+    name, body = found[0]
+    blocks = CRATES_BLOCK.findall(body)
+    if len(blocks) != 1:
+        return {}, [f"basic/{name}.md: `{CRATES_HEADING}` needs exactly one ```toml crates "
+                    f"block, one line per crate: serde = {{ version = \"1\", features = "
+                    f"[\"derive\"] }}"]
+    try:
+        table = tomllib.loads(blocks[0])
+    except tomllib.TOMLDecodeError as error:
+        return {}, [f"basic/{name}.md: the crates block is not TOML: {error}"]
+    problems = []
+    for crate, spec in table.items():
+        where = f"basic/{name}.md: crate {crate!r}"
+        if not CRATE_NAME.fullmatch(crate):
+            problems.append(f"{where}: not a crate name")
+            continue
+        version = spec if isinstance(spec, str) else spec.get("version") \
+            if isinstance(spec, dict) else None
+        if isinstance(spec, dict):
+            unknown = sorted(set(spec) - CRATE_KEYS)
+            if unknown:
+                problems.append(f"{where}: may use only {sorted(CRATE_KEYS)}, not {unknown} "
+                                f"(a path or git source is outside what the box can fetch)")
+            features = spec.get("features", [])
+            if not (isinstance(features, list) and all(isinstance(f, str) for f in features)):
+                problems.append(f"{where}: features must be a list of strings")
+        if not isinstance(version, str) or not CRATE_VERSION.fullmatch(version.strip()):
+            problems.append(f"{where}: needs a version such as \"1.0\" or \"=0.4.3\"")
+    return (table if not problems else {}), problems
+
+
+def toml_value(value: object) -> str:
+    """依存の表の値を TOML の1行にする。文字列、真偽、文字列の配列、それらの表だけ。"""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, list):
+        return "[" + ", ".join(toml_value(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{ " + ", ".join(f"{k} = {toml_value(v)}" for k, v in value.items()) + " }"
+    raise ValueError(f"not a dependency value: {value!r}")
+
+
+def rust_manifest(crates: dict[str, object]) -> str:
+    """新規のモードの Cargo.toml。"""
+    deps = "".join(f"{name} = {toml_value(spec)}\n" for name, spec in sorted(crates.items()))
+    return f"""# The runner writes this file from the basic design. Do not edit it by hand.
+[package]
+name = "{rust_crate_name()}"
+version = "0.1.0"
+edition = "{RUST_EDITION}"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+{deps}"""
+
+
+def rust_add_dependencies(text: str, crates: dict[str, object]) -> str:
+    """既存の Cargo.toml に、まだ無いクレートだけを [dependencies] に書き足す。"""
+    current = tomllib.loads(text)
+    have = set(current.get("dependencies", {})) | set(current.get("dev-dependencies", {}))
+    lines = [f"{name} = {toml_value(spec)}" for name, spec in sorted(crates.items())
+             if name not in have]
+    if not lines:
+        return text
+    rows = text.splitlines()
+    start = next((i for i, row in enumerate(rows) if row.strip() == "[dependencies]"), None)
+    if start is None:
+        return text.rstrip("\n") + "\n\n[dependencies]\n" + "\n".join(lines) + "\n"
+    end = next((i for i in range(start + 1, len(rows)) if rows[i].lstrip().startswith("[")),
+               len(rows))
+    while end > start + 1 and not rows[end - 1].strip():
+        end -= 1
+    return "\n".join(rows[:end] + lines + rows[end:]) + "\n"
+
+
+def rust_write_manifest() -> list[Path]:
+    """基本設計のクレートを Cargo.toml に書き、新規のモードなら rust-toolchain.toml も書く。
+    書いたファイルを返す。"""
+    crates, problems = rust_design_crates(read_texts(DOCS_BASIC, ".md"))
+    if problems:
+        raise Halt("CRATES", "the basic design names crates the box cannot fetch",
+                   "\n".join(problems))
+    crate = rust_crate_dir()
+    crate.mkdir(parents=True, exist_ok=True)
+    manifest = crate / "Cargo.toml"
+    written = [manifest]
+    if existing_mode():
+        text = manifest.read_text(encoding="utf-8")
+        manifest.write_text(rust_add_dependencies(text, crates), encoding="utf-8")
+    else:
+        manifest.write_text(rust_manifest(crates), encoding="utf-8")
+        channel = rust_channel()
+        if not channel:
+            raise ToolchainBroken("CRATES", f"{RUST_TOOLCHAINS} names no "
+                                            f"{LANGUAGE.get('rust_channel', 'stable')} toolchain")
+        components = LANGUAGE.get("rust_components", ())
+        targets = LANGUAGE.get("rust_targets", ())
+        extra = "".join([f"components = {toml_value(list(components))}\n" if components else "",
+                         f"targets = {toml_value(list(targets))}\n" if targets else ""])
+        toolchain = crate / "rust-toolchain.toml"
+        toolchain.write_text(f"[toolchain]\nchannel = \"{channel}\"\n{extra}", encoding="utf-8")
+        written.append(toolchain)
+    for path in written:
+        path.chmod(0o644)
+    return written
+
+
+def cmd_crates_fetch() -> int:
+    """基本設計のクレートを Cargo.toml に書き、root に取りに行かせ、Cargo.lock をコミットする。
+
+    Rust でなければ何もしない。走行は承認の後に必ずこれを呼ぶ。
+    """
+    stage = read_stage()
+    use_stage_language(stage)
+    if LANGUAGE["name"] != "rust":
+        print("not a Rust run; there are no crates to fetch")
+        return 0
+    refused = rust_problem()
+    if refused:
+        return refuse(refused)
+    written = rust_write_manifest()
+    crates, _ = rust_design_crates(read_texts(DOCS_BASIC, ".md"))
+    ledger("CRATES_FETCH", crates=sorted(crates))
+    proc = run(["sudo", "-n", str(RUST_FETCH)], timeout=1800)
+    output = (proc.stdout + proc.stderr).strip()
+    if output:
+        print(output)
+    lock = rust_crate_dir() / "Cargo.lock"
+    if proc.returncode != 0 or not lock.is_file():
+        ledger("CRATES_FAILED", evidence=output[-400:])
+        raise Halt("CRATES", "the crates could not be fetched", output[-4000:])
+    ledger("CRATES_FETCHED", crates=sorted(crates))
+    commit_paths(written + [lock, LEDGER], "build: fetch the crates", "the crates")
+    print(f"fetched {len(crates)} crate(s) into {rust_vendor()}")
+    return 0
+
+
+def rust_vendor() -> Path:
+    try:
+        name = (SWA / "projects" / "CURRENT").read_text(encoding="utf-8").strip()
+    except OSError:
+        name = ""
+    return RUST_VENDOR / (name or "default")
+
+
+def rust_target_dir() -> Path:
+    return RUST_BUILD / "target" / rust_vendor().name
+
+
+def rust_env() -> dict[str, str]:
+    return {"RUSTUP_HOME": str(RUSTUP_HOME), "CARGO_HOME": str(RUST_BUILD / "cargo-home"),
+            "CARGO_TARGET_DIR": str(rust_target_dir()), "CARGO_NET_OFFLINE": "true",
+            "CARGO_TERM_COLOR": "never", "RUST_BACKTRACE": "0", "LC_ALL": "C", "LANG": "C",
+            "PATH": f"{RUST_BIN}:/usr/bin:/bin"}
+
+
+def rust_nextest_config() -> Path:
+    """nextest の設定を作業ツリーの外に書く。junit と成果物の置き場は作業ツリーの外。"""
+    store = rust_target_dir() / "nextest"
+    text = f"""[store]
+dir = "{store.as_posix()}"
+
+[profile.swa]
+fail-fast = false
+retries = 0
+
+[profile.swa.junit]
+path = "junit.xml"
+store-failure-output = true
+"""
+    path = RUST_BUILD / "nextest.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists() or path.read_text(encoding="utf-8") != text:
+        path.write_text(text, encoding="utf-8")
+    return path
+
+
+def rust_junit() -> Path:
+    return rust_target_dir() / "nextest" / "swa" / "junit.xml"
+
+
+def rust_vendor_args() -> list[str]:
+    """クレートのソースを vendor の置き場に置き換える設定。置き場が無ければ渡さない。"""
+    vendor = rust_vendor()
+    if not vendor.is_dir():
+        return []
+    return ["--config", 'source.crates-io.replace-with="swa-vendor"',
+            "--config", f'source.swa-vendor.directory="{vendor.as_posix()}"']
+
+
+def rust_test_binaries(files_test: list[str]) -> list[str]:
+    """テストファイルが作るテストのバイナリの名前。tests/ の直下のファイルの名前。"""
+    return [Path(f).stem for f in files_test if f.endswith(".rs")]
+
+
+def rust_build_failure(output: str) -> TestRun | None:
+    """コンパイルが通らなかった出力を読む。エラーの行が無ければ None。"""
+    crate = rust_crate_dir()
+    errors = []
+    for text, path, number in RUST_ERROR.findall(output):
+        full = path if path.startswith("/") else (crate / path).as_posix()
+        errors.append((full, f":{number}: error: {text}"))
+    kinds, lines, files = build_errors(errors)
+    if not kinds:
+        return None
+    return TestRun(0, 0, len(kinds), 0, kinds, [], chr(10).join(lines), failed_files=files)
+
+
+def rust_failure_kind(failure: ET.Element) -> str:
+    """nextest の失敗の種類。junit の type は終了コードしか持たないので、panic の文から読む。
+
+        "panicked at src/game/board.rs:3:34:\\nnot implemented: __stub__"  -> StubNotImplemented
+        "panicked at tests/board.rs:3:28:\\nassertion `left == right` failed" -> AssertionFailure
+        "panicked at tests/board.rs:6:63:\\nindex out of bounds: ..."         -> IndexOutOfBounds
+
+    スタブと実行時の誤りを先に見る。どれでもなく、テストのファイルで起きた panic は
+    アサーション（assert!、assert_eq!、panic!）だ。コードの側で起きたほかの panic は Panic。
+    """
+    message = (failure.text or failure.get("message") or "")
+    match = RUST_PANIC.search(message)
+    if not match:
+        return "<no panic message>" if message.strip() else "<no type>"
+    where, said = match.group(1), match.group(2).strip()
+    first = said.splitlines()[0] if said else ""
+    for pattern, kind in RUST_RUNTIME_PANICS:
+        if pattern.search(first):
+            return kind
+    if first.startswith("assertion"):
+        return "AssertionFailure"
+    try:
+        rel = (rust_crate_dir() / where).relative_to(PROJECT).as_posix()
+    except ValueError:
+        rel = where
+    return "AssertionFailure" if in_layout(rel, "tests") else "Panic"
+
+
+def rust_strip_block(text: str) -> str:
+    return RUST_MODS_BLOCK.sub("", text)
+
+
+def rust_parent_file(dirs: tuple[str, ...]) -> Path:
+    """`dirs` のモジュールを宣言するファイル。根なら lib.rs、ほかは隣の .rs か mod.rs。"""
+    if not dirs:
+        return SRC / "lib.rs"
+    folder = SRC.joinpath(*dirs)
+    sibling = folder.with_suffix(".rs")
+    return sibling if sibling.is_file() else folder / "mod.rs"
+
+
+def rust_module_tree() -> dict[Path, set[str]]:
+    """親のファイルと、そこで宣言する子のモジュールの名前。柵のコードの場所の .rs から作る。"""
+    wanted: dict[Path, set[str]] = {}
+    if not SRC.is_dir():
+        return wanted
+    for path in sorted(SRC.rglob("*.rs")):
+        rel = path.relative_to(SRC)
+        if rel.parts[0] == "bin" or (len(rel.parts) == 1 and path.name in RUST_ROOT_NAMES):
+            continue
+        # 区画しか持たない mod.rs はランナーが作ったもので、子が無くなれば消える。
+        if path.name == "mod.rs" and not rust_strip_block(
+                path.read_text(encoding="utf-8", errors="replace")).strip():
+            continue
+        parts = rel.parent.parts if path.name == "mod.rs" else rel.with_suffix("").parts
+        for depth in range(len(parts)):
+            wanted.setdefault(rust_parent_file(parts[:depth]), set()).add(parts[depth])
+    return wanted
+
+
+def rust_put_block(text: str, names: list[str]) -> str:
+    """ランナーの区画を `names` の宣言にする。無ければ消す。区画は内側の属性の後ろに置く。"""
+    block = "" if not names else (RUST_MODS_BEGIN + "\n"
+                                  + "".join(f"pub mod {name};\n" for name in names)
+                                  + RUST_MODS_END + "\n")
+    if RUST_MODS_BLOCK.search(text):
+        return RUST_MODS_BLOCK.sub(lambda _: block, text, count=1)
+    if not block:
+        return text
+    rows = text.splitlines(keepends=True)
+    at = 0
+    while at < len(rows) and (rows[at].lstrip().startswith(("#![", "//!"))
+                              or not rows[at].strip()):
+        at += 1
+    return "".join(rows[:at]) + block + "".join(rows[at:])
+
+
+def rust_write_mods() -> list[str]:
+    """クレートの根と各ディレクトリの宣言の区画を、柵の中のファイルに合わせる。
+
+    区画の外にすでに `mod x;` があれば、その名前は書かない。区画だけが残った
+    mod.rs は消す。書き換えたファイルを返す。
+    """
+    if LANGUAGE["name"] != "rust" or not SRC.is_dir():
+        return []
+    tree = rust_module_tree()
+    marked = {p for p in SRC.rglob("*.rs")
+              if RUST_MODS_BEGIN in p.read_text(encoding="utf-8", errors="replace")}
+    changed = []
+    for parent in sorted(set(tree) | marked):
+        text = parent.read_text(encoding="utf-8") if parent.exists() else ""
+        declared = {name for _, name in RUST_MOD_LINE.findall(rust_strip_block(text))}
+        new = rust_put_block(text, sorted(tree.get(parent, set()) - declared))
+        if new == text:
+            continue
+        rel = parent.relative_to(PROJECT).as_posix()
+        if not new.strip() and parent.name == "mod.rs":
+            parent.unlink()
+        else:
+            parent.parent.mkdir(parents=True, exist_ok=True)
+            parent.write_text(new, encoding="utf-8")
+            parent.chmod(0o664)
+        changed.append(rel)
+    return changed
+
+
+def rust_only_mods_changed(rel: str) -> bool:
+    """`rel` が HEAD とランナーの区画の中だけで違うなら真。"""
+    path = PROJECT / rel
+    if not rel.endswith(".rs") or not path.is_file():
+        return False
+    shown = run(["git", "show", f"HEAD:{rel}"])
+    before = shown.stdout if shown.returncode == 0 else ""
+    now = path.read_text(encoding="utf-8", errors="replace")
+    return RUST_MODS_BEGIN in now and rust_strip_block(now) == rust_strip_block(before)
+
+
+def rust_declarations(text: str, path: str) -> list[str]:
+    """Rust のファイルの公開の宣言を、契約と同じ書式で1行ずつ返す。本体は返さない。
+
+    トップレベルの pub の fn、struct、enum、trait、type、const、static と、
+    `impl 型 { pub fn ... }` の中の pub fn（`pub fn 型::名前(...)` の形）。
+    """
+    module = Path(path).with_suffix("").as_posix()
+    try:
+        module = Path(path).relative_to(LAYOUT["src"]).with_suffix("").as_posix()
+    except ValueError:
+        pass
+    module = re.sub(r"(?:^|/)(?:mod|lib)$", "", module).replace("/", "::")
+    where = f" -- defined in crate::{module}" if module else " -- defined in the crate root"
+    body = re.sub(r"//[^\n]*|/\*.*?\*/", "", text, flags=re.S)
+    lines: list[str] = []
+    depth = 0
+    impl: str | None = None
+    impl_depth = 0
+    i = 0
+    head = re.compile(
+        r"\s*(?:#\[[^\]]*\]\s*)*(pub(?:\([^)]*\))?\s+)?"
+        r"((?:const\s+|async\s+|unsafe\s+|extern\s+\"[^\"]*\"\s+)*fn\s+[A-Za-z_]\w*[^{;]*"
+        r"|struct\s+[A-Za-z_]\w*[^{;]*|enum\s+[A-Za-z_]\w*[^{;]*|trait\s+[A-Za-z_]\w*[^{;]*"
+        r"|type\s+[A-Za-z_]\w*[^;]*|(?:const|static)\s+[A-Za-z_]\w*\s*:[^=;]*"
+        r"|impl\b[^{;]*)")
+    while i < len(body):
+        ch = body[i]
+        if ch == "{":
+            depth += 1
+            i += 1
+            continue
+        if ch == "}":
+            depth -= 1
+            if impl is not None and depth < impl_depth:
+                impl = None
+            i += 1
+            continue
+        at_top = depth == 0 or (impl is not None and depth == impl_depth)
+        match = head.match(body, i) if at_top and (i == 0 or body[i - 1] in "\n;{}") else None
+        if not match:
+            i += 1
+            continue
+        public, decl = match.group(1), " ".join(match.group(2).split())
+        i = match.end()
+        if decl.startswith("impl"):
+            if depth == 0:
+                target = re.search(r"(?:\bfor\s+)?([A-Za-z_]\w*)\s*(?:<[^{]*)?$", decl)
+                trait_impl = " for " in f" {decl} "
+                impl = None if trait_impl or not target else target.group(1)
+                impl_depth = depth + 1
+            continue
+        if not public:
+            continue
+        if impl is not None and depth == impl_depth:
+            if decl.startswith(("fn ", "const fn ", "async fn ", "unsafe fn ")):
+                decl = re.sub(r"\bfn\s+([A-Za-z_]\w*)", rf"fn {impl}::\1", decl, count=1)
+                lines.append(f"pub {decl}{where}")
+            continue
+        if decl.startswith(("struct ", "enum ")) and i < len(body) and body[i] == "{":
+            close = body.find("}", i)
+            fields = " ".join(body[i + 1:close].split()) if close > 0 else ""
+            if decl.startswith("struct ") and fields:
+                kept = [f.strip() for f in fields.split(",") if f.strip().startswith("pub ")]
+                decl += " { " + ", ".join(kept) + " }" if kept else ""
+            elif decl.startswith("enum ") and fields:
+                decl += " { " + fields + " }"
+        lines.append(f"pub {decl.rstrip()}{where}")
+    return lines
+
+
+def rust_facts() -> tuple[str, str, str]:
+    """Rust の計画に伝える、ツールチェーンとクレートについての事実。"""
+    toolchains = rust_toolchains()
+    channel = LANGUAGE.get("rust_channel", "stable")
+    runtime = (f"Toolchain: Rust {toolchains.get(channel) or channel} ({channel}), edition "
+               f"{RUST_EDITION} for a new crate; tests: cargo-nextest")
+    platform = "Platform: none. The code is a library crate; the tests use it as one."
+    text = """There is no screen here. Every criterion has to be checkable by a test that
+calls the library.
+
+Crates come from crates.io, but only the ones the basic design names in its
+`## 使うクレート` section, at the versions it names. They are fetched once,
+after the basic design is approved; after that nothing reaches the network,
+so a crate the design did not name cannot be used by any module.
+"""
+    return runtime, platform, text
+
+
 def test_argv(files_test: list[str], xml_path: Path) -> tuple[list[str], dict[str, str]]:
     """判定を出すコマンドと、それに要る環境変数。
 
@@ -1976,6 +2634,17 @@ def test_argv(files_test: list[str], xml_path: Path) -> tuple[list[str], dict[st
         if suites:
             argv.append("--gtest_filter=" + ":".join(f"{s}.*" for s in suites))
         return argv, dict(CPP_ENV)
+    if LANGUAGE["name"] == "rust":
+        # nextest はテストのバイナリごとにプロセスを分ける。ステップのテストだけを
+        # 走らせるのは、バイナリ（tests/ のファイル）の名前での絞り込みだ。
+        # --locked で、取りに行ったときの Cargo.lock の版から動かさない。
+        argv = [str(CARGO), "nextest", "run", "--manifest-path",
+                str(rust_crate_dir() / "Cargo.toml"), "--offline", "--locked",
+                "--profile", "swa", "--config-file", str(RUST_BUILD / "nextest.toml"),
+                "--no-tests=warn", *rust_vendor_args()]
+        for binary in rust_test_binaries(files_test):
+            argv += ["--test", binary]
+        return argv, rust_env()
     if LANGUAGE["name"] == "typescript":
         # `watch` ではなく `run`。vitest の既定は対話的で、永遠に止まったランナーは
         # 終わらないステップとまったく同じに見える。
@@ -2008,6 +2677,21 @@ def pytest_run(tag: str, files_test: list[str]) -> TestRun:
     xml_path.unlink(missing_ok=True)
     csharp = LANGUAGE["name"] == "csharp"
     cpp = LANGUAGE["name"] == "cpp"
+    rust = LANGUAGE["name"] == "rust"
+    if rust:
+        # Cargo.lock は crates fetch が書く。無ければクレートを取りに行っていない。
+        # 設計にもソルバーにも直せないので、中段に戻さずに止める。
+        if not (rust_crate_dir() / "Cargo.lock").is_file():
+            phase = tag.split("-")[0].upper()
+            ledger("TOOLCHAIN_FAILURE", step=NOW.get("step") or "-", phase=phase,
+                   evidence="there is no Cargo.lock")
+            raise ToolchainBroken(phase, "there is no Cargo.lock: the crates were never "
+                                         "fetched; run `crates fetch` first")
+        # クレートの根の宣言を、いまの柵の中のファイルに合わせてから組む。
+        rust_write_mods()
+        rust_nextest_config()
+        junit = rust_junit()
+        junit.unlink(missing_ok=True)
     if csharp:
         problem = prepare_dotnet()
         if problem:
@@ -2035,6 +2719,13 @@ def pytest_run(tag: str, files_test: list[str]) -> TestRun:
         failed = dotnet_build_failure(proc.stdout + proc.stderr)
         if failed:
             return failed
+    if rust:
+        if not junit.exists():
+            output = proc.stdout + proc.stderr
+            return rust_build_failure(output) or TestRun(
+                0, 0, 1, 0, [f"<test run died: exit status {proc.returncode}>"], [],
+                output[-3000:])
+        shutil.copyfile(junit, xml_path)
     if cpp and not xml_path.exists():
         # GoogleTest はレポートを最後にまとめて書く。範囲外の添字などでプログラムが
         # 落ちると、どのテストの判定も残らない。最後の [ RUN ] の行が、落ちたテストだ。
@@ -3276,6 +3967,24 @@ an even split, use the namespace that follows its folder under
 {LAYOUT["src"]}/. A file that already exists keeps its namespace. Add the
 `using` directives the signatures need. Implement no behaviour whatsoever.
 """
+    if LANGUAGE["name"] == "rust":
+        # Rust も番兵の値を使わない。C# と C++ と同じ理由で、印の付いた panic にする。
+        return head + f"""Write each declaration with exactly the signature above. A method written as
+`pub fn Board::score(&self) -> u32` goes in an `impl Board {{ ... }}` block in
+the type's file as `pub fn score(&self) -> u32`. The body of every function and
+method you write is exactly this one expression and nothing else:
+
+    {RUST_STUB_BODY}
+
+Keep the message "__stub__" exactly. The runner accepts a test that fails on
+this panic as a test that fails against the stub; any other panic rejects the
+step.
+
+Do not return values. Write a struct's fields and an enum's variants as
+declared: they hold values and have no behaviour to stub. Add the `use` lines
+the signatures need. Never write a `mod` line: the runner writes them. Mark
+nothing `unsafe`. Implement no behaviour whatsoever.
+"""
     if LANGUAGE["name"] == "cpp":
         # C++ も番兵の値を使わない。C# と同じ理由で、印の付いた例外を投げる。
         return head + f"""Declare each name in its header with exactly the signature above, and define
@@ -3838,6 +4547,10 @@ def module_test_files(module_id: str, integration: bool, unit: bool = True) -> l
         names = [f"{tests}/{dotted}.test.ts", f"{tests}/{dotted}.integration.test.ts"]
     elif language == "csharp":
         names = [f"{folder}{name}Tests.cs", f"{folder}{name}IntegrationTests.cs"]
+    elif language == "rust":
+        # cargo は tests/ の直下のファイルだけをテストのバイナリにする。
+        flat = module_id.replace("/", "_")
+        names = [f"{tests}/{flat}.rs", f"{tests}/{flat}_integration.rs"]
     else:
         names = [f"{folder}{name}Test.cpp", f"{folder}{name}IntegrationTest.cpp"]
     if not integration:
@@ -3969,6 +4682,13 @@ def design_problems(docs: dict[str, str], acs: dict[str, str],
             problems.append(f"{where}: {CHANGE_PREFIX} is kept for the changes; put the "
                             f"module somewhere else")
             continue
+        if LANGUAGE["name"] == "rust":
+            parts = mid.split("/")
+            if any(not re.fullmatch(r"[a-z_][a-z0-9_]*", part) for part in parts) \
+                    or parts[-1] in ("mod", "lib", "main") or parts[0] == "bin":
+                problems.append(f"{where}: a Rust module is a snake_case path that is not lib, "
+                                f"main, mod or under bin/; the runner writes the crate root")
+                continue
         if existing_mode():
             head = head_files(LAYOUT["src"]) if head is None else head
             there = [f for f in module_files(mid) if f in head]
@@ -4181,6 +4901,8 @@ def basic_problems(docs: dict[str, str]) -> list[str]:
     for name, text in sorted(docs.items()):
         if not is_japanese(text):
             problems.append(f"basic/{name}.md: is not written in Japanese")
+    if LANGUAGE["name"] == "rust":
+        problems += rust_design_crates(docs)[1]
     return problems
 
 
@@ -5032,7 +5754,7 @@ def cmd_basic_draft(language: str | None, framework: str | None,
     if mode and not stage.get("mode"):
         stage = write_stage(mode=mode)
     use_stage_language(stage)
-    refused = unity_problem() or encoding_problem()
+    refused = unity_problem() or encoding_problem() or rust_problem()
     if refused:
         return refuse(refused)
     spec = spec_text()
@@ -5970,6 +6692,8 @@ def existing_declarations() -> dict[str, list[str]]:
                 lines = python_declarations(shown.stdout, modules[0])
         elif LANGUAGE["name"] == "csharp":
             lines = csharp_declarations(shown.stdout, path)
+        elif LANGUAGE["name"] == "rust":
+            lines = rust_declarations(shown.stdout, path)
         if lines:
             by_file[path] = lines
     return by_file
@@ -5986,6 +6710,7 @@ TEST_NAMES = {
         r"(?:\s*\[[^\]]*\])*\s*(?:(?:public|private|internal|protected|static|async)\s+)*"
         r"[\w<>\[\],.]+\s+(\w+)\s*\("),
     "cpp": re.compile(r"\b(?:TEST|TEST_F|TEST_P)\s*\(\s*\w+\s*,\s*(\w+)\s*\)"),
+    "rust": re.compile(r"#\[test\][\s\S]{0,200}?\bfn\s+([A-Za-z_]\w*)\s*\("),
 }
 
 
@@ -7104,6 +7829,12 @@ def test_runner_version() -> str:
             return tool_version(LANGUAGE["test_runner"], DOTNET_BUILD)
         except OSError:
             pass
+    if LANGUAGE["name"] == "rust":
+        try:
+            proc = run([str(CARGO), "nextest", "--version"], env=rust_env())
+            return (proc.stdout + proc.stderr).strip().splitlines()[0]
+        except (OSError, IndexError):
+            return "(not installed)"
     return tool_version(LANGUAGE["test_runner"])
 
 
@@ -7520,6 +8251,14 @@ full signature from the code.
         wiring_heading = ("The CMake project the runner writes and builds before every test "
                           "run (outside the repository; no module writes it):")
         wiring_text = cpp_cmake_lists()
+    elif LANGUAGE["name"] == "rust":
+        manifest = rust_crate_dir() / "Cargo.toml"
+        wiring_heading = (f"{manifest.relative_to(PROJECT).as_posix()}, which the runner writes "
+                          f"from the basic design's crates (no module writes it). The runner "
+                          f"also writes every `mod` line in {LAYOUT['src']}/lib.rs and the "
+                          f"folders' mod.rs:")
+        wiring_text = (manifest.read_text(encoding="utf-8") if manifest.exists()
+                       else rust_manifest(rust_design_crates(read_texts(DOCS_BASIC, ".md"))[0]))
     else:
         wiring_heading = ("The test project the runner writes and builds (outside the "
                           "repository; no module writes it):")
@@ -7921,7 +8660,8 @@ def own_test_keys(step: dict) -> set[str]:
     return {Path(p).with_suffix("").as_posix().replace("/", ".")
             for p in step["files_test"]} | set(step["files_test"]) \
         | set(csharp_test_classes(step["files_test"])) \
-        | set(cpp_test_suites(step["files_test"]))
+        | set(cpp_test_suites(step["files_test"])) \
+        | set(rust_test_binaries(step["files_test"]))
 
 
 def run_step(step_id: str) -> int:
@@ -8428,6 +9168,11 @@ def main() -> int:
     auto_sub.add_parser("show", help="print Auto/Manual and how often Auto has repeated, as JSON")
     auto_sub.add_parser("advance", help="at a gate: prepare what Auto does next and print "
                                         "the name of the run to go on with as the last line")
+    crates_cmd = sub.add_parser("crates", help="Rust: the crates the basic design names")
+    crates_sub = crates_cmd.add_subparsers(dest="sub_cmd", required=True)
+    crates_sub.add_parser("fetch", help="write them into Cargo.toml, have root fetch them with "
+                                        "cargo vendor, and commit Cargo.lock; nothing for "
+                                        "other languages")
     sub.add_parser("check", help="check the design on disk without calling anyone")
     sub.add_parser("status", help="print the stage and the state of every module")
 
@@ -8484,6 +9229,8 @@ def main() -> int:
             if args.sub_cmd == "show":
                 return cmd_auto_show()
             return cmd_auto_advance()
+        if args.cmd == "crates":
+            return cmd_crates_fetch()
         if args.cmd == "check":
             return cmd_check()
         if args.cmd == "status":

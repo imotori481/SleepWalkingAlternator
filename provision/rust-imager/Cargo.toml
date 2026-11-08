@@ -1,0 +1,15 @@
+# 38-rust.sh が組む、カーネルを BIOS のディスクイメージにする道具。runner/swa.py の
+# rust_qemu_run が、QEMU のテストのカーネル1つごとに呼ぶ。
+#
+#     swa-imager <カーネルの ELF> <出すイメージ>
+#
+# bootloader のビルドスクリプトが、ブートの段のクレートを crates.io から組む。
+# ネットワークに出るのは、provision でこれを組むときだけだ。
+[package]
+name = "swa-imager"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+bootloader = "=0.11.17"

@@ -15,6 +15,10 @@
 # テストは cargo-nextest で走らせる。junit を出すのはこれだけだ。ここで一度だけ
 # crates.io から組み、凍結する。
 #
+# QEMU の上のカーネル（持ち込む先 kernel）のために、qemu-system-x86 と、カーネルを
+# BIOS のディスクイメージにする swa-imager（provision/rust-imager、bootloader 0.11）を
+# 入れる。swa-imager も、ここで一度だけ nightly で組む。
+#
 # 走行中はネットワークに出ない。クレートは、基本設計の承認の後に root の
 # swa-fetch-crates が取りに行く（provision/swa_crates.py）。runner に許すのはその
 # 1つだけで、引数は取らない。
@@ -39,10 +43,13 @@ PROXIES=(cargo rustc rustdoc rustfmt cargo-clippy clippy-driver rust-gdb rust-ll
 # 版の形。行にもオプションにもならないものだけを通す。
 VERSION_RE='^([0-9]+\.[0-9]+(\.[0-9]+)?|stable|beta|nightly(-[0-9]{4}-[0-9]{2}-[0-9]{2})?)$'
 
-# ---- rustup -----------------------------------------------------------------
-if ! command -v rustup >/dev/null 2>&1; then
+# ---- rustup と QEMU -------------------------------------------------------------
+missing=()
+command -v rustup >/dev/null 2>&1 || missing+=(rustup)
+command -v qemu-system-x86_64 >/dev/null 2>&1 || missing+=(qemu-system-x86)
+if [ "${#missing[@]}" -gt 0 ]; then
   apt-get update -qq
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq rustup
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
 fi
 RUSTUP="$(command -v rustup)"
 install -d -o root -g root -m 755 /opt/swa "$RUST_HOME" "$RUSTUP_HOME" "$CARGO_HOME" \
@@ -99,6 +106,19 @@ if ! "$CARGO_HOME/bin/cargo" nextest --version 2>/dev/null | grep -q "^cargo-nex
   "$CARGO_HOME/bin/cargo" "+$RUST_STABLE" install cargo-nextest --locked \
     --version "$NEXTEST_VERSION" --root "$CARGO_HOME"
 fi
+# ---- swa-imager ----------------------------------------------------------------
+# 組み直すのは、版を変えたときだけ。目印に、組んだ Cargo.lock の写しを置く。
+IMAGER="$RUST_HOME/imager"
+if [ ! -x "$IMAGER/swa-imager" ] || ! cmp -s rust-imager/Cargo.lock "$IMAGER/Cargo.lock"; then
+  work="$(mktemp -d)"
+  cp -r rust-imager/. "$work/src-tree"
+  CARGO_TARGET_DIR="$work/target" "$CARGO_HOME/bin/cargo" "+$RUST_NIGHTLY" build --release \
+    --locked --manifest-path "$work/src-tree/Cargo.toml"
+  install -d -o root -g root -m 755 "$IMAGER"
+  install -o root -g root -m 755 "$work/target/release/swa-imager" "$IMAGER/swa-imager"
+  install -o root -g root -m 644 rust-imager/Cargo.lock "$IMAGER/Cargo.lock"
+  rm -rf "$work"
+fi
 rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git"
 write_toolchains
 freeze
@@ -120,11 +140,17 @@ visudo -cqf "$tmp" || { rm -f "$tmp"; echo "38-rust: sudoers rule does not parse
 install -o root -g root -m 440 "$tmp" "$SUDOERS"
 rm -f "$tmp"
 install -o root -g root -m 755 bin/smoke-rust /srv/swa/bin/smoke-rust
+install -o root -g root -m 755 bin/smoke-qemu /srv/swa/bin/smoke-qemu
 
 # ---- 検査 ------------------------------------------------------------------------
 fail=0
 if ! sudo -u runner -H /srv/swa/bin/smoke-rust; then
   echo "FAIL: Rust のテストをビルドして走らせられない"; fail=1
+fi
+# QEMU の検査はカーネルのクレートを crates.io から取るので、ネットワークのある provision の
+# うちに root で流す。走行中のランナーは swa-fetch-crates が取ったものだけを使う。
+if ! /srv/swa/bin/smoke-qemu; then
+  echo "FAIL: カーネルを QEMU で起動してテストの結果を読めない"; fail=1
 fi
 if sudo -u runner test -w "$RUST_HOME"; then
   echo "FAIL: runner should NOT be able to: test -w $RUST_HOME"; fail=1
@@ -150,4 +176,4 @@ if [ "$fail" -ne 0 ]; then
   echo "38-rust: TOOLCHAIN BROKEN" >&2
   exit 1
 fi
-echo "38-rust: ok ($RUST_STABLE, $RUST_NIGHTLY, cargo-nextest $NEXTEST_VERSION)"
+echo "38-rust: ok ($RUST_STABLE, $RUST_NIGHTLY, cargo-nextest $NEXTEST_VERSION, $(qemu-system-x86_64 --version | head -n 1))"

@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# QEMU の上のカーネルのテストが、ビルドされ、起動し、結果をシリアルと終了コードで返すか。
+#
+#     sudo /srv/swa/bin/smoke-qemu
+#
+# 38-rust.sh がプロビジョニングのたびに流す。ランナーと同じ形（ランナーが書く
+# tests/swa_qemu/mod.rs、harness = false の [[test]]、x86_64-unknown-none、swa-imager、
+# fw_cfg で選ぶ1回1テストの起動）で、通るテスト、アサーションで落ちるテスト、スタブの
+# panic で落ちるテストを1つずつ置く。カーネルのクレートを crates.io から取るので、
+# ネットワークのある provision のうちに流す。
+set -euo pipefail
+export LC_ALL=C LANG=C RUST_BACKTRACE=0 CARGO_TERM_COLOR=never
+export RUSTUP_HOME=/opt/swa/rust/rustup
+export PATH="/opt/swa/rust/cargo/bin:/usr/bin:/bin"
+ENGINE="${SWA_HOME:-/opt/swa}"
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+export CARGO_HOME="$WORK/cargo-home" CARGO_TARGET_DIR="$WORK/target"
+nightly="$(python3 -c 'import json; print(json.load(open("/opt/swa/rust/toolchains.json"))["nightly"])')"
+C="$WORK/kern"
+mkdir -p "$C/src" "$C/tests/swa_qemu"
+cat > "$C/Cargo.toml" <<'TOML'
+[package]
+name = "kern"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+bootloader_api = "0.11"
+uart_16550 = "0.3"
+x86_64 = "0.15"
+
+[[test]]
+name = "calc_qemu"
+path = "tests/calc_qemu.rs"
+harness = false
+
+[profile.dev]
+panic = "abort"
+TOML
+printf '[toolchain]\nchannel = "%s"\ncomponents = ["rust-src", "llvm-tools"]\ntargets = ["x86_64-unknown-none"]\n' \
+  "$nightly" > "$C/rust-toolchain.toml"
+cat > "$C/src/lib.rs" <<'RS'
+#![cfg_attr(not(test), no_std)]
+pub fn add(a: u32, b: u32) -> u32 { a + b }
+pub fn unwritten() -> u32 { unimplemented!("__stub__") }
+RS
+python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import swa; sys.stdout.write(swa.RUST_QEMU_SUPPORT)' \
+  "$ENGINE/runner" > "$C/tests/swa_qemu/mod.rs"
+cat > "$C/tests/calc_qemu.rs" <<'RS'
+#![no_std]
+#![no_main]
+mod swa_qemu;
+bootloader_api::entry_point!(main);
+fn main(_boot: &'static mut bootloader_api::BootInfo) -> ! {
+    swa_qemu::run(&[("adds", adds), ("fails_on_purpose", fails_on_purpose), ("hits_the_stub", hits_the_stub)])
+}
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! { swa_qemu::panic(info) }
+fn adds() { assert_eq!(5, kern::add(2, 3)); }
+fn fails_on_purpose() { assert_eq!(6, kern::add(2, 3)); }
+fn hits_the_stub() { assert_eq!(1, kern::unwritten()); }
+RS
+
+cd "$C"
+kernel="$(cargo build --target x86_64-unknown-none --test calc_qemu --message-format=json 2>"$WORK/build.txt" \
+  | python3 -c 'import json, sys
+for line in sys.stdin:
+    m = json.loads(line)
+    if m.get("reason") == "compiler-artifact" and m.get("executable"):
+        print(m["executable"])')" || true
+if [ -z "$kernel" ]; then
+  echo "smoke-qemu: the test kernel did not build" >&2
+  tail -n 30 "$WORK/build.txt" >&2
+  exit 1
+fi
+/opt/swa/rust/imager/swa-imager "$kernel" "$WORK/kernel.img"
+
+boot() {
+  set +e
+  timeout 60 qemu-system-x86_64 -drive "format=raw,file=$WORK/kernel.img" \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04 -serial stdio -display none -no-reboot \
+    -fw_cfg "name=opt/swa/test,string=$1" > "$WORK/serial.txt" 2>&1
+  code=$?
+  set -e
+}
+boot list
+listed="$(grep -c '^swa-test-name ' "$WORK/serial.txt" || true)"
+[ "$code" -eq 33 ] && [ "$listed" -eq 3 ] || { echo "smoke-qemu: list gave $code, $listed names" >&2; cat "$WORK/serial.txt" >&2; exit 1; }
+expect=(33 35 35)
+for i in 0 1 2; do
+  boot "$i"
+  line="$(grep '^swa-test ' "$WORK/serial.txt" | head -n 1)"
+  echo "  $line (exit $code)"
+  [ "$code" -eq "${expect[$i]}" ] || { echo "smoke-qemu: test $i exited $code, not ${expect[$i]}" >&2; exit 1; }
+done
+grep -q 'not implemented: __stub__' "$WORK/serial.txt" \
+  || { echo "smoke-qemu: the stub's panic was not reported" >&2; exit 1; }
+echo "smoke-qemu: ok"

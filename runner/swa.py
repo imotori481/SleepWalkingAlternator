@@ -679,9 +679,11 @@ def assert_touched(phase: str, allowed: list[str]) -> None:
     allowed_set = set(allowed)
     # Rust のクレートの根の宣言はランナーが書く。区画の中だけが変わったファイルは数えない。
     rust_write_mods()
+    rust_write_support()
+    rust_refresh_manifest()
     actual = touched_paths() | tests_changed(TESTS_BEFORE)
     stray = sorted(p for p in actual - allowed_set
-                   if not (LANGUAGE["name"] == "rust" and rust_only_mods_changed(p)))
+                   if not (LANGUAGE["name"] == "rust" and rust_runner_owned(p)))
     if stray:
         raise Halt(
             phase,
@@ -1315,6 +1317,51 @@ suite, named after the file (`{TESTS}/BoardTest.cpp` holds `TEST(BoardTest,
         # 普通のライブラリのクレート。stable のツールチェーンで、ホストでテストする。
         "none": {
             "rust_channel": "stable",
+            "facts": lambda: rust_facts(),
+        },
+        # QEMU の上で起動する x86_64 のカーネル。nightly で、ロジックはホストで、
+        # 起動してからのことは QEMU でテストする（rust_qemu_run）。新規のモードだけ。
+        "kernel": {
+            "rust_channel": "nightly",
+            "rust_components": ("rust-src", "llvm-tools"),
+            "rust_targets": ("x86_64-unknown-none",),
+            "layout_note": """THIS CRATE IS A KERNEL for x86_64, booted by the `bootloader` crate (0.11) in
+QEMU. The library is `#![cfg_attr(not(test), no_std)]`: the runner puts that
+line at the top of {SRC}/lib.rs, so nothing in the library may use `std`.
+`alloc` is there only if the kernel sets up a heap. The crates `bootloader_api`
+0.11, `x86_64` 0.15 and `uart_16550` 0.3 are always in Cargo.toml.
+
+The tests come in two kinds, and the acceptance criterion's `kind` picks one:
+
+- `unit`: `{TESTS}/<name>.rs`, an ordinary test file that runs on the host
+  with `#[test]`. Put every piece of logic that does not touch the hardware
+  -- page-table arithmetic, a frame allocator over a memory map the test
+  builds, a parser -- where these can call it.
+- `integration`: `{TESTS}/<name>_qemu.rs`, a kernel of its own that QEMU boots,
+  once per test. It is exactly this shape:
+
+      #![no_std]
+      #![no_main]
+      mod swa_qemu;
+      use {CRATE}::memory::FrameAllocator;
+      bootloader_api::entry_point!(main);
+      fn main(boot: &'static mut bootloader_api::BootInfo) -> ! {
+          swa_qemu::run(&[("allocates_a_frame", allocates_a_frame)])
+      }
+      #[panic_handler]
+      fn panic(info: &core::panic::PanicInfo) -> ! { swa_qemu::panic(info) }
+      fn allocates_a_frame() { assert_eq!(1, 1); }
+
+  `swa_qemu` is a module the runner writes in {TESTS}/swa_qemu/; never write or
+  change it. Each test is a `fn()` listed in `run` with its name, and it fails
+  by panicking (assert!, assert_eq!). A test cannot reach the BootInfo; a test
+  that needs the memory map gets it from a function the kernel's entry calls.
+
+The boot entry the person runs is {SRC}/main.rs, a module of its own if the run
+needs it: `bootloader_api::entry_point!` and a `#[panic_handler]`. No test boots
+it. The person boots it in QEMU after the run.
+
+""",
             "facts": lambda: rust_facts(),
         },
     },
@@ -2132,6 +2179,9 @@ def rust_problem() -> str | None:
         return (f"refusing: a Rust crate keeps its code in <crate>/src and its tests in "
                 f"<crate>/tests; the fences are {LAYOUT['src']} and {LAYOUT['tests']}, so "
                 f"the tests fence has to be {want}")
+    if existing_mode() and rust_kernel():
+        return ("refusing: the kernel framework is for the new mode only; an existing kernel "
+                "is not supported yet")
     if existing_mode():
         manifest = crate / "Cargo.toml"
         if not manifest.is_file():
@@ -2232,8 +2282,15 @@ def toml_value(value: object) -> str:
 
 
 def rust_manifest(crates: dict[str, object]) -> str:
-    """新規のモードの Cargo.toml。"""
+    """新規のモードの Cargo.toml。kernel なら、カーネルのクレート、QEMU のテストの
+    [[test]]、panic = "abort" を足す。"""
+    kernel = rust_kernel()
+    crates = {**KERNEL_CRATES, **crates} if kernel else crates
     deps = "".join(f"{name} = {toml_value(spec)}\n" for name, spec in sorted(crates.items()))
+    tests = "".join(f'\n[[test]]\nname = "{Path(f).stem}"\npath = "{(PROJECT / f).relative_to(rust_crate_dir()).as_posix()}"\nharness = false\n'
+                    for f in rust_qemu_files()) if kernel else ""
+    profiles = ('\n[profile.dev]\npanic = "abort"\n\n[profile.release]\npanic = "abort"\n'
+                if kernel else "")
     return f"""# The runner writes this file from the basic design. Do not edit it by hand.
 [package]
 name = "{rust_crate_name()}"
@@ -2244,7 +2301,7 @@ edition = "{RUST_EDITION}"
 path = "src/lib.rs"
 
 [dependencies]
-{deps}"""
+{deps}{tests}{profiles}"""
 
 
 def rust_add_dependencies(text: str, crates: dict[str, object]) -> str:
@@ -2490,6 +2547,9 @@ def rust_write_mods() -> list[str]:
     changed = []
     for parent in sorted(set(tree) | marked):
         text = parent.read_text(encoding="utf-8") if parent.exists() else ""
+        # kernel のクレートの根は no_std で始める。ランナーが作るときだけ書く。
+        if not parent.exists() and parent == SRC / "lib.rs" and rust_kernel():
+            text = KERNEL_LIB_HEADER
         declared = {name for _, name in RUST_MOD_LINE.findall(rust_strip_block(text))}
         new = rust_put_block(text, sorted(tree.get(parent, set()) - declared))
         if new == text:
@@ -2510,7 +2570,7 @@ def rust_only_mods_changed(rel: str) -> bool:
     path = PROJECT / rel
     if not rel.endswith(".rs") or not path.is_file():
         return False
-    shown = run(["git", "show", f"HEAD:{rel}"])
+    shown = run(["git", "show", f"HEAD:{rel}"], cwd=PROJECT)
     before = shown.stdout if shown.returncode == 0 else ""
     now = path.read_text(encoding="utf-8", errors="replace")
     return RUST_MODS_BEGIN in now and rust_strip_block(now) == rust_strip_block(before)
@@ -2604,6 +2664,314 @@ so a crate the design did not name cannot be used by any module.
     return runtime, platform, text
 
 
+
+# --------------------------------------------------------------------------
+# Rust: QEMU の上のカーネル（持ち込む先 kernel）
+# --------------------------------------------------------------------------
+#
+# テストは2層ある。ロジックのテスト（単体、tests/<名前>.rs）はホストで nextest が走らせる。
+# QEMU のテスト（統合、tests/<名前>_qemu.rs）は、x86_64-unknown-none でカーネルとして
+# ビルドし、bootloader の BIOS のイメージにして QEMU で起動する。1回の起動で1つの
+# テストだけを走らせる。panic は巻き戻せず、1つが落ちると後のテストが判定を出せない。
+#
+# どのテストを走らせるかは、QEMU の fw_cfg（opt/swa/test）で渡す。"list" ならテストの
+# 名前を並べて抜ける。結果はシリアル（COM1）に1行で書き、isa-debug-exit で抜ける。
+# その道具はランナーが tests/swa_qemu/mod.rs に書き、どのテストも `mod swa_qemu;` で使う。
+QEMU = Path("/usr/bin/qemu-system-x86_64")
+# bootloader の BiosBoot でディスクイメージを作る道具。38-rust.sh が組んで凍結する。
+RUST_IMAGER = RUST_HOME / "imager" / "swa-imager"
+KERNEL_TARGET = "x86_64-unknown-none"
+QEMU_TIMEOUT = 60
+QEMU_LINE = re.compile(r"^swa-test (\S+) (ok|failed)(?: at ([^:\n]+):(\d+):(\d+))?:?[ ]?(.*)$")
+# QEMU は isa-debug-exit に書いた値 v を (v << 1) | 1 にして終わる。
+QEMU_SUCCESS, QEMU_FAILURE = (0x10 << 1) | 1, (0x11 << 1) | 1
+KERNEL_CRATES = {"bootloader_api": "0.11", "x86_64": "0.15", "uart_16550": "0.3"}
+KERNEL_LIB_HEADER = "#![cfg_attr(not(test), no_std)]\n"
+RUST_QEMU_SUPPORT = r'''// The runner writes this file. Do not edit it.
+//
+// Every QEMU test file uses it with `mod swa_qemu;`. The runner boots the test
+// kernel once per test and names the test through QEMU's fw_cfg "opt/swa/test";
+// the result goes to the serial port COM1 and QEMU exits through isa-debug-exit.
+#![allow(dead_code)]
+use core::fmt::Write;
+use core::panic::PanicInfo;
+use uart_16550::SerialPort;
+use x86_64::instructions::port::Port;
+
+const SUCCESS: u32 = 0x10;
+const FAILURE: u32 = 0x11;
+static mut CURRENT: &str = "";
+
+fn serial() -> SerialPort {
+    let mut port = unsafe { SerialPort::new(0x3F8) };
+    port.init();
+    port
+}
+
+fn exit(code: u32) -> ! {
+    unsafe { Port::new(0xf4).write(code) };
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+
+fn read_be32(data: &mut Port<u8>) -> u32 {
+    let mut value = 0u32;
+    for _ in 0..4 {
+        value = (value << 8) | unsafe { data.read() } as u32;
+    }
+    value
+}
+
+fn selected(buf: &mut [u8; 16]) -> &str {
+    let mut select: Port<u16> = Port::new(0x510);
+    let mut data: Port<u8> = Port::new(0x511);
+    unsafe { select.write(0x19) };
+    let count = read_be32(&mut data);
+    for _ in 0..count {
+        let size = read_be32(&mut data);
+        let key = ((unsafe { data.read() } as u16) << 8) | unsafe { data.read() } as u16;
+        unsafe {
+            data.read();
+            data.read();
+        }
+        let mut name = [0u8; 56];
+        for byte in name.iter_mut() {
+            *byte = unsafe { data.read() };
+        }
+        if name.starts_with(b"opt/swa/test\0") {
+            unsafe { select.write(key) };
+            let n = (size as usize).min(buf.len());
+            for byte in buf[..n].iter_mut() {
+                *byte = unsafe { data.read() };
+            }
+            return core::str::from_utf8(&buf[..n]).unwrap_or("");
+        }
+    }
+    ""
+}
+
+/// Runs the one test the runner selected, or lists every test's name.
+pub fn run(tests: &'static [(&'static str, fn())]) -> ! {
+    let mut out = serial();
+    let mut buf = [0u8; 16];
+    let which = selected(&mut buf).trim();
+    if which == "list" || which.is_empty() {
+        for (name, _) in tests {
+            let _ = writeln!(out, "swa-test-name {}", name);
+        }
+        exit(SUCCESS)
+    }
+    let index: usize = which.parse().unwrap_or(usize::MAX);
+    let Some((name, test)) = tests.get(index) else { exit(FAILURE) };
+    unsafe { CURRENT = name };
+    test();
+    let _ = writeln!(out, "swa-test {} ok", name);
+    exit(SUCCESS)
+}
+
+/// Call it from the test file's `#[panic_handler]`.
+pub fn panic(info: &PanicInfo) -> ! {
+    let mut out = serial();
+    let name = unsafe { CURRENT };
+    match info.location() {
+        Some(at) => {
+            let _ = writeln!(out, "swa-test {} failed at {}:{}:{}: {}", name, at.file(),
+                             at.line(), at.column(), info.message());
+        }
+        None => {
+            let _ = writeln!(out, "swa-test {} failed: {}", name, info.message());
+        }
+    }
+    let _ = writeln!(out, "swa-test-end");
+    exit(FAILURE)
+}
+'''
+
+
+def rust_kernel() -> bool:
+    return LANGUAGE["name"] == "rust" and LANGUAGE.get("framework") == "kernel"
+
+
+def rust_is_qemu_test(path: str) -> bool:
+    return path.endswith("_qemu.rs")
+
+
+def rust_support_rel() -> str:
+    return f"{LAYOUT['tests']}/swa_qemu/mod.rs"
+
+
+def rust_write_support() -> None:
+    """QEMU のテストの道具を書く。kernel でなければ何もしない。"""
+    if not rust_kernel():
+        return
+    path = PROJECT / rust_support_rel()
+    if path.exists() and path.read_text(encoding="utf-8") == RUST_QEMU_SUPPORT:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(RUST_QEMU_SUPPORT, encoding="utf-8")
+    path.chmod(0o664)
+
+
+def rust_qemu_files() -> list[str]:
+    """柵のテストの場所にある QEMU のテストのファイル。"""
+    if not TESTS.is_dir():
+        return []
+    return sorted(p.relative_to(PROJECT).as_posix() for p in TESTS.glob("*_qemu.rs")
+                  if p.is_file())
+
+
+def rust_host_files() -> list[str]:
+    """柵のテストの場所にある、ホストで走らせるテストのファイル。"""
+    if not TESTS.is_dir():
+        return []
+    return sorted(p.relative_to(PROJECT).as_posix() for p in TESTS.glob("*.rs")
+                  if p.is_file() and not rust_is_qemu_test(p.name))
+
+
+def rust_refresh_manifest() -> None:
+    """新規のモードの Cargo.toml を、いまの設計とテストのファイルに合わせる。
+
+    QEMU のテストは harness = false の [[test]] が要るので、ファイルが増えるたびに
+    書き直す。依存は変わらないので Cargo.lock は動かない。
+    """
+    if LANGUAGE["name"] != "rust" or existing_mode():
+        return
+    manifest = rust_crate_dir() / "Cargo.toml"
+    if not manifest.exists():
+        return
+    crates, problems = rust_design_crates(read_texts(DOCS_BASIC, ".md"))
+    if problems:
+        return
+    text = rust_manifest(crates)
+    if manifest.read_text(encoding="utf-8") != text:
+        manifest.write_text(text, encoding="utf-8")
+
+
+def rust_runner_owned(rel: str) -> bool:
+    """ランナーが書く形のままのファイルなら真。ソルバーの書き込みとして数えない。"""
+    if rust_only_mods_changed(rel):
+        return True
+    path = PROJECT / rel
+    if rust_kernel() and rel == rust_support_rel():
+        return path.is_file() and path.read_text(encoding="utf-8") == RUST_QEMU_SUPPORT
+    manifest = rust_crate_dir() / "Cargo.toml"
+    if not existing_mode() and path == manifest and path.is_file():
+        crates, problems = rust_design_crates(read_texts(DOCS_BASIC, ".md"))
+        return not problems and path.read_text(encoding="utf-8") == rust_manifest(crates)
+    return False
+
+
+def rust_kernels(files: list[str], seconds: int) -> tuple[dict[str, Path], TestRun | None]:
+    """QEMU のテストをカーネルとしてビルドする。(バイナリの名前 → 実行ファイル, 失敗)。"""
+    argv = [str(CARGO), "build", "--manifest-path", str(rust_crate_dir() / "Cargo.toml"),
+            "--offline", "--locked", "--target", KERNEL_TARGET,
+            "--message-format=json-render-diagnostics", *rust_vendor_args()]
+    for name in rust_test_binaries(files):
+        argv += ["--test", name]
+    try:
+        proc = run(argv, cwd=PROJECT, env=rust_env(), timeout=seconds)
+    except subprocess.TimeoutExpired:
+        return {}, TestRun(0, 0, 1, 0, [f"<timeout: the kernels did not build within "
+                                        f"{seconds}s>"], [], "")
+    if proc.returncode != 0:
+        return {}, rust_build_failure(proc.stderr) or TestRun(
+            0, 0, 1, 0, ["<build failed>"], [], (proc.stdout + proc.stderr)[-3000:])
+    kernels: dict[str, Path] = {}
+    for line in proc.stdout.splitlines():
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if message.get("reason") == "compiler-artifact" and message.get("executable"):
+            kernels[message["target"]["name"]] = Path(message["executable"])
+    return kernels, None
+
+
+def qemu_boot(image: Path, which: str) -> tuple[int | None, str]:
+    """イメージを1回起動し、(終了コード, シリアルの出力) を返す。時間切れなら None。"""
+    argv = [str(QEMU), "-drive", f"format=raw,file={image}",
+            "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", "-serial", "stdio",
+            "-display", "none", "-no-reboot", "-fw_cfg", f"name=opt/swa/test,string={which}"]
+    try:
+        proc = run(argv, cwd=PROJECT, env={"LC_ALL": "C", "LANG": "C", "PATH": "/usr/bin:/bin"},
+                   timeout=QEMU_TIMEOUT)
+    except subprocess.TimeoutExpired as expired:
+        out = expired.stdout or ""
+        return None, out.decode("utf-8", "replace") if isinstance(out, bytes) else out
+    return proc.returncode, proc.stdout
+
+
+def qemu_case(suite: ET.Element, classname: str, name: str, code: int | None,
+              serial: str) -> None:
+    """1回の起動の結果を、nextest と同じ形の testcase にする。"""
+    case = ET.SubElement(suite, "testcase", {"name": name, "classname": classname})
+    lines = serial.splitlines()
+    for at, line in enumerate(lines):
+        match = QEMU_LINE.match(line)
+        if not match or match.group(1) != name:
+            continue
+        if match.group(2) == "ok" and code == QEMU_SUCCESS:
+            return
+        if match.group(2) == "failed":
+            said = [match.group(6)] + [rest for rest in lines[at + 1:]
+                                       if not rest.startswith("swa-test")]
+            where = (f"{match.group(3)}:{match.group(4)}:{match.group(5)}"
+                     if match.group(3) else "<unknown>:0:0")
+            failure = ET.SubElement(case, "failure", {"message": f"panicked at {where}"})
+            failure.text = f"thread '{name}' panicked at {where}:\n" + "\n".join(said).strip()
+            return
+    error = ET.SubElement(case, "error", {
+        "message": "<timeout: the kernel did not exit>" if code is None
+        else f"<kernel exited {code} without a verdict>"})
+    error.text = serial[-2000:]
+
+
+def rust_qemu_run(files: list[str], seconds: int) -> tuple[list[ET.Element], TestRun | None]:
+    """QEMU のテストを走らせ、nextest と同じ形の testsuite を返す。ビルドが落ちれば、その判定。"""
+    kernels, failed = rust_kernels(files, seconds)
+    if failed:
+        return [], failed
+    images = rust_target_dir() / "images"
+    images.mkdir(parents=True, exist_ok=True)
+    suites = []
+    crate = rust_import_name()
+    for binary in rust_test_binaries(files):
+        kernel = kernels.get(binary)
+        classname = f"{crate}::{binary}"
+        suite = ET.Element("testsuite", {"name": classname})
+        suites.append(suite)
+        if kernel is None:
+            case = ET.SubElement(suite, "testcase", {"name": binary, "classname": binary})
+            ET.SubElement(case, "failure", {"message": "the kernel was not built"})
+            continue
+        image = images / f"{binary}.img"
+        made = run([str(RUST_IMAGER), str(kernel), str(image)], cwd=PROJECT, timeout=seconds)
+        if made.returncode != 0:
+            raise ToolchainBroken("QEMU", "the image could not be made: "
+                                          + (made.stdout + made.stderr)[-2000:])
+        code, serial = qemu_boot(image, "list")
+        names = [line.split(" ", 1)[1].strip() for line in serial.splitlines()
+                 if line.startswith("swa-test-name ")]
+        if code != QEMU_SUCCESS or not names:
+            case = ET.SubElement(suite, "testcase", {"name": binary, "classname": binary})
+            error = ET.SubElement(case, "error", {
+                "message": f"<kernel did not list its tests: {binary}>"})
+            error.text = serial[-2000:]
+            continue
+        for index, name in enumerate(names):
+            code, serial = qemu_boot(image, str(index))
+            qemu_case(suite, classname, name, code, serial)
+    # parse_junit は数を testsuite の属性から読む。nextest が書くのと同じ属性を付ける。
+    for suite in suites:
+        cases = suite.findall("testcase")
+        suite.set("tests", str(len(cases)))
+        suite.set("failures", str(sum(1 for c in cases if c.find("failure") is not None)))
+        suite.set("errors", str(sum(1 for c in cases if c.find("error") is not None)))
+        suite.set("skipped", "0")
+    return suites, None
+
+
 def test_argv(files_test: list[str], xml_path: Path) -> tuple[list[str], dict[str, str]]:
     """判定を出すコマンドと、それに要る環境変数。
 
@@ -2642,7 +3010,7 @@ def test_argv(files_test: list[str], xml_path: Path) -> tuple[list[str], dict[st
                 str(rust_crate_dir() / "Cargo.toml"), "--offline", "--locked",
                 "--profile", "swa", "--config-file", str(RUST_BUILD / "nextest.toml"),
                 "--no-tests=warn", *rust_vendor_args()]
-        for binary in rust_test_binaries(files_test):
+        for binary in rust_test_binaries([f for f in files_test if not rust_is_qemu_test(f)]):
             argv += ["--test", binary]
         return argv, rust_env()
     if LANGUAGE["name"] == "typescript":
@@ -2687,11 +3055,16 @@ def pytest_run(tag: str, files_test: list[str]) -> TestRun:
                    evidence="there is no Cargo.lock")
             raise ToolchainBroken(phase, "there is no Cargo.lock: the crates were never "
                                          "fetched; run `crates fetch` first")
-        # クレートの根の宣言を、いまの柵の中のファイルに合わせてから組む。
+        # クレートの根の宣言、QEMU のテストの道具、Cargo.toml を、いまの柵の中の
+        # ファイルに合わせてから組む。
         rust_write_mods()
+        rust_write_support()
+        rust_refresh_manifest()
         rust_nextest_config()
         junit = rust_junit()
         junit.unlink(missing_ok=True)
+        qemu_files = [f for f in (files_test or rust_qemu_files()) if rust_is_qemu_test(f)]
+        host_files = [f for f in files_test if not rust_is_qemu_test(f)]
     if csharp:
         problem = prepare_dotnet()
         if problem:
@@ -2705,9 +3078,18 @@ def pytest_run(tag: str, files_test: list[str]) -> TestRun:
         failed = cpp_build(seconds, tag.split("-")[0].upper())
         if failed:
             return failed
+    # kernel で QEMU のテストだけを走らせるときは、ホストの nextest を呼ばない。
+    # 絞り込みの無い nextest は QEMU のテストまでホストでビルドしようとする。
+    skip_host = rust and rust_kernel() and (
+        (files_test and not host_files) or (not files_test and not rust_host_files()))
+    if rust and rust_kernel() and not files_test and not skip_host:
+        argv, env = test_argv(rust_host_files(), xml_path)
     try:
-        # C# は build で呼ぶ。そこの global.json が SDK を決める（dotnet_global_json）。
-        proc = run(argv, cwd=DOTNET_BUILD if csharp else PROJECT, env=env, timeout=seconds)
+        if skip_host:
+            proc = subprocess.CompletedProcess(argv, 0, "", "")
+        else:
+            # C# は build で呼ぶ。そこの global.json が SDK を決める（dotnet_global_json）。
+            proc = run(argv, cwd=DOTNET_BUILD if csharp else PROJECT, env=env, timeout=seconds)
     except subprocess.TimeoutExpired:
         # 失敗ではなくエラーとして報告する。実際そうで、スイートは判定をまったく
         # 出していない。RED_GATE では R2 がそのまま拒み、VERIFY は失敗した試行と
@@ -2720,12 +3102,21 @@ def pytest_run(tag: str, files_test: list[str]) -> TestRun:
         if failed:
             return failed
     if rust:
-        if not junit.exists():
+        if skip_host:
+            root = ET.Element("testsuites")
+        elif not junit.exists():
             output = proc.stdout + proc.stderr
             return rust_build_failure(output) or TestRun(
                 0, 0, 1, 0, [f"<test run died: exit status {proc.returncode}>"], [],
                 output[-3000:])
-        shutil.copyfile(junit, xml_path)
+        else:
+            root = ET.parse(junit).getroot()
+        if rust_kernel() and qemu_files:
+            suites, failed = rust_qemu_run(qemu_files, seconds)
+            if failed:
+                return failed
+            root.extend(suites)
+        ET.ElementTree(root).write(xml_path, encoding="utf-8", xml_declaration=True)
     if cpp and not xml_path.exists():
         # GoogleTest はレポートを最後にまとめて書く。範囲外の添字などでプログラムが
         # 落ちると、どのテストの判定も残らない。最後の [ RUN ] の行が、落ちたテストだ。
@@ -4549,8 +4940,10 @@ def module_test_files(module_id: str, integration: bool, unit: bool = True) -> l
         names = [f"{folder}{name}Tests.cs", f"{folder}{name}IntegrationTests.cs"]
     elif language == "rust":
         # cargo は tests/ の直下のファイルだけをテストのバイナリにする。
+        # kernel の統合テストは QEMU で起動するカーネルで、名前の _qemu で見分ける。
         flat = module_id.replace("/", "_")
-        names = [f"{tests}/{flat}.rs", f"{tests}/{flat}_integration.rs"]
+        second = "_qemu" if LANGUAGE.get("framework") == "kernel" else "_integration"
+        names = [f"{tests}/{flat}.rs", f"{tests}/{flat}{second}.rs"]
     else:
         names = [f"{folder}{name}Test.cpp", f"{folder}{name}IntegrationTest.cpp"]
     if not integration:
@@ -6710,7 +7103,9 @@ TEST_NAMES = {
         r"(?:\s*\[[^\]]*\])*\s*(?:(?:public|private|internal|protected|static|async)\s+)*"
         r"[\w<>\[\],.]+\s+(\w+)\s*\("),
     "cpp": re.compile(r"\b(?:TEST|TEST_F|TEST_P)\s*\(\s*\w+\s*,\s*(\w+)\s*\)"),
-    "rust": re.compile(r"#\[test\][\s\S]{0,200}?\bfn\s+([A-Za-z_]\w*)\s*\("),
+    # `#[test] fn name` と、QEMU のテストの `("name", name)` の組。
+    "rust": re.compile(r"#\[test\][\s\S]{0,200}?\bfn\s+([A-Za-z_]\w*)\s*\("
+                       r"|\(\s*\"([A-Za-z_]\w*)\"\s*,\s*[A-Za-z_][\w:]*\s*\)"),
 }
 
 

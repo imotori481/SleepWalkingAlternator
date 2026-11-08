@@ -410,5 +410,87 @@ class TheStub(Rust):
         self.assertIn("Never write a `mod` line", text)
 
 
+class Kernel(Rust):
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.dict(swa.LANGUAGE, swa.compose_language("rust", "kernel"), clear=True)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_the_kernel_uses_nightly_with_its_target(self):
+        self.assertEqual(swa.LANGUAGE["rust_channel"], "nightly")
+        self.assertIn("x86_64-unknown-none", swa.LANGUAGE["rust_targets"])
+        self.assertIn("rust-src", swa.LANGUAGE["rust_components"])
+
+    def test_the_integration_tests_are_qemu_kernels(self):
+        self.assertEqual(swa.module_test_files("memory/frame", True, True),
+                         ["tests/memory_frame.rs", "tests/memory_frame_qemu.rs"])
+
+    def test_qemu_tests_are_named_from_the_run_list(self):
+        text = 'swa_qemu::run(&[("allocates", allocates), ("frees", frees)])\n' \
+               "#[test]\nfn on_host() {}\n"
+        self.assertEqual(swa.test_names(text), ["allocates", "frees", "on_host"])
+
+    def test_the_manifest_carries_the_kernel_crates_and_a_harnessless_test_per_qemu_file(self):
+        root = self.project()
+        self.write(root, "tests/frame_qemu.rs", "")
+        self.write(root, "tests/frame.rs", "")
+        with mock.patch.object(swa, "rust_crate_name", return_value="kern"):
+            value = tomllib.loads(swa.rust_manifest({"spin": "0.9"}))
+        self.assertEqual(set(value["dependencies"]),
+                         {"bootloader_api", "x86_64", "uart_16550", "spin"})
+        self.assertEqual(value["test"], [{"name": "frame_qemu", "path": "tests/frame_qemu.rs",
+                                          "harness": False}])
+        self.assertEqual(value["profile"]["dev"]["panic"], "abort")
+
+    def test_the_crate_root_starts_no_std(self):
+        root = self.project()
+        self.write(root, "src/frame.rs", "")
+        swa.rust_write_mods()
+        lib = (root / "src/lib.rs").read_text(encoding="utf-8")
+        self.assertTrue(lib.startswith(swa.KERNEL_LIB_HEADER + swa.RUST_MODS_BEGIN))
+
+    def test_the_support_module_is_the_runner_s(self):
+        root = self.project()
+        swa.rust_write_support()
+        rel = swa.rust_support_rel()
+        self.assertEqual((root / rel).read_text(encoding="utf-8"), swa.RUST_QEMU_SUPPORT)
+        with mock.patch.object(swa, "rust_only_mods_changed", return_value=False):
+            self.assertTrue(swa.rust_runner_owned(rel))
+            (root / rel).write_text("changed", encoding="utf-8")
+            self.assertFalse(swa.rust_runner_owned(rel))
+
+    def test_an_existing_kernel_is_not_supported_yet(self):
+        self.project()
+        with mock.patch.dict(swa.RUN, {"mode": "existing"}):
+            self.assertIn("new mode only", swa.rust_problem())
+
+    def case(self, name, code, serial):
+        suite = ET.Element("testsuite")
+        swa.qemu_case(suite, "kern::frame_qemu", name, code, serial)
+        return suite.find("testcase")
+
+    def test_a_boot_s_serial_line_becomes_a_testcase(self):
+        self.project()
+        passed = self.case("adds", swa.QEMU_SUCCESS, "INFO : boot\nswa-test adds ok\n")
+        self.assertEqual(list(passed), [])
+        failed = self.case("fails", swa.QEMU_FAILURE,
+                           "swa-test fails failed at tests/frame_qemu.rs:11:14: assertion "
+                           "`left == right` failed\n  left: 4\n right: 5\nswa-test-end\n")
+        failure = failed.find("failure")
+        self.assertEqual(swa.failure_kind(failure), "AssertionFailure")
+        self.assertIn("right: 5", failure.text)
+        stub = self.case("stub", swa.QEMU_FAILURE,
+                         "swa-test stub failed at src/frame.rs:3:24: not implemented: __stub__\n")
+        self.assertEqual(swa.failure_kind(stub.find("failure")), "StubNotImplemented")
+
+    def test_a_boot_without_a_verdict_is_an_error(self):
+        self.project()
+        hung = self.case("loops", None, "INFO : boot\n")
+        self.assertIn("timeout", hung.find("error").get("message"))
+        silent = self.case("silent", swa.QEMU_SUCCESS, "")
+        self.assertIn("without a verdict", silent.find("error").get("message"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -942,6 +942,7 @@ async function loadSettings() {
   if (value.languages.includes(chosen)) language.value = chosen;
   frameworksByLanguage = value.frameworks || {};
   fillFrameworks();
+  renderRust(value.rust);
   const rows = [];
   for (const [role, current] of Object.entries(value.roles)) box.append(modelRow(role, current, value.efforts, rows));
   if (session.scope !== "local" || !rows.length) return;
@@ -962,6 +963,32 @@ async function saveModels(save, rows) {
       catch (error) { throw new Error(`${ROLE_LABEL[row.role] || row.role}: ${error.message}`); }
     }
   } catch (error) { alert(error.message); }
+  await loadSettings();
+}
+
+// 箱の Rust の版。入れている途中なら、終わるまで読み直す。
+let rustInstalling = false;
+function renderRust(rust) {
+  const state = document.querySelector("#rust-state"), log = document.querySelector("#rust-log");
+  if (!rust) { state.textContent = "読めません"; return; }
+  const list = (rust.toolchains || []).join(", ") || "（入っていない）";
+  state.textContent = `入っている版: ${list}。新規のモードの stable は ${rust.stable || "—"}、nightly は ${rust.nightly || "—"}`
+    + (rust.installing ? "。いま版を入れています" : "");
+  log.hidden = !(rust.log || []).length;
+  log.textContent = (rust.log || []).join("\n");
+  document.querySelector("#rust-install").disabled = rust.installing || liveState.running;
+  if (rust.installing && !rustInstalling) {
+    rustInstalling = true;
+    setTimeout(async () => { rustInstalling = false; await loadSettings(); }, 5000);
+  }
+}
+
+async function installRust(button) {
+  const version = document.querySelector("#rust-version").value.trim();
+  if (!version) { alert("足す版を入れてください。"); return; }
+  button.disabled = true;
+  try { alert((await api("/api/rust-toolchain", {method: "POST", body: JSON.stringify({version})})).message); }
+  catch (error) { alert(error.message); }
   await loadSettings();
 }
 
@@ -1296,13 +1323,15 @@ function setupControl() {
     for (const element of document.querySelectorAll(".local-only")) element.hidden = true;
     const note = document.querySelector("#control-note");
     note.hidden = false;
-    note.textContent = "リモートからは停止、続行、モジュールのやり直し、設計の承認と差し戻し、Auto と Manual の切り替えができます。開始、最終確認の承認、プロジェクトの切り替え、モデルの変更、Unity の参照、写しの更新、下書きの PR、取り込みはこの機械の前で。";
+    note.textContent = "リモートからは停止、続行、モジュールのやり直し、設計の承認と差し戻し、Auto と Manual の切り替えができます。開始、最終確認の承認、プロジェクトの切り替え、モデルの変更、Unity の参照、Rust の版、写しの更新、下書きの PR、取り込みはこの機械の前で。";
   }
   // リモートで隠した「ホストの写し」「取り込み」「Unity」のタブを選ばないよう、隠したあとで開く。
   setupTabs();
   const start = document.querySelector("#start-run");
   start.onclick = () => startRun(start);
   document.querySelector("#language").onchange = fillFrameworks;
+  const rustInstall = document.querySelector("#rust-install");
+  rustInstall.onclick = () => installRust(rustInstall);
   const autoToggle = document.querySelector("#auto-toggle");
   autoToggle.onclick = () => switchAuto(autoToggle);
   const resume = document.querySelector("#continue-run");

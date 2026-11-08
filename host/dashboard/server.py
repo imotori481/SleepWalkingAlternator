@@ -283,6 +283,15 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
                     self._json({"message": live.reset_module(str(body.get("module", "")))},
                                HTTPStatus.OK)
                     return
+                if path == "/api/rust-toolchain":
+                    # ツールチェーンを取りに行き、箱を書き換える。Unity の参照と同じく、この機械の前でだけ。
+                    if scope != LOCAL:
+                        raise ValueError("this can only be done at the machine itself")
+                    if live is None:
+                        raise ValueError("live view is not configured")
+                    self._json({"message": live.install_rust_toolchain(
+                        str(body.get("version", "")))}, HTTPStatus.ACCEPTED)
+                    return
                 if path in ("/api/start", "/api/project", "/api/project/remove", "/api/model"):
                     # 走行の開始、プロジェクトの切り替えと削除、役のモデルの変更は、利用枠と箱の
                     # 状態を大きく動かす。この機械の前でだけ。

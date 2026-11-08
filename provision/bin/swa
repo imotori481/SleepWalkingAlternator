@@ -405,6 +405,21 @@ remove_project() {
   ADMIN_USER="$admin" bash "$PROJECT_SH" remove "$name"
 }
 
+# Rust のツールチェーンの版を足す。rustup が取りに行くので数分かかる。走行と同じく一時
+# ユニットで裏に回し、出力は rust-toolchain.log に書く。ダッシュボードの「Rust」が
+# 終わったかと末尾を読む（swa_dash.py の rust_toolchains）。root で動く（cmd_dash から呼ぶ）。
+install_rust_toolchain() {
+  local version="$1" log="$LOGS/rust-toolchain.log"
+  running && die "走っている間は入れられない。先に止める"
+  switching && die "プロジェクトを切り替えている。終わるのを待つ"
+  systemctl is-active --quiet swa-rust-toolchain && die "もう入れている。終わるのを待つ"
+  : > "$log"
+  systemd-run --quiet --collect --unit=swa-rust-toolchain --working-directory=/tmp \
+    --property=StandardOutput="append:$log" --property=StandardError="append:$log" \
+    bash "$ENGINE/provision/38-rust.sh" toolchain "$version"
+  echo "Rust $version を裏で入れ始めた。数分かかる"
+}
+
 # ホストの swa-unity-refs が保守ユーザーのホームに scp した tar を、Unity の参照として
 # 置く。tar の中身は swa-project.sh が確かめる。root で動く（cmd_dash から呼ぶ）。
 place_unity_refs() {
@@ -446,6 +461,7 @@ cmd_dash() {
     init)     init_project "${req[1]}" "${req[2]}" "${req[3]}" "${req[4]}" "$admin" ;;
     remove)   remove_project "${req[1]}" "$admin" ;;
     unity-refs) place_unity_refs "${req[1]}" "$admin" ;;
+    rust-toolchain) install_rust_toolchain "${req[1]}" ;;
     *)        die "知らない操作: $action" ;;
   esac
 }

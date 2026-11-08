@@ -60,6 +60,13 @@ class Request(unittest.TestCase):
             self.refused({"action": "go", "spec": "x", "language": "python", "mode": "new",
                           "approval": approval})
 
+    def test_a_rust_toolchain_is_a_version_and_nothing_else(self):
+        for version in ("1.85.0", "1.85", "stable", "nightly", "nightly-2026-06-01"):
+            self.assertEqual(self.parse({"action": "rust-toolchain", "version": version}),
+                             ["rust-toolchain", version])
+        for version in ("", None, "1.85.0; rm -rf /", "nightly-26-6-1", "--force", "latest"):
+            self.refused({"action": "rust-toolchain", "version": version})
+
     def test_auto_and_manual_can_be_switched_alone(self):
         self.assertEqual(self.parse({"action": "auto", "mode": "auto"}), ["auto", "auto"])
         self.assertEqual(self.parse({"action": "auto", "mode": "manual"}), ["auto", "manual"])

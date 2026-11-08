@@ -374,6 +374,24 @@ class TheLayout(Rust):
             self.assertIsNone(swa.rust_problem())
             self.assertEqual(swa.rust_import_name(), "app")
 
+    def test_an_existing_crate_s_toolchain_has_to_be_in_the_box(self):
+        root = self.project()
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        toolchains = Path(temp.name) / "toolchains.json"
+        toolchains.write_text(json.dumps({"stable": "1.97.0", "toolchains": [
+            "1.97.0", "nightly-2026-11-01"]}), encoding="utf-8")
+        self.patch(RUST_TOOLCHAINS=toolchains)
+        self.write(root, "Cargo.toml", '[package]\nname = "app"\nversion = "0.1.0"\n')
+        with mock.patch.dict(swa.RUN, {"mode": "existing"}):
+            self.write(root, "rust-toolchain.toml", '[toolchain]\nchannel = "1.80.0"\n')
+            self.assertIn("toolchain 1.80.0", swa.rust_problem())
+            self.write(root, "rust-toolchain.toml", '[toolchain]\nchannel = "nightly-2026-11-01"\n')
+            self.assertIsNone(swa.rust_problem())
+            (root / "rust-toolchain.toml").unlink()
+            self.write(root, "rust-toolchain", "1.79.0\n")
+            self.assertIn("toolchain 1.79.0", swa.rust_problem())
+
     def test_a_new_crate_is_named_after_the_project(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)

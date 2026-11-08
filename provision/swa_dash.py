@@ -50,6 +50,8 @@ BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 MAX_SPEC = 200_000
 # 差し戻しのコメント。ダッシュボードの欄は 4000 字までだが、箱の側でも絞る。
 MAX_COMMENT = 20_000
+# Rust のツールチェーンの版。38-rust.sh の VERSION_RE と同じ形だけを通す。
+RUST_VERSION = re.compile(r"(?:\d+\.\d+(?:\.\d+)?|stable|beta|nightly(?:-\d{4}-\d{2}-\d{2})?)")
 KEYS = {"model": "SWA_MODEL", "effort": "SWA_EFFORT"}
 SUBAGENT_KEY = "SWA_SUBAGENT_MODEL"
 
@@ -140,6 +142,11 @@ def parse(request: object, work: str) -> list[str]:
         return [action, check_project(request.get("project"))]
     if action == "reset":
         return ["reset", check_module(request.get("module"))]
+    if action == "rust-toolchain":
+        version = request.get("version")
+        if not isinstance(version, str) or not RUST_VERSION.fullmatch(version):
+            raise Refused(f"Rust の版の形ではない（1.85.0、nightly-2026-06-01 など）: {version!r}")
+        return ["rust-toolchain", version]
     if action == "reopen":
         modules = request.get("modules")
         if not isinstance(modules, list) or not modules:
@@ -222,7 +229,22 @@ def settings(directory: str) -> dict:
                   + sorted(set(swa.FRAMEWORKS[language]) - {swa.LANGUAGES[language]["framework"]})
                   for language in swa.LANGUAGES}
     return {"roles": roles, "efforts": list(EFFORTS), "languages": sorted(swa.LANGUAGES),
-            "frameworks": frameworks}
+            "frameworks": frameworks, "rust": rust_toolchains()}
+
+
+def rust_toolchains(path: Path = swa.RUST_TOOLCHAINS,
+                    log: Path = swa.SWA / "logs" / "rust-toolchain.log") -> dict:
+    """箱に入っている Rust の版と、版を入れている途中かどうか、最後に入れたときの出力の末尾。"""
+    value = read_json_file(str(path))
+    value = value if isinstance(value, dict) else {}
+    installing = os.system("systemctl is-active --quiet swa-rust-toolchain") == 0
+    try:
+        tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-15:]
+    except OSError:
+        tail = []
+    return {"stable": value.get("stable"), "nightly": value.get("nightly"),
+            "toolchains": value.get("toolchains") or [], "installing": installing,
+            "log": tail}
 
 
 def read_json_file(path: str) -> object:

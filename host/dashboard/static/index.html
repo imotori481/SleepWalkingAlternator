@@ -22,6 +22,7 @@
         <button role="tab" data-tab="import-panel" aria-selected="false" class="local-only">取り込み</button>
         <button role="tab" data-tab="projects-panel" aria-selected="false">プロジェクト</button>
         <button role="tab" data-tab="unity-panel" aria-selected="false" class="local-only">Unity</button>
+        <button role="tab" data-tab="rust-panel" aria-selected="false" class="local-only">Rust</button>
         <button role="tab" data-tab="models-panel" aria-selected="false">役のモデル</button>
         <button role="tab" data-tab="run" aria-selected="true">走行</button>
         <button role="tab" data-tab="pull-panel" aria-selected="false" class="local-only">ホストの写し</button>
@@ -60,6 +61,13 @@
           <p id="unity-host" class="why"></p>
           <div class="actions"><span id="unity-state"></span><button id="unity-check" class="quiet">確かめる（-DryRun）</button><button id="unity-send">送る（swa-unity-refs）</button></div>
           <pre id="unity-log" hidden></pre>
+        </article>
+        <article id="rust-panel" class="panel" role="tabpanel" hidden>
+          <p class="why">箱に入っている Rust のツールチェーン。新規のモードは stable（持ち込む先が kernel なら nightly）を使い、既存のモードはリポジトリの rust-toolchain.toml が名指す版を使う。箱に無い版のリポジトリは基本設計の前に止まるので、ここで版を足す。rustup が取りに行くので数分かかる。</p>
+          <p id="rust-state" class="why">読み込み中</p>
+          <div class="form"><label><span>足す版</span><input id="rust-version" placeholder="1.85.0 や nightly-2026-06-01"></label></div>
+          <div class="actions"><button id="rust-install">入れる（38-rust.sh toolchain）</button></div>
+          <pre id="rust-log" hidden></pre>
         </article>
         <article id="models-panel" class="panel" role="tabpanel" hidden>
           <p class="why">/etc/swa/&lt;役&gt;.env の SWA_MODEL と SWA_EFFORT。空ならアカウントの既定。3つ目の欄はプランナーとソルバーの SWA_SUBAGENT_MODEL で、空なら助手を使わない。保存すると次の呼び出しから効く。</p>

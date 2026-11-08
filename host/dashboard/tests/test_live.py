@@ -111,6 +111,12 @@ class ActOnTheSandbox(LiveView):
         self.assertEqual(self.dash_request(run)["approval"], "auto")
 
     @patch("host.dashboard.live.subprocess.run")
+    def test_a_rust_toolchain_is_installed_by_a_request(self, run):
+        run.return_value = answered("Rust 1.85.0 を裏で入れ始めた")
+        self.live.install_rust_toolchain("1.85.0")
+        self.assertEqual(self.dash_request(run), {"action": "rust-toolchain", "version": "1.85.0"})
+
+    @patch("host.dashboard.live.subprocess.run")
     def test_auto_and_manual_are_switched_by_a_request(self, run):
         run.return_value = answered("now auto")
         self.live.set_auto("auto")

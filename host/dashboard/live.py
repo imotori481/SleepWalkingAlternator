@@ -119,6 +119,10 @@ class Live:
         止まっているときに Auto にすると、箱が今のせきから続ける。"""
         return self._dash({"action": "auto", "mode": mode})
 
+    def install_rust_toolchain(self, version: str) -> str:
+        """Rust のツールチェーンの版を箱に足す。箱が一時ユニットで裏に回す。"""
+        return self._dash({"action": "rust-toolchain", "version": version})
+
     def use_project(self, name: str) -> str:
         """`swa project use` を箱の一時ユニットで裏に回す。進みは `swa now` の switch に出る。"""
         return self._dash({"action": "use", "project": name})

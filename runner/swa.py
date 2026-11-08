@@ -2193,7 +2193,34 @@ def rust_problem() -> str | None:
         if "package" not in value:
             return ("refusing: the Cargo.toml has no [package]; a workspace of several "
                     "crates is not supported yet")
+        missing = rust_missing_toolchain(crate)
+        if missing:
+            return (f"refusing: the repository asks for the Rust toolchain {missing}, and the "
+                    f"box does not have it; add it from the dashboard's Rust tab "
+                    f"(38-rust.sh toolchain {missing})")
     return None
+
+
+def rust_missing_toolchain(crate: Path) -> str | None:
+    """リポジトリの rust-toolchain.toml が求める版のうち、箱に無いもの。無ければ None。
+
+    `rust-toolchain`（拡張子の無い古い形）は1行の版として読む。
+    """
+    channel = None
+    for name in ("rust-toolchain.toml", "rust-toolchain"):
+        path = crate / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        try:
+            channel = tomllib.loads(text).get("toolchain", {}).get("channel")
+        except tomllib.TOMLDecodeError:
+            channel = text.strip() or None
+        break
+    if not isinstance(channel, str) or not channel:
+        return None
+    have = set(rust_toolchains().get("toolchains") or [])
+    return None if channel in have or not have else channel
 
 
 def rust_toolchains() -> dict:

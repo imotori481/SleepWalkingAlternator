@@ -101,12 +101,13 @@ call() {
   esac
 }
 
+# 下流の残りを流す。止まって中段に戻ったら、そこはせきなので gate に渡す。
 run_all() {
   local rc=0
   step run --all || rc=$?
   case "$rc" in
     0) finish 0 "全モジュールが緑になった。最終確認の段にいる" ;;
-    2) finish 2 "モジュールが下流で止まり、中段に戻った。$FAILURE を読み、直すモジュールを 'swa reopen <モジュール>...' で選ぶ" ;;
+    2) gate "モジュールが下流で止まり、中段に戻った。$FAILURE を読み、直すモジュールを 'swa reopen <モジュール>...' で選ぶ" 2 ;;
     5) finish 5 "利用枠が尽きた。枠が戻ったら 'swa continue'。途中のモジュールがあれば先に 'swa raw reset <モジュール>'" ;;
     6) finish 6 "箱が書き込みを拒んだ。設計は差し戻していない。上の INFRA の行のパスの権限を直し、'swa raw reset <モジュール>' のあと 'swa continue'" ;;
     7) finish 7 "箱のツールチェーンが通らなかった。設計は差し戻していない。上の TOOLCHAIN の行を読んで箱を直し、'swa raw reset <モジュール>' のあと 'swa continue'" ;;
@@ -114,44 +115,69 @@ run_all() {
   esac
 }
 
-# 中段のせきで止まる。詳細設計とクリティックの指摘を人が読む。
-at_midstream_gate() {
-  finish 0 "詳細設計を書き、クリティックが読んだ。'swa findings' で指摘を見て、'swa approve' か 'swa reject <コメント>'"
+MIDSTREAM_GATE="詳細設計を書き、クリティックが読んだ。'swa findings' で指摘を見て、'swa approve' か 'swa reject <コメント>'"
+
+# せきに着いた。Manual なら、人にすることを $1 で伝えて止まる。終了コードは $2（既定 0）。
+# Auto なら、swa.py の auto advance が次の走行を決める。それを mode に入れ、by を auto に
+# して work の輪へ戻る。Auto/Manual は毎回読み直すので、走行の途中の切り替えが次の
+# せきから効く。
+gate() {
+  local message="$1" code="${2:-0}" out rc=0 next
+  echo
+  echo "--- swa.py auto advance ($(date '+%F %T'))"
+  out="$(python3 -u "$SWA/runner/swa.py" auto advance)" || rc=$?
+  [ -z "$out" ] || printf '%s\n' "$out"
+  [ "$rc" -eq 0 ] || finish "$rc" "Auto がせきを通せなかった（終了コード $rc）。上の出力を読む。$message"
+  next="${out##*$'\n'}"
+  case "$next" in
+    approve-basic|critique|redraft-modules|approve-modules|continue)
+      echo "--- Auto: $next"
+      mode="$next" by=auto ;;
+    stop) finish "$code" "Auto はここで人に渡した。理由は台帳の AUTO_STOP。$message" ;;
+    *)    finish "$code" "$message" ;;
+  esac
 }
 
+# 走行の本体。せきに着くと gate が止めるか、Auto なら次の走行を mode に入れて輪を回す。
+# by は段のコマンドを誰が流したか。人の操作で始まった最初の一回だけが human だ。
 work() {
-  local log="$1" mode="$2"
+  local log="$1" mode="$2" by=human
   shift 2
   exec >>"$log" 2>&1
   echo "=== swa $mode 開始 ($(date '+%F %T')) プロジェクト=$(project_name)"
 
-  case "$mode" in
-    go)
-      local language="$1" framework="${2:-}" run_mode="${3:-}"
-      call "仕様書の取り込み" spec import
-      call "基本設計" basic draft --mode "$run_mode" \
-        ${language:+--language "$language"} ${framework:+--framework "$framework"}
-      finish 0 "基本設計を書いた。docs/basic/ を読み、'swa approve' か 'swa reject <コメント>'" ;;
-    redraft-basic)
-      call "基本設計の書き直し" basic draft
-      finish 0 "基本設計を書き直した。'swa approve' か 'swa reject <コメント>'" ;;
-    approve-basic)
-      call "基本設計の承認" basic approve
-      call "詳細設計" modules draft
-      at_midstream_gate ;;
-    redraft-modules)
-      call "詳細設計の書き直し" modules draft
-      at_midstream_gate ;;
-    critique)
-      call "批評" modules critique
-      at_midstream_gate ;;
-    approve-modules)
-      call "詳細設計の承認" modules approve
-      run_all ;;
-    continue)
-      run_all ;;
-    *) finish 2 "知らない走行: $mode" ;;
-  esac
+  while :; do
+    case "$mode" in
+      go)
+        local language="$1" framework="${2:-}" run_mode="${3:-}"
+        call "仕様書の取り込み" spec import
+        call "基本設計" basic draft --mode "$run_mode" \
+          ${language:+--language "$language"} ${framework:+--framework "$framework"}
+        gate "基本設計を書いた。docs/basic/ を読み、'swa approve' か 'swa reject <コメント>'" ;;
+      redraft-basic)
+        call "基本設計の書き直し" basic draft
+        gate "基本設計を書き直した。'swa approve' か 'swa reject <コメント>'" ;;
+      approve-basic)
+        call "基本設計の承認" basic approve --by "$by"
+        call "詳細設計" modules draft --by "$by"
+        gate "$MIDSTREAM_GATE" ;;
+      redraft-modules)
+        call "詳細設計の書き直し" modules draft --by "$by"
+        gate "$MIDSTREAM_GATE" ;;
+      critique)
+        call "批評" modules critique
+        gate "$MIDSTREAM_GATE" ;;
+      approve-modules)
+        call "詳細設計の承認" modules approve --by "$by"
+        run_all ;;
+      continue)
+        run_all ;;
+      # Manual のせきで止まっているときに Auto に切り替えた。そのせきから続ける。
+      gate)
+        gate "Auto で通すせきが無い。'swa status' を見る" ;;
+      *) finish 2 "知らない走行: $mode" ;;
+    esac
+  done
 }
 
 # いまの段。plan/ は runner だけが読める。
@@ -183,22 +209,27 @@ start() {
 # 人が書いた仕様書を受け渡し口に置き、上流を始める。ファイルはいくつでも渡せる。
 # モードは省けない。新規か既存かで、プランナーに求めるものと下流の単位が変わる。
 cmd_go() {
-  local language="" framework="" run_mode="" f
+  local language="" framework="" run_mode="" approval=manual f
   local -a specs=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --language) [ $# -ge 2 ] || die "--language に値が無い"; language="$2"; shift 2 ;;
       --framework) [ $# -ge 2 ] || die "--framework に値が無い"; framework="$2"; shift 2 ;;
       --mode) [ $# -ge 2 ] || die "--mode に値が無い"; run_mode="$2"; shift 2 ;;
+      --approval) [ $# -ge 2 ] || die "--approval に値が無い"; approval="$2"; shift 2 ;;
       -*) die "知らないオプション: $1" ;;
       *) specs+=("$1"); shift ;;
     esac
   done
-  [ ${#specs[@]} -gt 0 ] || die "使い方: swa go <仕様書>... --mode <new|existing> [--language <言語>] [--framework <持ち込む先>]"
+  [ ${#specs[@]} -gt 0 ] || die "使い方: swa go <仕様書>... --mode <new|existing> [--approval <manual|auto>] [--language <言語>] [--framework <持ち込む先>]"
   case "$run_mode" in
     new|existing) ;;
     "") die "--mode を選ぶ。新しいコードを作るなら new、既存のコードに手を入れるなら existing" ;;
     *) die "知らないモード: $run_mode（new か existing）" ;;
+  esac
+  case "$approval" in
+    manual|auto) ;;
+    *) die "--approval は manual か auto: $approval" ;;
   esac
   for f in "${specs[@]}"; do
     [ -f "$f" ] || die "ファイルが無い: $f"
@@ -218,7 +249,27 @@ cmd_go() {
     sudo install -o root -g humanw -m 644 "$f" "$SPEC_IN/$(basename "$f")"
   done
   echo "仕様書を置いた: $SPEC_IN"
+  as_runner python3 -u "$SWA/runner/swa.py" auto set "$approval"
   start go "$language" "$framework" "$run_mode"
+}
+
+# Auto/Manual を切り替える。走っている走行は次のせきで読み直す。止まっているときに
+# Auto にしたら、上流と中段のせきは今から通す。下流の続きと最終確認は人が押す。
+# 値を省くと、いまの Auto/Manual と繰り返した回数を出す。
+cmd_auto() {
+  local value="${1:-}"
+  case "$value" in
+    "") as_runner python3 "$SWA/runner/swa.py" auto show; return ;;
+    manual|auto) ;;
+    *) die "使い方: swa auto [manual|auto]" ;;
+  esac
+  switching && die "プロジェクトを切り替えている。終わるのを待つ"
+  as_runner python3 -u "$SWA/runner/swa.py" auto set "$value"
+  [ "$value" = auto ] || return 0
+  running && return 0
+  case "$(stage_now)" in
+    upstream|midstream) start gate ;;
+  esac
 }
 
 # せきを開けて次の段へ流す。上流なら中段の詳細設計まで、中段なら下流の全モジュールまで。
@@ -380,7 +431,9 @@ cmd_dash() {
     settings) python3 "$DASH_PY" settings "$ROLE_ENV" ;;
     design)   python3 "$DASH_PY" design "$SWA/project" ;;
     model)    python3 "$DASH_PY" set-model "$ROLE_ENV" "${req[@]:1}" ;;
-    go)       cmd_go "$work/spec.md" --language "${req[1]}" --framework "${req[2]}" --mode "${req[3]}" ;;
+    go)       cmd_go "$work/spec.md" --language "${req[1]}" --framework "${req[2]}" --mode "${req[3]}" \
+                --approval "${req[4]}" ;;
+    auto)     cmd_auto "${req[1]}" ;;
     approve)  cmd_approve ;;
     reject)   cmd_reject "$(cat "$work/comment.md")" ;;
     reopen)   cmd_reopen "${req[@]:1}" ;;
@@ -473,10 +526,15 @@ usage() {
   cat >&2 <<'EOF'
 使い方: swa <コマンド>
 
-  go <仕様書>... --mode <new|existing> [--language <言語>] [--framework <持ち込む先>]
+  go <仕様書>... --mode <new|existing> [--approval <manual|auto>] [--language <言語>]
+     [--framework <持ち込む先>]
                     仕様書を置き、プランナーに基本設計を書かせる。モードは new（新しい
                     コードを作る）か existing（既存のコードに手を入れる）で、省けない。
-                    持ち込む先を省くと言語の既定になる
+                    --approval を省くと manual。持ち込む先を省くと言語の既定になる
+  auto [manual|auto]
+                    Auto/Manual を切り替える。Auto は上流と中段のせきと下流の失敗を
+                    人を待たずに通す。止まっているときに Auto にすると、今のせきから
+                    続ける。値を省くと、いまの Auto/Manual と繰り返した回数を出す
   approve           せきを開ける。上流なら詳細設計と批評まで、中段なら全モジュールの
                     実装までを裏で流す
   reject <コメント> コメントを付けて、今の段の設計をプランナーに書き直させる
@@ -506,6 +564,7 @@ case "${1:-}" in
   reject)   shift; cmd_reject "$@" ;;
   reopen)   shift; cmd_reopen "$@" ;;
   continue) cmd_continue ;;
+  auto)     shift; cmd_auto "$@" ;;
   status)   cmd_status ;;
   now)      cmd_now ;;
   findings) shift; cmd_findings "$@" ;;

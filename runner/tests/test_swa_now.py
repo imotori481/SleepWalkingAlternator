@@ -129,5 +129,30 @@ class Projects(unittest.TestCase):
                          {"running": False, "log": lines[-20:]})
 
 
+class Auto(unittest.TestCase):
+    """Auto/Manual は human/in の AUTO.json から読む。保守ユーザーが sudo なしで読める。"""
+
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.logs = self.root / "logs"
+        (self.root / "human" / "in").mkdir(parents=True)
+
+    def write(self, text: str) -> None:
+        (self.root / "human" / "in" / "AUTO.json").write_text(text, encoding="utf-8")
+
+    def test_auto_is_read_from_the_human_s_place(self):
+        self.write('{"mode": "auto"}')
+        self.assertEqual(swa_now.auto(str(self.logs)), "auto")
+
+    def test_anything_unreadable_is_manual(self):
+        self.assertEqual(swa_now.auto(str(self.logs)), "manual")
+        for text in ("{", '{"mode": "always"}', "[]"):
+            with self.subTest(text=text):
+                self.write(text)
+                self.assertEqual(swa_now.auto(str(self.logs)), "manual")
+
+
 if __name__ == "__main__":
     unittest.main()

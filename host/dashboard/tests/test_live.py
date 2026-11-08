@@ -105,8 +105,18 @@ class ActOnTheSandbox(LiveView):
         self.live.start_loop(text, "csharp", "unity", "existing")
         self.assertEqual(self.dash_request(run),
                          {"action": "go", "spec": text, "language": "csharp",
-                          "framework": "unity", "mode": "existing"})
+                          "framework": "unity", "mode": "existing", "approval": "manual"})
         self.assertNotIn("rm -rf", " ".join(run.call_args.args[0]))
+        self.live.start_loop(text, "python", "", "new", "auto")
+        self.assertEqual(self.dash_request(run)["approval"], "auto")
+
+    @patch("host.dashboard.live.subprocess.run")
+    def test_auto_and_manual_are_switched_by_a_request(self, run):
+        run.return_value = answered("now auto")
+        self.live.set_auto("auto")
+        self.assertEqual(self.dash_request(run), {"action": "auto", "mode": "auto"})
+        self.live.set_auto("manual")
+        self.assertEqual(self.dash_request(run), {"action": "auto", "mode": "manual"})
 
     @patch("host.dashboard.live.subprocess.run")
     def test_the_gate_actions_are_requests_too(self, run):

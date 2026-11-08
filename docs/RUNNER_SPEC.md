@@ -314,6 +314,9 @@ WSL2 の VM は **約60秒アイドルすると VM ごと停止する**。しか
 | `downstream`（下流） | 実装 | ソルバー ⇄ VERIFY | 全モジュールが緑で `review` へ。止まれば `midstream` へ |
 | `review`（最終確認） | 下書きのプルリクエスト | 人間 | 承認はホストで行う。直すなら `reopen` で `midstream` へ |
 
+上流と中段の出口と、下流で止まったときの中段は、人が通すか Auto が通すかを選べる（§3-6）。
+最終確認はどちらでも人が通す。
+
 段は `plan/stage.json` に置く。
 
 | キー | 意味 |
@@ -332,12 +335,16 @@ WSL2 の VM は **約60秒アイドルすると VM ごと停止する**。しか
 |---|---|---|
 | `spec import` | どこでも | `human/in/spec/` のファイルを `docs/spec/` に写してコミットする。最初の取り込みで `upstream` を始める |
 | `basic draft [--language <言語>] [--framework <持ち込む先>] [--mode <new\|existing>]` | `upstream` | プランナーに基本設計を書かせる。言語とモードは最初の1回で必須。刻んだモードと違うモードは拒む |
-| `basic approve` | `upstream` | 基本設計の形（§6-2）を確かめ、`midstream` へ移す |
-| `modules draft` | `midstream` | プランナーに詳細設計と受け入れ条件を書かせ、続けて `modules critique` を流す。`open` が `[]` なら拒む |
+| `basic approve [--by <human\|auto>]` | `upstream` | 基本設計の形（§6-2）を確かめ、`midstream` へ移す |
+| `modules draft [--by <human\|auto>]` | `midstream` | プランナーに詳細設計と受け入れ条件を書かせ、続けて `modules critique` を流す。`open` が `[]` なら拒む |
 | `modules critique` | `midstream` | クリティックに今の詳細設計を1回読ませる |
-| `modules approve` | `midstream` | 形とインターフェースの検査（§6）を通り、クリティックが今の設計を読んでいれば、下流の計画を作って `downstream` へ移す |
-| `reopen <単位>...` | `midstream`、`downstream`、`review` | 作業ツリーを最後のコミットに戻し、`midstream` に戻す。`open` を選んだ単位にする。変更は `changes/<名前>` で指す |
+| `modules approve [--by <human\|auto>]` | `midstream` | 形とインターフェースの検査（§6）を通り、クリティックが今の設計を読んでいれば、下流の計画を作って `downstream` へ移す |
+| `reopen <単位>... [--by <human\|auto>]` | `midstream`、`downstream`、`review` | 作業ツリーを最後のコミットに戻し、`midstream` に戻す。`open` を選んだ単位にする。変更は `changes/<名前>` で指す |
 | `run <単位>`、`run --all` | `downstream` | 単位を実装する（§3-5） |
+| `auto set <manual\|auto>`、`auto show`、`auto advance` | どこでも | Auto/Manual を切り替える、出す、せきで次の走行を決める（§3-6） |
+
+`--by` は段のコマンドを誰が流したか。既定は `human` で、Auto が流すときは `auto`。台帳の
+`BASIC_APPROVE`、`MODULES_DRAFT`、`MODULES_APPROVE`、`SENT_BACK` に `by` として残る。
 
 ### 3-2-1. モードと下流の単位
 
@@ -415,8 +422,8 @@ WSL2 の VM は **約60秒アイドルすると VM ごと停止する**。しか
 「何も見つからなかった」という答えだ。
 
 指摘はプランナーに戻さない。`plan/CRITIQUE.json` に設計のハッシュと一緒に書いてコミットし、
-写しを `human/in/CRITIQUE.json` に置く。プランナーに書き直させるかは人が決め、コメントで
-伝える。
+写しを `human/in/CRITIQUE.json` に置く。Manual では、プランナーに書き直させるかを人が決め、
+コメントで伝える。Auto では、指摘をコメントにして書き直させる（§3-6）。
 
 ### 3-5. モジュールの位相
 
@@ -461,6 +468,43 @@ RED_GATE は HEAD のコードに対してテストを走らせる。署名の�
 走らせるので、緑のモジュールどうしの統合も毎回確かめる。
 
 ---
+
+### 3-6. Auto/Manual
+
+せきを誰が通すかの切り替え。モード（§3-2-1）とは別に選び、組み合わせて使う。
+
+| 値 | せきですること |
+|---|---|
+| `manual` | 人が承認か差し戻しを押すまで止まる。下流で止まれば、人が直すモジュールを選ぶ |
+| `auto` | ランナーの関門が通る限り、人を待たずに次の段へ進む。最終確認は人に残す |
+
+値は `human/in/AUTO.json` の `{"mode": ...}` に置き、段には刻まない。走行の途中でも切り替えられ、
+走っている走行は次のせきで読み直す。置かれていないか読めなければ `manual`。書くのは
+`auto set` で、台帳に `AUTO_MODE` を残す。
+
+走行（`swa` の `work`）は、せきに着くたびに `auto advance` を呼ぶ。`auto advance` は次に流す
+走行の名前を最後の行に出し、`work` はそれを流す。
+
+| 段 | `auto advance` がすること | 出す名前 |
+|---|---|---|
+| `upstream` | 基本設計があれば承認へ。無ければ止める | `approve-basic` か `stop` |
+| `midstream`（`open` が `[]`） | 最後の `FAILED` のモジュールを `reopen --by auto` で戻し、`plan/FAILURE.md` をコメントに置く。同じモジュールを戻した回数が上限に達していれば止める | `redraft-modules` か `stop` |
+| `midstream` | 設計が検査に落ちていれば止める。クリティックが今の設計を読んでいなければ批評へ。指摘があり、書き直しの回数が上限に達していなければ、指摘をコメントに置く。上限に達していれば、残った指摘を台帳に `AUTO_FINDINGS_LEFT` で残して承認へ | `stop`、`critique`、`redraft-modules`、`approve-modules` |
+| `downstream` | 残りを流す | `continue` |
+| `review`、始まっていない | 人に渡す | `stop` |
+
+Manual なら `manual` を出し、`work` は今までどおり止まる。止めるときは台帳に `AUTO_STOP` を
+残す。関門は人のときと同じコマンドが確かめるので、検査に落ちれば Auto でも止まる。
+
+上限は `AUTO_LIMITS` で、書き直しが2回、同じモジュールを中段に戻すのが2回。クリティックは
+何度読ませても指摘を出すので、書き直しの上限の後は止めずに承認する。回数は台帳から数える。
+
+- 書き直しは `AUTO_REDRAFT` を数え、`BASIC_APPROVE`、`MODULES_APPROVE`、`SENT_BACK` で
+  数え直す
+- 中段に戻した回数は `AUTO_REOPEN` を止まったモジュールごとに数える
+- `by` が `human` の記録があれば、どちらも数え直す
+
+Auto が置くコメントは、人の差し戻しと同じ `human/in/COMMENT.md` に置く。
 
 ## 4. 関門の判定条件
 
@@ -1042,7 +1086,8 @@ ac/
 {"ts":"2026-10-14T10:22:31+0900","event":"RED_GATE","step":"game/board","result":"pass","tests":5}
 {"ts":"...","event":"VERIFY","step":"game/board","attempt":1,"backend":"claude","green":false}
 {"ts":"...","event":"FAILED","step":"game/score","phase":"VERIFY","modules":["game/score","game/board"]}
-{"ts":"...","event":"SENT_BACK","modules":["game/score"]}
+{"ts":"...","event":"SENT_BACK","modules":["game/score"],"by":"human"}
+{"ts":"...","event":"AUTO_REOPEN","step":"game/score","modules":["game/score"],"count":1}
 {"ts":"...","event":"GREEN","step":"game/score","attempts":2,"design":"<ハッシュ>"}
 ```
 
@@ -1141,11 +1186,14 @@ SHA-256 を `<パス>\t<ハッシュ>` の行で書く。ハッシュは CRLF �
 ```text
 spec import                     # §3-2
 basic draft [--language <言語>] [--framework <持ち込む先>] [--mode <new|existing>]
-basic approve
-modules draft                   # 書いた後に modules critique を続けて流す
+basic approve [--by <human|auto>]
+modules draft [--by <human|auto>] # 書いた後に modules critique を続けて流す
 modules critique
-modules approve
-reopen <モジュール>...
+modules approve [--by <human|auto>]
+reopen <モジュール>... [--by <human|auto>]
+auto set <manual|auto>          # §3-6
+auto show                       # Auto/Manual と、Auto が繰り返した回数を JSON で
+auto advance                    # せきで、次に流す走行の名前を最後の行に出す
 check                           # 今の設計を検査する。誰も呼ばない
 status                          # 段とモジュールごとの状態
 run <モジュール>                # 1モジュール
@@ -1235,6 +1283,7 @@ reset <モジュール>              # 止まったモジュールを捨て、�
 
 ## 更新履歴
 
+- 2026/11/08: §3-6 に Auto/Manual を追加。段のコマンドに `--by`、§8 に `auto` を追加
 - 2026/10/24: §7-3 に Unity の参照の指紋による古さの判定と、`run --all` と `status` での確認を追加
 - 2026/10/21: §3-3 に既存のモードで仕様書が書いていない部分をプランナーがコードから決めることを、§6-2 に `## コードから決めたこと` の節を追加
 - 2026/10/20: §5 にソルバーのコメントの言語を追加

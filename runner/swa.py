@@ -145,6 +145,8 @@ HUMAN_SPEC = HUMAN_IN / "spec"
 HUMAN_COMMENT = HUMAN_IN / "COMMENT.md"
 # クリティックの指摘の、人が読む写し。ダッシュボードと `swa findings` が読む。
 CRITIQUE_FOR_HUMAN = HUMAN_IN / "CRITIQUE.json"
+# Auto/Manual。人がダッシュボードで選び、`auto set` が書く。走行の途中でも変わる。
+HUMAN_AUTO = HUMAN_IN / "AUTO.json"
 
 # 設計仕様書。編集対象のリポジトリの docs/ に段ごとに置き、コミットする。
 # 0700 runner で、ソルバーは読めない。ソルバーに要る部分はランナーがブリーフに入れる。
@@ -179,6 +181,17 @@ MODES = ("new", "existing")
 # いまの走行のモード。段か下流の計画から読んで入れる（use_stage_language、run_step）。
 # モードを刻む前の段は、新規として扱う。モードが無かったころの動きと同じだ。
 RUN = {"mode": "new"}
+# せきを誰が通すか。新規/既存とは別の切り替えで、段には刻まない。
+#   manual  人がせきで承認か差し戻しを押すまで止まる
+#   auto    ランナーの関門が通る限り、せきを自動で通す。最終確認は人に残す
+AUTO_MODES = ("manual", "auto")
+# Auto が人の手を借りずに繰り返してよい回数。
+#   redrafts  クリティックの指摘で詳細設計を書き直させる回数。指摘は何度回しても
+#             出るので、使い切ったら残った指摘を台帳に残して承認する
+#   reopens   下流で止まった同じモジュールを中段に戻す回数。使い切ったら人に渡す
+AUTO_LIMITS = {"redrafts": 2, "reopens": 2}
+# 段のコマンドを誰が流したか。台帳に by として残し、Auto の回数を数え直す目印にする。
+BY = ("human", "auto")
 
 # tests/ はプロジェクトの venv の pytest でだけ走らせる。素の
 # `python3 -m pytest` にすると、solver 自身の ~/.local のパッケージが sys.path に
@@ -5048,7 +5061,7 @@ def cmd_basic_draft(language: str | None, framework: str | None,
     return 0
 
 
-def cmd_basic_approve() -> int:
+def cmd_basic_approve(by: str = "human") -> int:
     """基本設計を承認して中段へ流す。"""
     stage = read_stage()
     refused = in_stage(stage, "upstream")
@@ -5061,7 +5074,7 @@ def cmd_basic_approve() -> int:
             print(problem, file=sys.stderr)
         return 2
     write_stage(stage="midstream", open=None, critiqued=None)
-    ledger("BASIC_APPROVE")
+    ledger("BASIC_APPROVE", by=by)
     commit_paths([STAGE_FILE, LEDGER], "stage: approve the basic design", "the stage")
     print("basic design approved; next: modules draft")
     return 0
@@ -5076,7 +5089,7 @@ def interface_record(modules: dict[str, dict], problems: list[str]) -> dict:
                         if any(p["entry"] for p in m["provides"])}}
 
 
-def cmd_modules_draft() -> int:
+def cmd_modules_draft(by: str = "human") -> int:
     """基本設計からモジュールの詳細設計と受け入れ条件を書かせ、クリティックに1回読ませる。"""
     stage = read_stage()
     refused = in_stage(stage, "midstream")
@@ -5096,7 +5109,7 @@ def cmd_modules_draft() -> int:
     docs, acs = read_texts(DOCS_MODULES, ".md"), read_texts(AC, ".json")
     changes = read_texts(DOCS_CHANGES, ".md")
     comment = human_comment()
-    ledger("MODULES_DRAFT", open=open_, comment=bool(comment))
+    ledger("MODULES_DRAFT", open=open_, comment=bool(comment), by=by)
     # 変更は既存のモードにしか無い。新規のモードでは changes/ を置かず、プランナーが
     # 書いても読まずに消す。
     parts = {"modules": docs, "ac": acs}
@@ -5269,7 +5282,7 @@ def discard_modules(mids: list[str], tasks: dict | None) -> None:
             (STATE / kind / f"{safe_id(mid)}.json").unlink(missing_ok=True)
 
 
-def cmd_modules_approve() -> int:
+def cmd_modules_approve(by: str = "human") -> int:
     """詳細設計を承認して下流へ流す。設計が変わった緑のモジュールは流し直す。"""
     stage = read_stage()
     refused = in_stage(stage, "midstream")
@@ -5310,7 +5323,7 @@ def cmd_modules_approve() -> int:
     INTERFACE.chmod(0o644)
     FAILURE.unlink(missing_ok=True)
     write_stage(stage="downstream", open=None)
-    ledger("MODULES_APPROVE", digest=digest, order=[s["id"] for s in tasks["steps"]])
+    ledger("MODULES_APPROVE", digest=digest, order=[s["id"] for s in tasks["steps"]], by=by)
     commit_paths([STAGE_FILE, INTERFACE, FAILURE, LEDGER], "stage: approve the module design",
                  "the stage")
     print(f"module design approved; next: run --all "
@@ -5343,8 +5356,8 @@ def clean_tree() -> None:
         (STATE / "freeze" / f"{safe_id(s['id'])}.json").unlink(missing_ok=True)
 
 
-def cmd_reopen(mids: list[str]) -> int:
-    """詳細設計を直すモジュールを人が選び、中段に戻す。"""
+def cmd_reopen(mids: list[str], by: str = "human") -> int:
+    """詳細設計を直すモジュールを人が選び、中段に戻す。Auto なら止まったモジュールを戻す。"""
     stage = read_stage()
     refused = in_stage(stage, "midstream", "downstream", "review")
     if refused:
@@ -5357,7 +5370,7 @@ def cmd_reopen(mids: list[str]) -> int:
                       f"the modules are {', '.join(sorted(known))}")
     clean_tree()
     write_stage(stage="midstream", open=sorted(set(mids)), critiqued=stage.get("critiqued"))
-    ledger("SENT_BACK", modules=sorted(set(mids)))
+    ledger("SENT_BACK", modules=sorted(set(mids)), by=by)
     commit_paths([STAGE_FILE, LEDGER], f"stage: send {', '.join(sorted(set(mids)))} back "
                  f"to the module design", "the stage")
     print(f"back in the midstream; the planner may change {', '.join(sorted(set(mids)))}. "
@@ -5457,6 +5470,221 @@ def cmd_status() -> int:
             print(refused.replace("refusing: ", "blocked: ", 1))
     for row in steps_now():
         print(f"  {row['state']:8} {row['id']}")
+    print(f"approval: {read_auto()}")
+    return 0
+
+
+# --------------------------------------------------------------------------
+# Auto/Manual
+# --------------------------------------------------------------------------
+#
+# Manual では、人が上流と中段のせきで承認か差し戻しを押し、下流で止まれば直す
+# モジュールを選ぶ。Auto では、走行（provision/bin/swa の work）がせきに着くたびに
+# `auto advance` を呼び、人の代わりに次の走行を決める。関門は人のときと同じ
+# コマンドが確かめるので、Auto が外すのは人の判断だけだ。最終確認は人に残す。
+#
+# Auto/Manual は段に刻まず、人の受け渡し口の HUMAN_AUTO に置く。走行の途中で
+# 切り替えるので、走っている側が書いてコミットする stage.json と取り合わない。
+# 繰り返した回数は台帳から数える。台帳は追記専用で、作業ツリーを戻しても残る。
+
+
+def read_auto() -> str:
+    """いまの Auto/Manual。置かれていないか読めなければ manual。"""
+    try:
+        value = json.loads(HUMAN_AUTO.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "manual"
+    mode = value.get("mode") if isinstance(value, dict) else None
+    return mode if mode in AUTO_MODES else "manual"
+
+
+def write_auto(mode: str) -> None:
+    """HUMAN_AUTO を置き換える。保守ユーザーの `swa now` が読むので、誰でも読める。"""
+    if mode not in AUTO_MODES:
+        raise ValueError(f"not one of {AUTO_MODES}: {mode!r}")
+    HUMAN_AUTO.parent.mkdir(parents=True, exist_ok=True)
+    temporary = HUMAN_AUTO.with_name(HUMAN_AUTO.name + ".tmp")
+    temporary.write_text(json.dumps({"mode": mode, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
+                                    ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.chmod(0o644)
+    os.replace(temporary, HUMAN_AUTO)
+
+
+def ledger_records(path: Path | None = None) -> list[dict]:
+    """台帳の記録を古い順に。読めない行は飛ばす。"""
+    path = LEDGER if path is None else path
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    records = []
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def auto_counts(records: list[dict]) -> dict:
+    """Auto が繰り返した回数。人の手が入ると、どちらも数え直す。
+
+    書き直しは、段が進むか中段に戻るたびにも数え直す。新しい詳細設計への
+    クリティックの指摘は、前の設計への指摘とは別のものだからだ。
+    reopen は止まったモジュールごとに数え、人の手が入るまで数え直さない。
+    """
+    redrafts, reopens = 0, {}
+    for record in records:
+        event = record.get("event")
+        if record.get("by") == "human":
+            redrafts, reopens = 0, {}
+        if event in ("BASIC_APPROVE", "MODULES_APPROVE", "SENT_BACK"):
+            redrafts = 0
+        if event == "AUTO_REDRAFT":
+            redrafts += 1
+        elif event == "AUTO_REOPEN" and record.get("step"):
+            reopens[record["step"]] = reopens.get(record["step"], 0) + 1
+    return {"redrafts": redrafts, "reopens": reopens}
+
+
+def auto_state(records: list[dict]) -> dict:
+    """ダッシュボードに出す Auto/Manual と、繰り返した回数と上限。"""
+    return {"mode": read_auto(), **auto_counts(records), "limits": dict(AUTO_LIMITS)}
+
+
+def write_auto_comment(text: str) -> None:
+    """Auto が書き直しのために渡すコメントを、人の差し戻しと同じ置き場に書く。
+
+    次のプランナーの呼び出しが読み、受け入れたら消す（human_comment）。
+    """
+    HUMAN_COMMENT.parent.mkdir(parents=True, exist_ok=True)
+    temporary = HUMAN_COMMENT.with_name(HUMAN_COMMENT.name + ".tmp")
+    temporary.write_text(text.strip() + "\n", encoding="utf-8")
+    temporary.chmod(0o644)
+    os.replace(temporary, HUMAN_COMMENT)
+
+
+def last_failure(records: list[dict]) -> dict | None:
+    """下流で最後に止まったモジュールの記録。"""
+    for record in reversed(records):
+        if record.get("event") == "FAILED" and record.get("step"):
+            return record
+    return None
+
+
+def current_findings(digest: str) -> list[dict]:
+    """いまの詳細設計へのクリティックの指摘。別の設計への指摘なら空。"""
+    try:
+        value = json.loads(CRITIQUE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(value, dict) or value.get("digest") != digest:
+        return []
+    return [f for f in value.get("findings") or [] if isinstance(f, dict)]
+
+
+def auto_stop(reason: str, **fields) -> int:
+    ledger("AUTO_STOP", reason=reason, **fields)
+    print(f"Auto stopped: {reason}", file=sys.stderr)
+    print("stop")
+    return 0
+
+
+def cmd_auto_advance() -> int:
+    """Auto のせきを1つ通す準備をし、次に流す走行の名前を最後の行に出す。
+
+    出す名前は work の走行の名前と同じ。
+      manual            Manual なので、人を待つ
+      stop              Auto でも人に渡す。理由は台帳の AUTO_STOP
+      approve-basic     基本設計を承認する
+      critique          いまの詳細設計をクリティックがまだ読んでいない
+      redraft-modules   指摘か止まった理由をコメントに置いた。詳細設計を書き直させる
+      approve-modules   詳細設計を承認する
+      continue          下流の残りを流す
+    """
+    if read_auto() != "auto":
+        print("manual")
+        return 0
+    stage = read_stage()
+    now = stage.get("stage")
+    records = ledger_records()
+    counts = auto_counts(records)
+
+    if now == "upstream":
+        if not read_texts(DOCS_BASIC, ".md"):
+            return auto_stop("there is no basic design to approve")
+        print("approve-basic")
+        return 0
+
+    if now == "midstream" and stage.get("open") == []:
+        failed = last_failure(records)
+        if failed is None:
+            return auto_stop("a module failed downstream, but the ledger does not say which")
+        step = failed["step"]
+        done = counts["reopens"].get(step, 0)
+        if done >= AUTO_LIMITS["reopens"]:
+            return auto_stop(f"{step} failed again after {done} automatic reopen(s)", step=step)
+        modules = [m for m in failed.get("modules") or [] if isinstance(m, str)] or [step]
+        try:
+            failure = FAILURE.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            failure = f"{step} failed in {failed.get('phase')}: {failed.get('reason')}"
+        ledger("AUTO_REOPEN", step=step, modules=modules, count=done + 1)
+        refused = cmd_reopen(modules, by="auto")
+        if refused:
+            return refused
+        write_auto_comment("Auto: the module below failed downstream and was sent back "
+                           "without a human. Fix its design so that it can be built.\n\n"
+                           + failure)
+        print("redraft-modules")
+        return 0
+
+    if now == "midstream":
+        use_stage_language(stage)
+        modules, problems = current_design()
+        if problems:
+            return auto_stop("the module design does not pass its checks", problems=problems[:20])
+        digest = design_digest(modules)
+        if stage.get("critiqued") != digest:
+            print("critique")
+            return 0
+        findings = current_findings(digest)
+        if findings and counts["redrafts"] < AUTO_LIMITS["redrafts"]:
+            ledger("AUTO_REDRAFT", count=counts["redrafts"] + 1, findings=len(findings))
+            write_auto_comment("Auto: the critic read the module design and found the "
+                               "points below. Rewrite the design to address them.\n\n"
+                               + render_findings({"modules": findings}))
+            print("redraft-modules")
+            return 0
+        if findings:
+            ledger("AUTO_FINDINGS_LEFT", count=len(findings),
+                   titles=[str(f.get("title", ""))[:200] for f in findings])
+        print("approve-modules")
+        return 0
+
+    if now == "downstream":
+        print("continue")
+        return 0
+    # 最終確認は人に残す。始まっていなければ、通すせきが無い。
+    print("stop")
+    return 0
+
+
+def cmd_auto_set(mode: str) -> int:
+    """Auto/Manual を切り替える。走っている走行は、次のせきで読み直す。"""
+    if read_auto() == mode and HUMAN_AUTO.exists():
+        print(f"already {mode}")
+        return 0
+    write_auto(mode)
+    ledger("AUTO_MODE", mode=mode)
+    print(f"now {mode}")
+    return 0
+
+
+def cmd_auto_show() -> int:
+    print(json.dumps(auto_state(ledger_records()), ensure_ascii=False))
     return 0
 
 
@@ -8173,20 +8401,33 @@ def main() -> int:
     draft_cmd.add_argument("--mode", default=None, choices=MODES,
                            help="new: build new code; existing: change the code already in "
                                 "the repository. Required the first time, and fixed after that")
-    basic_sub.add_parser("approve", help="approve the basic design and move to the midstream")
+    by_help = "who passes this gate: human (default), or auto when Auto passes it"
+    basic_sub.add_parser("approve", help="approve the basic design and move to the midstream"
+                         ).add_argument("--by", default="human", choices=BY, help=by_help)
 
     # 中段。詳細設計を書かせ、クリティックに1回読ませ、人が承認する。
     modules_cmd = sub.add_parser("modules", help="the module design (midstream)")
     modules_sub = modules_cmd.add_subparsers(dest="sub_cmd", required=True)
     modules_sub.add_parser(
         "draft", help="have the planner write docs/modules/ and ac/, check the "
-                      "interfaces, and have the critic read the design once")
+                      "interfaces, and have the critic read the design once"
+    ).add_argument("--by", default="human", choices=BY, help=by_help)
     modules_sub.add_parser("critique", help="have the critic read the current design once")
-    modules_sub.add_parser("approve", help="approve the module design and move downstream")
+    modules_sub.add_parser("approve", help="approve the module design and move downstream"
+                           ).add_argument("--by", default="human", choices=BY, help=by_help)
     reopen_cmd = sub.add_parser(
         "reopen", help="send modules back to the midstream; only their design may change")
     reopen_cmd.add_argument("modules", nargs="+", metavar="MODULE",
                             help="the module, as its path under src without the extension")
+    reopen_cmd.add_argument("--by", default="human", choices=BY, help=by_help)
+    # Auto/Manual。段とは別に、人がいつでも切り替える。
+    auto_cmd = sub.add_parser("auto", help="Auto/Manual: whether the gates wait for a human")
+    auto_sub = auto_cmd.add_subparsers(dest="sub_cmd", required=True)
+    auto_sub.add_parser("set", help=f"switch Auto/Manual; written to {HUMAN_AUTO}"
+                        ).add_argument("mode", choices=AUTO_MODES)
+    auto_sub.add_parser("show", help="print Auto/Manual and how often Auto has repeated, as JSON")
+    auto_sub.add_parser("advance", help="at a gate: prepare what Auto does next and print "
+                                        "the name of the run to go on with as the last line")
     sub.add_parser("check", help="check the design on disk without calling anyone")
     sub.add_parser("status", help="print the stage and the state of every module")
 
@@ -8218,7 +8459,9 @@ def main() -> int:
     NOW["command"] = " ".join(v for v in (args.cmd, getattr(args, "sub_cmd", None),
                                           "--all" if getattr(args, "all", False) else None)
                               if v)
-    atexit.register(report_now, None)
+    # Auto/Manual の切り替えは走行の途中にも来る。走っている側のいまの作業を消さない。
+    if not (args.cmd == "auto" and args.sub_cmd in ("set", "show")):
+        atexit.register(report_now, None)
 
     try:
         if args.cmd == "spec":
@@ -8226,15 +8469,21 @@ def main() -> int:
         if args.cmd == "basic":
             if args.sub_cmd == "draft":
                 return cmd_basic_draft(args.language, args.framework, args.mode)
-            return cmd_basic_approve()
+            return cmd_basic_approve(args.by)
         if args.cmd == "modules":
             if args.sub_cmd == "draft":
-                return cmd_modules_draft()
+                return cmd_modules_draft(args.by)
             if args.sub_cmd == "critique":
                 return cmd_modules_critique()
-            return cmd_modules_approve()
+            return cmd_modules_approve(args.by)
         if args.cmd == "reopen":
-            return cmd_reopen(args.modules)
+            return cmd_reopen(args.modules, args.by)
+        if args.cmd == "auto":
+            if args.sub_cmd == "set":
+                return cmd_auto_set(args.mode)
+            if args.sub_cmd == "show":
+                return cmd_auto_show()
+            return cmd_auto_advance()
         if args.cmd == "check":
             return cmd_check()
         if args.cmd == "status":

@@ -43,17 +43,28 @@ class Request(unittest.TestCase):
         text = "# 仕様書\n$(rm -rf /)\n"
         self.assertEqual(self.parse({"action": "go", "spec": text, "language": "csharp",
                                      "mode": "existing"}),
-                         ["go", "csharp", "unity", "existing"])
+                         ["go", "csharp", "unity", "existing", "manual"])
         self.assertEqual((self.work / "spec.md").read_text(encoding="utf-8"), text)
 
     def test_a_framework_left_empty_becomes_the_language_s_own(self):
         # ダッシュボードは選ばれていない持ち込む先を空で送る。swa には名前で渡す。
         self.assertEqual(self.parse({"action": "go", "spec": "x", "language": "cpp",
                                      "framework": "", "mode": "new"}),
-                         ["go", "cpp", "dxlib", "new"])
+                         ["go", "cpp", "dxlib", "new", "manual"])
         self.assertEqual(self.parse({"action": "go", "spec": "x", "language": "typescript",
-                                     "framework": "dom", "mode": "new"}),
-                         ["go", "typescript", "dom", "new"])
+                                     "framework": "dom", "mode": "new", "approval": "auto"}),
+                         ["go", "typescript", "dom", "new", "auto"])
+
+    def test_a_run_takes_auto_or_manual_and_nothing_else(self):
+        for approval in ("", None, "Auto", "auto\n--mode new", 1):
+            self.refused({"action": "go", "spec": "x", "language": "python", "mode": "new",
+                          "approval": approval})
+
+    def test_auto_and_manual_can_be_switched_alone(self):
+        self.assertEqual(self.parse({"action": "auto", "mode": "auto"}), ["auto", "auto"])
+        self.assertEqual(self.parse({"action": "auto", "mode": "manual"}), ["auto", "manual"])
+        for mode in (None, "", "new", "auto manual"):
+            self.refused({"action": "auto", "mode": mode})
 
     def test_a_framework_must_belong_to_the_language(self):
         self.refused({"action": "go", "spec": "x", "language": "csharp",
@@ -296,6 +307,17 @@ class Design(unittest.TestCase):
     def test_criteria_that_are_not_json_come_back_as_text(self):
         self.write("ac/a.json", "{broken")
         self.assertEqual(swa_dash.design(str(self.root))["ac"], {"a": "{broken"})
+
+    def test_auto_and_its_counts_are_read_beside_the_work_tree(self):
+        project = self.root / "project"
+        self.write("human/in/AUTO.json", '{"mode": "auto"}')
+        self.write("project/plan/ledger.jsonl", "\n".join(json.dumps(r) for r in [
+            {"event": "AUTO_REDRAFT"}, {"event": "AUTO_REOPEN", "step": "a"}]) + "\n")
+        value = swa_dash.design(str(project))["auto"]
+        self.assertEqual((value["mode"], value["redrafts"], value["reopens"]),
+                         ("auto", 1, {"a": 1}))
+        self.assertEqual(value["limits"], {"redrafts": 2, "reopens": 2})
+        self.assertEqual(swa_dash.design(str(self.root))["auto"]["mode"], "manual")
 
 
 class UnityReferences(unittest.TestCase):

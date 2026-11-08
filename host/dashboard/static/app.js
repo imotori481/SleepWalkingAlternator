@@ -405,6 +405,12 @@ function renderDesign(value) {
       text("h4", "入口（\"entry\": true）"), text("pre", entries.join("\n") || "—")));
   }
 
+  const auto = value.auto;
+  if (auto && ["upstream", "midstream"].includes(stage)) {
+    const reopens = Object.entries(auto.reopens || {}).map(([id, n]) => `${id} ${n}/${auto.limits.reopens}`);
+    box.append(text("p", `Auto / Manual: ${AUTO_LABEL[auto.mode] || auto.mode}。Auto の書き直し ${auto.redrafts}/${auto.limits.redrafts}`
+      + (reopens.length ? `、中段に戻した回数 ${reopens.join(", ")}` : ""), "why"));
+  }
   if (liveState.running) { box.append(text("p", "走っている間は操作できません。", "why")); return; }
   if (stage === "upstream") box.append(gateActions("基本設計"));
   else if (stage === "midstream" && Array.isArray(value.stage.open) && !value.stage.open.length) {
@@ -860,6 +866,31 @@ function renderControl(value) {
     document.querySelector("#switch-log").textContent = value.switch.log.join("\n");
   }
   renderProjects(value.projects || [], value.error);
+  renderAuto(value);
+}
+
+const AUTO_LABEL = {manual: "Manual", auto: "Auto"};
+let autoMode = null;
+
+// Auto/Manual と切り替えのボタン。走っている間も切り替えられる。
+function renderAuto(value) {
+  autoMode = value.error ? null : (value.auto || "manual");
+  document.querySelector("#auto-state").textContent =
+    `Auto / Manual: ${autoMode ? AUTO_LABEL[autoMode] : "—"}`;
+  const toggle = document.querySelector("#auto-toggle");
+  toggle.disabled = !autoMode || liveState.switching;
+  toggle.textContent = autoMode === "auto" ? "Manual にする（swa auto manual）" : "Auto にする（swa auto auto）";
+}
+
+function switchAuto(element) {
+  if (!autoMode) return;
+  const next = autoMode === "auto" ? "manual" : "auto";
+  const question = next === "manual"
+    ? (liveState.running ? "Manual にします。走っている段はそのまま終え、次のせきで止まります。よいですか？"
+                         : "Manual にします。せきでは人の承認を待ちます。よいですか？")
+    : (liveState.running ? "Auto にします。次のせきから人を待たずに通します。よいですか？"
+                         : "Auto にします。基本設計か詳細設計のせきで止まっていれば、今から通して続けます。よいですか？");
+  act(element, "/api/auto", {mode: next}, question);
 }
 
 function renderProjects(projects, error) {
@@ -985,8 +1016,9 @@ async function startRun(element) {
   const language = document.querySelector("#language").value;
   const framework = document.querySelector("#framework").value;
   const modeName = mode.options[mode.selectedIndex].text;
-  await act(element, "/api/start", {spec, language, framework, mode: mode.value},
-    `仕様書の欄の本文（${spec.length} 字）で、${modeName}のモードと ${language}${framework ? `（${framework}）` : ""} で基本設計から始めます。よいですか？`);
+  const approval = document.querySelector("#approval").value;
+  await act(element, "/api/start", {spec, language, framework, mode: mode.value, approval},
+    `仕様書の欄の本文（${spec.length} 字）で、${modeName}のモードと ${language}${framework ? `（${framework}）` : ""}、${AUTO_LABEL[approval]} で基本設計から始めます。よいですか？`);
 }
 
 // 仕様書の欄を書き換える。人が書いた本文を黙って消さない。
@@ -1264,13 +1296,15 @@ function setupControl() {
     for (const element of document.querySelectorAll(".local-only")) element.hidden = true;
     const note = document.querySelector("#control-note");
     note.hidden = false;
-    note.textContent = "リモートからは停止、続行、モジュールのやり直し、設計の承認と差し戻しができます。開始、最終確認の承認、プロジェクトの切り替え、モデルの変更、Unity の参照、写しの更新、下書きの PR、取り込みはこの機械の前で。";
+    note.textContent = "リモートからは停止、続行、モジュールのやり直し、設計の承認と差し戻し、Auto と Manual の切り替えができます。開始、最終確認の承認、プロジェクトの切り替え、モデルの変更、Unity の参照、写しの更新、下書きの PR、取り込みはこの機械の前で。";
   }
   // リモートで隠した「ホストの写し」「取り込み」「Unity」のタブを選ばないよう、隠したあとで開く。
   setupTabs();
   const start = document.querySelector("#start-run");
   start.onclick = () => startRun(start);
   document.querySelector("#language").onchange = fillFrameworks;
+  const autoToggle = document.querySelector("#auto-toggle");
+  autoToggle.onclick = () => switchAuto(autoToggle);
   const resume = document.querySelector("#continue-run");
   resume.onclick = () => act(resume, "/api/continue", {}, "止まったところから続けます。よいですか？");
   const stop = document.querySelector("#stop-run");

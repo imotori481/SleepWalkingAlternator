@@ -265,6 +265,16 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
                         raise ValueError("choose one or more modules")
                     self._json({"message": live.reopen(modules)}, HTTPStatus.OK)
                     return
+                if path == "/api/auto":
+                    # Auto/Manual の切り替え。せきの承認がどこからでもよいのと同じく、
+                    # どこからでもよい。
+                    if live is None:
+                        raise ValueError("live view is not configured")
+                    mode = str(body.get("mode", ""))
+                    if mode not in ("manual", "auto"):
+                        raise ValueError("choose manual or auto")
+                    self._json({"message": live.set_auto(mode)}, HTTPStatus.ACCEPTED)
+                    return
                 if path == "/api/reset":
                     # 止まったモジュールのやり直しも、どこからでもよい。続行の前の一手で、
                     # 捨てるのはそのモジュールのコミットしていない作業だけだ。
@@ -284,7 +294,8 @@ def handler_for(state: DashboardState, launchers: Launchers, reach: Reach, token
                         message = live.start_loop(str(body.get("spec", "")),
                                                   str(body.get("language", "")),
                                                   str(body.get("framework", "")),
-                                                  str(body.get("mode", "")))
+                                                  str(body.get("mode", "")),
+                                                  str(body.get("approval", "manual")))
                     elif path == "/api/project":
                         message = live.use_project(str(body.get("project", "")))
                     elif path == "/api/project/remove":

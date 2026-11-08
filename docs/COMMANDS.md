@@ -51,13 +51,17 @@ PowerShell なら `.\host\swa.cmd <args>`、Git Bash なら `./host/swa.cmd <arg
 
 ## 走らせる（ホストでも箱でも）
 
-流れは3段で、各段の出口で人が止める。上流で基本設計、中段で詳細設計と受け入れ条件、下流で
-実装を作る。段を進めるのは `swa approve` だけだ。
+流れは3段で、各段の出口でせき止める。上流で基本設計、中段で詳細設計と受け入れ条件、下流で
+実装を作る。Manual では、段を進めるのは `swa approve` だけだ。Auto では、上流と中段のせきと
+下流で止まったときの中段を、人を待たずに通す。
 
 | やりたいこと | コマンド |
 |---|---|
 | 仕様書を置き、基本設計を書かせる | `swa go <spec>... --mode <mode> --language <言語>` |
 | 持ち込む先を選んで始める | `swa go <spec>... --mode <mode> --language <言語> --framework <持ち込む先>` |
+| Auto で始める | `swa go <spec>... --mode <mode> --approval auto --language <言語>` |
+| Auto と Manual を切り替える | `swa auto <manual\|auto>` |
+| いまの Auto/Manual と、Auto が繰り返した回数を見る | `swa auto` |
 | 今の段の設計を承認して次へ流す | `swa approve` |
 | コメントを付けて今の段の設計を書き直させる | `swa reject <comment>` |
 | 直すモジュールを選んで中段に戻す | `swa reopen <module>...` |
@@ -78,6 +82,19 @@ PowerShell なら `.\host\swa.cmd <args>`、Git Bash なら `./host/swa.cmd <arg
 
 既存のモードでは、既存のファイルはモジュールとして書き直さず、変更で触る。変更のテストは、
 変える前の今のコードに対して落ちることを確かめてから実装させる。
+
+Auto/Manual はモードとは別に選ぶ。`--approval` を省くと `manual`。走行の途中でも
+`swa auto` で切り替えられ、走っている走行は次のせきから従う。止まっているときに Auto にすると、
+上流か中段のせきにいればそこから続ける。
+
+| せき | Manual | Auto |
+|---|---|---|
+| 上流の出口 | 人が承認か差し戻し | 基本設計を承認する |
+| 中段の出口 | 人が指摘を読み、承認か差し戻し | 指摘があれば、指摘をコメントにして詳細設計を書き直させる。2回書き直したら、残った指摘を台帳に残して承認する |
+| 下流で止まった | 人が直すモジュールを選ぶ | 止まったモジュールを中段に戻し、`plan/FAILURE.md` をコメントにして書き直させる。同じモジュールの3回目は人に渡す |
+| 最終確認 | 人が確かめる | 人が確かめる |
+
+関門の検査に落ちれば、Auto でも止まる。Auto が止まった理由は台帳の `AUTO_STOP` にある。
 
 段ごとに `swa approve` と `swa reject` がすることは次のとおり。
 
@@ -110,7 +127,7 @@ sudo -u runner cat /srv/swa/project/ac/<module>.json
 
 `swa raw` は `swa.py` をそのまま runner として前面で呼ぶ。動詞の一覧は `swa raw --help`。
 
-クリティックの指摘はプランナーに戻らない。書き直させたい指摘は、`swa reject` のコメントに書く。
+Manual では、クリティックの指摘はプランナーに戻らない。書き直させたい指摘は、`swa reject` のコメントに書く。
 
 走行の設定（試行回数、時間切れ、ソルバーの段）は `/srv/swa/settings.json` に置く。root が書く。
 
@@ -303,7 +320,8 @@ swa go <spec> --mode <mode> --language cpp
 
 | やりたいこと | 欄 | 同じことをするコマンド |
 |---|---|---|
-| 仕様書から始める | 走行 | `swa go <spec> --mode <mode> --language <言語>` |
+| 仕様書から始める | 走行 | `swa go <spec> --mode <mode> --approval <manual\|auto> --language <言語>` |
+| Auto と Manual を切り替える | 走行 | `swa auto <manual\|auto>` |
 | 止まったところから続ける | 走行 | `swa continue` |
 | 止める | 走行 | `swa stop` |
 | 途中で止まったモジュールを最後のコミットに戻す | 走行 | `swa raw reset <module>` |
@@ -342,7 +360,7 @@ Tailscale のログインを書く。どちらかが無ければ、tailnet か�
 
 リモートから、最終確認の承認、走行の開始、プロジェクトの切り替え、モデルの変更、写しの更新、
 下書きの PR、取り込みはできない。最終確認の差し戻し、設計のせきの承認と差し戻し、中段に戻すモジュールの選択、
-走行の停止と続行、止まったモジュールのやり直しはできる。
+走行の停止と続行、止まったモジュールのやり直し、Auto と Manual の切り替えはできる。
 
 設定の詳細: [host/dashboard/README.md](../host/dashboard/README.md)
 

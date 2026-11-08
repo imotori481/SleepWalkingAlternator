@@ -3,7 +3,9 @@ setlocal
 REM ---------------------------------------------------------------
 REM  swa -- run the sandbox's `swa` command from the host.
 REM
-REM    swa go <spec.md> --mode <new|existing> [--language <lang>] [--framework <name>]
+REM    swa go <spec.md> --mode <new|existing> [--approval <manual|auto>]
+REM           [--language <lang>] [--framework <name>]
+REM    swa auto [manual|auto]
 REM    swa approve | reject "<comment>" | reopen <module>...
 REM    swa continue | status | log | stop | update
 REM    swa project <list|current|init|use|adopt> ...

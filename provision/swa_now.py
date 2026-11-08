@@ -133,6 +133,13 @@ def findings(logs: str) -> dict | None:
     return value if isinstance(value, dict) and isinstance(value.get("modes"), dict) else None
 
 
+def auto(logs: str) -> str:
+    """Auto/Manual。swa.py の auto set が human/in に置き、誰でも読める。無ければ Manual。"""
+    value = read(os.path.join(os.path.dirname(logs), "human", "in", "AUTO.json"), json.load)
+    mode = value.get("mode") if isinstance(value, dict) else None
+    return mode if mode in ("manual", "auto") else "manual"
+
+
 def head_branch(repo: str) -> str | None:
     """bare の HEAD が指すブランチ。HEAD は runner の所有だが、誰でも読める。"""
     value = read(os.path.join(repo, "HEAD"), lambda handle: handle.read().strip())
@@ -200,6 +207,7 @@ def main(argv: list[str]) -> int:
     print(json.dumps({"project": project, "running": running,
                       "now": read(os.path.join(logs, "now.json"), json.load),
                       "last": last, "loop": loop, "findings": findings(logs),
+                      "auto": auto(logs),
                       "projects": projects(logs, project),
                       "switch": switch(logs, moving == "true")},
                      ensure_ascii=False))

@@ -10,7 +10,7 @@ SWA_SUBAGENT_MODEL の行だけを読み書きする。
 シェルで読み込むので、書く値は使える文字を絞ってから書く。
 
 設計（段、基本設計、詳細設計、受け入れ条件、インターフェースチェック、批評、止まった
-理由、Unity の参照の古さ）は読むだけで返す。plan/、docs/、ac/ は runner だけが読めるので、root のここで読む。
+理由、Unity の参照の古さ、Auto が繰り返した回数）は読むだけで返す。plan/、docs/、ac/ は runner だけが読めるので、root のここで読む。
 
     python3 swa_dash.py request <作業ディレクトリ>   # 標準入力に要求の JSON
     python3 swa_dash.py settings <ディレクトリ>
@@ -163,13 +163,22 @@ def parse(request: object, work: str) -> list[str]:
         mode = request.get("mode")
         if mode not in swa.MODES:
             raise Refused(f"モードを選ぶ（{' か '.join(swa.MODES)}）: {mode!r}")
+        # Auto/Manual は省けば Manual。開始のあとも切り替えられる。
+        approval = request.get("approval", "manual")
+        if approval not in swa.AUTO_MODES:
+            raise Refused(f"Auto か Manual を選ぶ（{' か '.join(swa.AUTO_MODES)}）: {approval!r}")
         if not isinstance(text, str) or not text.strip():
             raise Refused("仕様書が空")
         if len(text) > MAX_SPEC:
             raise Refused(f"仕様書が長すぎる。{MAX_SPEC} 字まで")
         with open(os.path.join(work, "spec.md"), "w", encoding="utf-8") as handle:
             handle.write(text)
-        return ["go", language, framework, mode]
+        return ["go", language, framework, mode, approval]
+    if action == "auto":
+        approval = request.get("mode")
+        if approval not in swa.AUTO_MODES:
+            raise Refused(f"Auto か Manual を選ぶ（{' か '.join(swa.AUTO_MODES)}）: {approval!r}")
+        return ["auto", approval]
     if action == "reject":
         # コメントの本文も仕様書と同じく作業ディレクトリに書き、行には載せない。
         text = request.get("text")
@@ -274,7 +283,21 @@ def design(project: str) -> dict:
             "interface": read_json_file(os.path.join(plan, "INTERFACE.json")),
             "critique": read_json_file(os.path.join(plan, "CRITIQUE.json")),
             "failure": failure,
+            "auto": auto(project),
             "unity": unity(project, os.path.join(os.path.dirname(project), "unity-refs"))}
+
+
+def auto(project: str) -> dict:
+    """Auto/Manual と、Auto が繰り返した回数と上限。回数は台帳から数える。
+
+    Auto/Manual の置き場は作業ツリーの隣の human/in（/srv/swa/human/in）。
+    """
+    original = swa.HUMAN_AUTO
+    swa.HUMAN_AUTO = Path(project).parent / "human" / "in" / "AUTO.json"
+    try:
+        return swa.auto_state(swa.ledger_records(Path(project) / "plan" / "ledger.jsonl"))
+    finally:
+        swa.HUMAN_AUTO = original
 
 
 def set_model(directory: str, role: str, model: str, effort: str,

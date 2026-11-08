@@ -35,10 +35,13 @@
             <label><span>仕様書</span><textarea id="spec-text" class="spec" placeholder="ファイルを選ぶと、ここに読み込む。直してから開始する"></textarea></label>
             <div id="issue-comments" class="issue" hidden></div>
             <label><span>モード</span><select id="mode"><option value="">選ぶ</option><option value="new">新規</option><option value="existing">既存</option></select></label>
+            <label><span>Auto / Manual</span><select id="approval"><option value="manual">Manual（せきごとに人が承認する）</option><option value="auto">Auto（せきを自動で通す）</option></select></label>
             <label><span>言語</span><select id="language"></select></label>
             <label><span>持ち込む先</span><select id="framework"></select></label>
             <button id="start-run">開始（swa go）</button>
           </div>
+          <div class="actions"><span id="auto-state">Auto / Manual: —</span><button id="auto-toggle" class="quiet">切り替える（swa auto）</button></div>
+          <p class="why">Auto は基本設計と詳細設計のせきを人を待たずに通す。クリティックの指摘があれば詳細設計を2回まで書き直させ、残った指摘は台帳に残して進む。下流で止まったモジュールは2回まで中段に戻して書き直させ、3回目に止まったら人に渡す。最終確認は Auto でも人がする。走行の途中で切り替えると次のせきから効き、止まっているときに Auto にすると今のせきから続ける。</p>
           <div class="actions"><button id="continue-run" class="quiet">続ける（swa continue）</button><button id="stop-run" class="danger">停止（swa stop）</button></div>
           <p class="why">途中で切れたモジュールは、続ける前に最後のコミットまで戻す。そのモジュールのコミットしていない作業は消える。</p>
           <div class="actions"><select id="reset-step" aria-label="やり直すモジュール"></select><button id="reset-run" class="quiet">やり直す（swa raw reset）</button></div>

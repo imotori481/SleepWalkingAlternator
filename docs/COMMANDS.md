@@ -71,7 +71,8 @@ PowerShell なら `.\host\swa.cmd <args>`、Git Bash なら `./host/swa.cmd <arg
 | 止める | `swa stop` |
 | いまの作業を JSON で見る | `swa now` |
 
-モードは省けない。言語は `python`、`typescript`、`cpp`、`csharp` のどれかで、省くと `python`。
+モードは省けない。言語は `python`、`typescript`、`cpp`、`csharp`、`rust` のどれかで、省くと `python`。
+Rust の持ち込む先は `none`（既定。ライブラリのクレート）と `kernel`（QEMU の上の x86_64 のカーネル、新規のモードだけ）。
 モードと言語は最初の基本設計で決まり、後から変えられない。ホストで打つときは、`<spec>` に
 ホストのファイルのパスを1つだけそのまま渡せる。箱で打つときは複数渡せる。
 

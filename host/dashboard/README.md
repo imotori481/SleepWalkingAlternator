@@ -74,6 +74,7 @@ python host/dashboard/server.py --project C:\dev\roop-engin\project
 | プロジェクト | 一覧を見て切り替える | `swa project use` を一時ユニット `swa-switch` で | ローカル |
 | プロジェクト | 今のもの以外を、名前を打って確かめてから箱のディレクトリと走行ログごと消す。走行中と切り替え中は断る | `swa project remove` | ローカル |
 | Unity | 今のプロジェクトの Unity のフォルダを覚え、参照アセンブリを確かめて送る | ホストの `swa-unity-refs.ps1` と、`swa project unity-refs` | ローカル |
+| Rust | 箱に入っている Rust の版を出し、打った版を入れる。入れている間は終わるまで読み直し、出力の末尾を出す。走行中と切り替え中は断る | `38-rust.sh toolchain <版>`（`swa dash` の `rust-toolchain`） | ローカル |
 | 役のモデル | 役ごとに `SWA_MODEL` と `SWA_EFFORT` を、planner と solver では `SWA_SUBAGENT_MODEL` も変える | `/etc/swa/<役>.env` の行の書き換え | ローカル |
 | 走行 | 仕様書の欄の本文、モード、Auto/Manual、言語を選んで開始。モードを選ばないと開始しない。Auto/Manual の既定は Manual | `swa go` | ローカル |
 | 走行 | Auto と Manual を切り替える。走っている間も押せ、次のせきから効く。止まっているときに Auto にすると、上流か中段のせきにいればそこから続ける | `swa auto <manual\|auto>` | どこからでも |

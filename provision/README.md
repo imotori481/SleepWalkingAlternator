@@ -248,7 +248,7 @@ cd /tmp && sudo ADMIN_USER=<保守ユーザー> bash /opt/swa/provision/provisio
 pull したあとも同じ行を流す。
 
 `05-isolation.sh` が WSL 隔離（Windows パス非マウント、WSLg、systemd、NAT）を、
-`35-node.sh` が Node 側の凍結を、`36-dotnet.sh` が .NET 側の凍結を、`37-cpp.sh` が C++ のビルドを、`40-perms.sh` が solver 視点の権限モデルを、
+`35-node.sh` が Node 側の凍結を、`36-dotnet.sh` が .NET 側の凍結を、`37-cpp.sh` が C++ のビルドを、`38-rust.sh` が Rust のツールチェーンと QEMU を、`40-perms.sh` が solver 視点の権限モデルを、
 `45-agent-invoke.sh` が資格情報の柵を assert する。1つでも落ちたら異常終了する。
 `05-` を最初に走らせるのは、隔離が効いていないディストロには
 **プロビジョニングする意味が無い**（以降の全ステップが成功しつつ何も意味しなくなる）ため。
@@ -344,6 +344,36 @@ junit のレポートから読む。1件はアサーション、1件はスタブ
 
 ```bash
 sudo -u runner -H /srv/swa/bin/smoke-cpp
+```
+
+`38-rust.sh` は Rust のプロジェクトのためのツールチェーン、cargo-nextest、QEMU を用意する。
+
+| もの | 場所 | 持ち主 |
+|---|---|---|
+| rustup（apt）と、stable と日付で固定した nightly | `/opt/swa/rust/rustup`、`/opt/swa/rust/cargo/bin` | root、読むだけ |
+| cargo-nextest | `/opt/swa/rust/cargo/bin` | root、読むだけ |
+| 入っている版の一覧 | `/opt/swa/rust/toolchains.json` | root、読むだけ |
+| カーネルを BIOS のイメージにする swa-imager（`provision/rust-imager`、bootloader 0.11） | `/opt/swa/rust/imager` | root、読むだけ |
+| qemu-system-x86 | Ubuntu の archive | apt |
+| ビルドの出力、nextest の設定、イメージ | `/srv/swa/rust` | runner、700 |
+| プロジェクトごとのクレートのソース | `/srv/swa/rust-vendor/<プロジェクト>` | root、755 |
+| クレートを取りに行く入口 | `/usr/local/sbin/swa-fetch-crates` | root |
+
+- nightly には `rust-src`、`llvm-tools`、`x86_64-unknown-none` を入れる。カーネルを組むのに要る
+- どの版を使うかはリポジトリの `rust-toolchain.toml` が決める。新規のモードではランナーが書く。箱に無い版を求めるリポジトリは基本設計の前に止まる
+- 版を足すのは `sudo bash 38-rust.sh toolchain <版>` か、ダッシュボードの「Rust」タブ
+- 走行中はネットワークに出ない。クレートは基本設計の承認の後に1回だけ、root の `swa-fetch-crates` が `cargo vendor` で取りに行く。runner に許す sudo はこれ1つで、引数を取らない（sudoers `/etc/sudoers.d/swa-crates`）
+- `swa-fetch-crates` はクレートのディレクトリを一時の場所に写し、`.cargo`、シンボリックリンク、`.git`、成果物を落としてから流す。リポジトリの設定で root の cargo を差し替えられないようにするため
+- ビルドスクリプトと手続きマクロは、ビルドのときに runner として走る。ソルバーが書いたテストを runner で走らせるのと同じ扱い
+
+最後に `smoke-rust` と `smoke-qemu` を流す。`smoke-rust` はランナーと同じ形のクレートで3件走って2件落ちたことを
+nextest の junit から読む。1件はアサーション、1件はスタブの panic（`unimplemented!("__stub__")`）で落とす。
+`smoke-qemu` はテストのカーネルを組んでイメージにし、QEMU で1回1テストずつ起動して、シリアルの行と
+終了コード（通れば 33、落ちれば 35）を確かめる。カーネルのクレートを crates.io から取るので、provision のうちに root で流す。
+
+```bash
+sudo -u runner -H /srv/swa/bin/smoke-rust
+sudo /srv/swa/bin/smoke-qemu
 ```
 
 Unity の参照アセンブリを置いたプロジェクト（ホストの `swa-unity-refs`）では、`probe-unity` で
@@ -1019,6 +1049,7 @@ VirtualBox 構成の手順は `c4374f4` から拾える。
 
 ## 更新履歴
 
+- 2026/11/08: `38-rust.sh` と Rust のツールチェーン、QEMU、クレートを取りに行く入口を追加
 - 2026/10/24: `swa dash` に `unity-refs` を追加
 - 2026/10/24: `unity-refs/` に `fingerprint.txt` を追加
 - 2026/10/20: `swa go` に `--mode` を追加し、planner の ACL を `src/` からリポジトリに変更

@@ -506,6 +506,66 @@ Manual なら `manual` を出し、`work` は今までどおり止まる。止�
 
 Auto が置くコメントは、人の差し戻しと同じ `human/in/COMMENT.md` に置く。
 
+### 3-7. Rust
+
+Rust の計画は、ライブラリのクレートを cargo-nextest の結合テストで確かめる。
+
+| もの | 決まり |
+|---|---|
+| クレートの置き場 | コードの柵の親（`src` なら根）。テストの柵はその隣の `tests` でなければ、`basic draft` が拒む |
+| モジュール | `src/` の下の `.rs` 1つ。パスは snake_case で、`lib`、`main`、`mod`、`bin/` の下は使えない |
+| テストのファイル | `tests/` の直下の `.rs` 1つが1つのテストのバイナリ。単体は `<パス>.rs`、統合は `<パス>_integration.rs`（kernel では `<パス>_qemu.rs`）。パスの `/` は `_` |
+| 契約 | 型（`pub struct Board { ... }`）、メソッド（`pub fn Board::score(&self) -> u32`）、自由関数、`const` / `static` |
+| スタブ | ソルバーが書く。関数とメソッドの本体は `unimplemented!("__stub__")` だけ |
+| テストのコマンド | `cargo nextest run --offline --locked --profile swa --test <バイナリ>...`。junit は作業ツリーの外 |
+
+失敗の種類は junit の panic の文から読む（`rust_failure_kind`）。
+
+| panic | 種類 | 赤 |
+|---|---|---|
+| `not implemented: __stub__` | `StubNotImplemented` | はい |
+| `assertion ... failed`、テストのファイルで起きたほかの panic | `AssertionFailure` | はい |
+| `index out of bounds`、`Option::unwrap()` / `Result::unwrap()` | `IndexOutOfBounds`、`UnwrapNone`、`UnwrapErr` | いいえ。テストの書き手が直せる |
+| コードの側で起きたほかの panic | `Panic` | いいえ |
+
+コンパイルの失敗は rustc の `error[...]` と `-->` の行から、落ちたファイルを読む。
+
+ランナーが書くもの。どれもソルバーの書き込みとしては数えない（`rust_runner_owned`）。
+
+- クレートの根 `src/lib.rs` と各ディレクトリの `mod.rs`（または隣の `<名前>.rs`）の `pub mod` の行。`// swa:mods begin` と `// swa:mods end` の区画の中だけを書き、区画の外にすでにある `mod` の行は書かない。テストを走らせる前と、ソルバーの位相の後に、柵の中のファイルから書き直す
+- 新規のモードの `Cargo.toml` と `rust-toolchain.toml`。`Cargo.toml` の依存は基本設計の `## 使うクレート` から書く。既存のモードでは、リポジトリの `Cargo.toml` の `[dependencies]` に無いクレートだけを書き足す
+- kernel の `tests/swa_qemu/mod.rs`
+
+クレートは `basic approve` の後に `crates fetch` で1回だけ取りに行く。ランナーが `Cargo.toml` を書き、
+root の `swa-fetch-crates` が `cargo vendor` で `/srv/swa/rust-vendor/<プロジェクト>` に置き、`Cargo.lock` を
+書き戻す。ランナーはそれをコミットする。その後のビルドとテストは `--offline --locked` で、
+ソースの置き換え（`source.crates-io.replace-with`）でその置き場だけを見る。`Cargo.lock` が無いまま
+テストを走らせようとすると、設計を差し戻さずに止まる（終了コード 7）。
+
+既存のモードでは、リポジトリの `rust-toolchain.toml`（か `rust-toolchain`）が名指す版が箱に無ければ、
+`basic draft` が拒む。`[package]` の無い `Cargo.toml`（複数のクレートのワークスペース）も拒む。
+
+#### 持ち込む先 kernel
+
+QEMU の上で起動する x86_64 のカーネル。新規のモードだけ。ツールチェーンは nightly で、
+`rust-toolchain.toml` に `rust-src`、`llvm-tools`、`x86_64-unknown-none` を書く。`Cargo.toml` には
+`bootloader_api` 0.11、`x86_64` 0.15、`uart_16550` 0.3、QEMU のテストごとの `harness = false` の
+`[[test]]`、`panic = "abort"` を足す。クレートの根は `#![cfg_attr(not(test), no_std)]` で始める。
+
+受け入れ条件の `kind` でテストの層が決まる。
+
+| kind | ファイル | 走らせ方 |
+|---|---|---|
+| `unit` | `tests/<パス>.rs` | ホストで nextest |
+| `integration` | `tests/<パス>_qemu.rs` | `x86_64-unknown-none` でカーネルとして組み、swa-imager で BIOS のイメージにし、QEMU で起動する |
+
+QEMU のテストは1回の起動で1つだけ走らせる。panic は巻き戻せず、1つが落ちると後のテストが判定を出せない。
+どのテストかは QEMU の `-fw_cfg name=opt/swa/test,string=<番号>` で渡し、`list` なら名前を並べて抜ける。
+ランナーが書く `tests/swa_qemu/mod.rs` が、COM1 に `swa-test <名前> ok` か
+`swa-test <名前> failed at <ファイル>:<行>:<桁>: <panic の文>` を書き、`isa-debug-exit`（`iobase=0xf4`）で抜ける。
+QEMU の終了コードは、通れば 33、落ちれば 35。1回の起動は 60 秒で打ち切り、判定の無い起動はエラーにする。
+結果は nextest と同じ形の testsuite にし、ホストのテストの junit と合わせて読む。
+
 ## 4. 関門の判定条件
 
 判定はすべて機械可読な事実に基づく。下流に人間の判断は入らない。
@@ -956,6 +1016,7 @@ ac/
   モジュールの設計と競合する
 - 各ファイルの本文（見出しを除く）が日本語で書かれている
 - 既存のモードでは、`## 現状の構成`、`## 変更の範囲`、`## 守る規約`、`## コードから決めたこと` の節もちょうど1つずつある
+- Rust では、`## 使うクレート` の節を置ける（§3-7）。置くなら1つで、中に ` ```toml crates ` のブロックが1つある
 
 | 節 | 中身 |
 |---|---|
@@ -1194,6 +1255,7 @@ reopen <モジュール>... [--by <human|auto>]
 auto set <manual|auto>          # §3-6
 auto show                       # Auto/Manual と、Auto が繰り返した回数を JSON で
 auto advance                    # せきで、次に流す走行の名前を最後の行に出す
+crates fetch                    # Rust: 基本設計のクレートを取りに行き、Cargo.lock をコミットする（§3-7）
 check                           # 今の設計を検査する。誰も呼ばない
 status                          # 段とモジュールごとの状態
 run <モジュール>                # 1モジュール
@@ -1283,6 +1345,7 @@ reset <モジュール>              # 止まったモジュールを捨て、�
 
 ## 更新履歴
 
+- 2026/11/08: §3-7 に Rust と持ち込む先 kernel を追加。§6-2 に `## 使うクレート`、§8 に `crates fetch` を追加
 - 2026/11/08: §3-6 に Auto/Manual を追加。段のコマンドに `--by`、§8 に `auto` を追加
 - 2026/10/24: §7-3 に Unity の参照の指紋による古さの判定と、`run --all` と `status` での確認を追加
 - 2026/10/21: §3-3 に既存のモードで仕様書が書いていない部分をプランナーがコードから決めることを、§6-2 に `## コードから決めたこと` の節を追加

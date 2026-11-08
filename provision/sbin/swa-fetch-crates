@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# 今のプロジェクトの Rust のクレートを取りに行く。root で動く。
+#
+#     sudo -n /usr/local/sbin/swa-fetch-crates
+#
+# runner の `crates fetch`（runner/swa.py）が、基本設計の承認の後に呼ぶ。sudoers は
+# runner にこれを引数無しでだけ許す（38-rust.sh）。どのプロジェクトかは箱のファイルから
+# 決め、呼んだ側の言うことは何も使わない。中身は provision/swa_crates.py。
+set -euo pipefail
+cd /tmp
+[ "$(id -u)" -eq 0 ] || { echo "swa-fetch-crates: root で流す" >&2; exit 1; }
+[ $# -eq 0 ] || { echo "swa-fetch-crates: 引数は取らない" >&2; exit 1; }
+[ "${SUDO_USER:-}" = runner ] || { echo "swa-fetch-crates: runner が sudo で流す" >&2; exit 1; }
+ENGINE=/opt/swa
+SWA=/srv/swa
+name="$(cat "$SWA/projects/CURRENT" 2>/dev/null || true)"
+exec python3 -I "$ENGINE/provision/swa_crates.py" fetch "$SWA/project" "$SWA/rust-vendor" \
+  "${name:-default}"

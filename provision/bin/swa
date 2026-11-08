@@ -159,6 +159,8 @@ work() {
         gate "基本設計を書き直した。'swa approve' か 'swa reject <コメント>'" ;;
       approve-basic)
         call "基本設計の承認" basic approve --by "$by"
+        # Rust なら、基本設計のクレートをここで1回だけ取りに行く。ほかの言語では何もしない。
+        call "クレートの取得" crates fetch
         call "詳細設計" modules draft --by "$by"
         gate "$MIDSTREAM_GATE" ;;
       redraft-modules)
@@ -530,6 +532,7 @@ usage() {
      [--framework <持ち込む先>]
                     仕様書を置き、プランナーに基本設計を書かせる。モードは new（新しい
                     コードを作る）か existing（既存のコードに手を入れる）で、省けない。
+                    言語は python、typescript、csharp、cpp、rust
                     --approval を省くと manual。持ち込む先を省くと言語の既定になる
   auto [manual|auto]
                     Auto/Manual を切り替える。Auto は上流と中段のせきと下流の失敗を

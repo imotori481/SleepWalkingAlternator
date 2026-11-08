@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Rust のテストがビルドされ、走り、junit のレポートを出すか。
+#
+#     sudo -u runner -H /srv/swa/bin/smoke-rust
+#
+# 38-rust.sh がプロビジョニングのたびに流す。ランナーと同じ形（ライブラリのクレートと
+# tests/ の結合テスト、nextest の swa の profile、作業ツリーの外の成果物）で、通るテスト、
+# アサーションで落ちるテスト、スタブの panic で落ちるテストを1つずつ置く。3件走って
+# 2件落ちることを確かめ、落ちたテストの panic の文をそのまま出す。ランナーは失敗の
+# 種類をそこから読む（rust_failure_kind）ので、Rust か nextest の版を変えたときに形が
+# 変わっていないかをここで見る。ネットワークには出ない。
+set -euo pipefail
+export LC_ALL=C LANG=C RUST_BACKTRACE=0 CARGO_TERM_COLOR=never CARGO_NET_OFFLINE=true
+export RUSTUP_HOME=/opt/swa/rust/rustup
+export PATH="/opt/swa/rust/cargo/bin:/usr/bin:/bin"
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+export CARGO_HOME="$WORK/cargo-home" CARGO_TARGET_DIR="$WORK/target"
+mkdir -p "$WORK/crate/src/calc" "$WORK/crate/tests"
+stable="$(python3 -c 'import json; print(json.load(open("/opt/swa/rust/toolchains.json"))["stable"])')"
+
+cat > "$WORK/crate/Cargo.toml" <<TOML
+[package]
+name = "smoke"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+TOML
+printf '[toolchain]\nchannel = "%s"\n' "$stable" > "$WORK/crate/rust-toolchain.toml"
+printf 'pub mod calc;\n' > "$WORK/crate/src/lib.rs"
+printf 'pub mod ops;\n' > "$WORK/crate/src/calc/mod.rs"
+cat > "$WORK/crate/src/calc/ops.rs" <<'RS'
+pub fn add(a: u32, b: u32) -> u32 { a + b }
+pub fn unwritten() -> u32 { unimplemented!("__stub__") }
+RS
+cat > "$WORK/crate/tests/calc_ops.rs" <<'RS'
+use smoke::calc::ops::{add, unwritten};
+#[test] fn adds_two_numbers() { assert_eq!(5, add(2, 3)); }
+#[test] fn fails_on_purpose() { assert_eq!(6, add(2, 3)); }
+#[test] fn hits_the_stub() { assert_eq!(1, unwritten()); }
+RS
+cat > "$WORK/nextest.toml" <<TOML
+[store]
+dir = "$WORK/target/nextest"
+
+[profile.swa]
+fail-fast = false
+retries = 0
+
+[profile.swa.junit]
+path = "junit.xml"
+store-failure-output = true
+TOML
+
+cd "$WORK/crate"
+cargo generate-lockfile --offline -q
+set +e
+cargo nextest run --manifest-path Cargo.toml --offline --locked --profile swa \
+  --config-file "$WORK/nextest.toml" --test calc_ops >"$WORK/out.txt" 2>&1
+set -e
+report="$WORK/target/nextest/swa/junit.xml"
+if [ ! -s "$report" ]; then
+  echo "smoke-rust: no junit report" >&2
+  tail -n 30 "$WORK/out.txt" >&2
+  exit 1
+fi
+python3 - "$report" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+cases = list(root.iter("testcase"))
+failed = [c for c in cases if c.find("failure") is not None]
+print(f"smoke-rust: {len(cases)} ran, {len(failed)} failed")
+for case in failed:
+    text = case.find("failure").text or ""
+    said = text.split("panicked at", 1)[-1].split("\n", 2)[1:2]
+    print(f"  {case.get('name')}: {said[0] if said else text[:80]!r}")
+if len(cases) != 3 or len(failed) != 2:
+    sys.exit("smoke-rust: expected 3 run and 2 failed")
+if not any("not implemented: __stub__" in (c.find("failure").text or "") for c in failed):
+    sys.exit("smoke-rust: the stub's panic was not reported as 'not implemented: __stub__'")
+PY
+echo "smoke-rust: ok ($(cargo nextest --version | head -n 1))"
